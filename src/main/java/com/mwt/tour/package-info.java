@@ -3,4 +3,4 @@
  *
  * <p>유즈케이스: MWT-UC4, MWT-UC5, MWT-UC6, MWT-UC8. 클래스 구성은 설계산출물 v0.4 4.4절 "tour 패키지 클래스도"를 따른다.
  */
-package kr.ac.uos.mwt.tour;
+package com.mwt.tour;

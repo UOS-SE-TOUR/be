@@ -3,4 +3,4 @@
  *
  * <p>유즈케이스: MWT-UC3, MWT-UC4, MWT-UC5, MWT-UC6, MWT-UC7. 클래스 구성은 설계산출물 v0.4 4.5절 "booking 패키지 클래스도"를 따른다.
  */
-package kr.ac.uos.mwt.booking;
+package com.mwt.booking;

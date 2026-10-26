@@ -3,4 +3,4 @@
  *
  * <p>유즈케이스: MWT-UC1, MWT-UC2, MWT-UC10. 클래스 구성은 설계산출물 v0.4 4.2절 "member 패키지 클래스도"를 따른다.
  */
-package kr.ac.uos.mwt.member;
+package com.mwt.member;

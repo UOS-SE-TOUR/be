@@ -1,4 +1,4 @@
-package kr.ac.uos.mwt;
+package com.mwt;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
