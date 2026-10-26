@@ -11,7 +11,7 @@ docker compose up -d   # 로컬 MySQL 8.4를 띄운다 (DB 이름 mwt, 계정 mw
 ./gradlew bootRun      # http://localhost:8080
 ```
 
-테스트는 메모리 DB(H2)로 돌기 때문에 MySQL 없이도 됩니다.
+테스트는 Testcontainers로 MySQL 8.4 컨테이너를 따로 띄워서 돕니다. 위의 로컬 MySQL은 필요 없고 Docker만 켜져 있으면 됩니다. Docker가 꺼져 있으면 DB가 필요한 테스트는 건너뛰고(skipped), CI에서는 항상 돕니다.
 
 ```bash
 ./gradlew test
@@ -24,7 +24,6 @@ docker compose up -d   # 로컬 MySQL 8.4를 띄운다 (DB 이름 mwt, 계정 mw
 | `DB_URL` | `jdbc:mysql://localhost:3306/mwt` | MySQL 주소 |
 | `DB_USERNAME` | `mwt` | MySQL 계정 |
 | `DB_PASSWORD` | `mwt` | MySQL 비밀번호 |
-| `JPA_DDL_AUTO` | `update` | 테이블을 엔티티에 맞춰 고칠지(`update`), 확인만 할지(`validate`) |
 
 모듈을 만들면서 직원 코드(member), JWT 비밀 키(common.security), OpenAI API 키(voice), NCP SENS 키(notification)를 더합니다. 이런 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다. 내 컴퓨터에서만 쓰는 `.env`와 `application-local.yml`은 `.gitignore`에 들어 있어 커밋되지 않습니다.
 
@@ -52,6 +51,17 @@ docker compose up -d   # 로컬 MySQL 8.4를 띄운다 (DB 이름 mwt, 계정 mw
 
 - 다른 모듈의 기능은 그 모듈이 공개한 Service나 인터페이스로만 부릅니다. 다른 모듈의 Repository는 직접 부르지 않습니다.
 - 다른 모듈 엔티티의 상태를 바꾸는 일은 그 모듈의 Service를 거칩니다. 열거형(Theme, TourLevel)은 그대로 써도 됩니다.
+
+## 코드 규칙
+
+- **DB 테이블은 Flyway로만 바꿉니다.** 엔티티를 추가하거나 고치면 `src/main/resources/db/migration/`에 SQL 파일을 하나 더합니다. 파일 이름은 `V<번호>__<설명>.sql`(예: `V1__create_member.sql`)이고, 이미 머지된 파일은 고치지 않고 새 번호로 더합니다. JPA는 `ddl-auto: validate`라 엔티티와 테이블이 안 맞으면 서버가 뜨지 않습니다.
+- **마이그레이션 번호는 머지 직전에 맞춥니다.** 다른 PR이 같은 번호를 먼저 머지했으면 main의 마지막 번호 다음으로 바꿉니다.
+- **Lombok은 이것만 씁니다:** `@Getter`, `@NoArgsConstructor(access = AccessLevel.PROTECTED)`(엔티티), `@RequiredArgsConstructor`(의존성 주입), `@Slf4j`, 필요하면 `@Builder`. 엔티티에 `@Setter`·`@Data`는 쓰지 않습니다. 상태는 `Tour.addApplicants()`처럼 의미 있는 메소드로만 바꿉니다.
+- **요청·응답 DTO는 `record`로** 씁니다.
+
+## 배포
+
+서버 한 대(Lightsail)에서 Docker Compose로 띄웁니다. Caddy(HTTPS 인증서 자동 발급, `/api` 요청을 서버로 전달), 이 서버, MySQL 세 컨테이너입니다. 배포 설정은 첫 기능을 만든 뒤 따로 PR로 올립니다.
 
 ## 작업 규칙
 

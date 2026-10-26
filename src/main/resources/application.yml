@@ -7,5 +7,5 @@ spring:
     password: ${DB_PASSWORD:mwt}
   jpa:
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO:update}
+      ddl-auto: validate   # 테이블은 Flyway(db/migration)가 만들고, JPA는 엔티티와 맞는지 확인만 한다
     open-in-view: false
