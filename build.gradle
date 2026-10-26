@@ -41,4 +41,7 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	testLogging {
+		events 'passed', 'skipped', 'failed'   // CI 로그에서 DB 테스트가 돌았는지(건너뛰었는지) 보이게
+	}
 }
