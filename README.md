@@ -49,6 +49,6 @@ docker compose up -d   # 로컬 MySQL 8.4를 띄운다 (DB 이름 mwt, 계정 mw
 
 ## 작업 규칙
 
-- main에 직접 push하지 않고, 브랜치를 만들어 PR로 올립니다. 무료 조직 플랜이라 비공개 레포에는 브랜치 보호를 걸 수 없어서 약속으로 지킵니다.
+- main이 깨지지 않도록 모두 브랜치를 만들어 PR로만 올립니다. 무료 조직 플랜이라 GitHub이 비공개 레포의 main 직접 push를 막아 주지 않으니 서로 지킵니다.
 - PR은 CI(`./gradlew build`)가 통과한 뒤 "Squash and merge"로 머지합니다.
 - API 키와 비밀번호는 커밋하지 않습니다.
