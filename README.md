@@ -61,7 +61,7 @@ docker compose up -d   # 로컬 MySQL 8.4를 띄운다 (DB 이름 mwt, 계정 mw
 
 ## 배포
 
-서버 한 대(Lightsail)에서 Docker Compose로 띄웁니다. Caddy(HTTPS 인증서 자동 발급, `/api` 요청을 서버로 전달), 이 서버, MySQL 세 컨테이너입니다. 배포 설정은 첫 기능을 만든 뒤 따로 PR로 올립니다.
+서버 한 대(Lightsail)에서 Docker Compose로 띄웁니다. Nginx(HTTPS 처리, `/api` 요청을 서버로 전달), 이 서버, MySQL 세 컨테이너입니다. HTTPS 인증서는 Certbot으로 Let's Encrypt에서 받고 갱신합니다. 배포 설정은 첫 기능을 만든 뒤 따로 PR로 올립니다.
 
 ## 작업 규칙
 
