@@ -543,7 +543,7 @@ pgrep -fl "IntelliJ IDEA.*\.app/Contents/MacOS/idea"
 ### 3. 워크트리 제거
 
 **먼저 `remove` 가 함께 지울 무시 대상 파일을 본다.** `remove` 는 추적 안 된 파일이 있으면 거부하지만
-`.gitignore` 대상은 묻지 않고 디렉터리째 지운다. 이 레포의 무시 대상에는 비밀 값 파일(`.env`·`application-local.yml`)
+`.gitignore` 대상은 묻지 않고 디렉터리째 지운다. 이 레포의 무시 대상에는 비밀 값 파일(`.env`·`application-local.*`)
 처럼 다른 곳에 없을 수 있는 것이 들어 있다(climpick-ai 사본에서 limbing-aos 사본을 거쳐 옮겨 온 확인이다 —
 limbing-ios 사본에는 없다, 그쪽 무시 대상은 빌드 산출물뿐이다):
 

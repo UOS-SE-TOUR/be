@@ -897,14 +897,22 @@ for want in scratchpad/x .claude/worktrees/x .claude/settings.local.json; do
     bad "ignored: 레포 .gitignore 가 스킬이 쓰는 자리를 무시한다" "$want 가 무시되지 않는다 — 레포 .gitignore 에 줄을 더한다"
   fi
 done
-mkdir -p "$IG/.gradle/9.1.0" "$IG/build/reports" "$IG/out/production" "$IG/bin/main" "$IG/.idea" "$IG/.claude" \
-  "$IG/src/main/java"
-touch "$IG/.gradle/9.1.0/x.lock" "$IG/build/reports/r" "$IG/out/production/o" "$IG/bin/main/b" \
+mkdir -p "$IG/.gradle/9.1.0" "$IG/build/reports" "$IG/.idea" "$IG/.claude" "$IG/src/main/java"
+touch "$IG/.gradle/9.1.0/x.lock" "$IG/build/reports/r" \
   "$IG/.idea/workspace.xml" "$IG/be.iml" "$IG/.DS_Store" "$IG/.claude/settings.local.json"
 run "$R" "$S/ignored-check.sh" "$IG"
 check "ignored: 게이트·IntelliJ IDEA·하네스가 만드는 자리뿐" CLEAN
+# 최상위 out/·bin/ 은 게이트가 만드는 자리가 아니고, .gitignore 에 걸려 사람이 둔 스크립트가 숨을 수 있다 — 사람이 본다
+# (be PR #2 리뷰).
+mkdir -p "$IG/out/production" "$IG/bin"
+touch "$IG/out/production/o" "$IG/bin/deploy-helper.sh"
+run "$R" "$S/ignored-check.sh" "$IG"
+check "ignored: 최상위 out·bin" KEEP
+has "ignored: 최상위 out 줄" "keep out/"
+has "ignored: 최상위 bin 줄" "keep bin/"
+rm -rf "$IG/out" "$IG/bin"
 # 비밀 값 파일은 다른 곳에 없을 수 있다 — remove 가 묻지 않고 지우므로 사람이 본다(CLAUDE.md 코딩 규칙의 .env·
-# application-local.yml). .env.* 변형도, 어느 깊이의 application-local.yml 도 그렇다.
+# application-local.*). .env.* 변형도, 어느 깊이의 application-local.yml 도 그렇다.
 printf 'JWT_SECRET=x\n' > "$IG/.env"
 run "$R" "$S/ignored-check.sh" "$IG"
 check "ignored: .env" KEEP
@@ -950,6 +958,12 @@ touch "$IG/.idea/inspectionProfiles/Project_Default.xml"
 run "$R" "$S/ignored-check.sh" "$IG"
 check "ignored: 검사 프로필이 든 .idea" KEEP
 rm -rf "$IG/.idea/inspectionProfiles"
+# IntelliJ HTTP Client 가 자동으로 쌓는 요청 기록은 로컬 상태다 — 이것만 있으면 지워도 된다(be PR #2 리뷰).
+mkdir -p "$IG/.idea/httpRequests"
+touch "$IG/.idea/httpRequests/http-requests-log.http"
+run "$R" "$S/ignored-check.sh" "$IG"
+check "ignored: HTTP 요청 기록만 든 .idea" CLEAN
+rm -rf "$IG/.idea/httpRequests"
 run "$R" "$S/ignored-check.sh" "$IG"
 check "ignored: 남긴 폴더를 치운 .idea 는 다시 CLEAN" CLEAN
 # scratchpad 를 펼친 목록도 20개에서 끊는다.

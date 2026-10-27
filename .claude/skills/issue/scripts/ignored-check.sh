@@ -1,7 +1,7 @@
 #!/bin/bash
 # git worktree remove 가 함께 지울 무시 대상 파일 중 다시 만들 수 없는 것을 찾는다. 아무것도 지우지 않는다.
 # remove 는 추적 안 된 파일이 있으면 거부하지만 .gitignore 대상은 묻지 않고 디렉터리째 지운다. 이 레포의
-# 무시 대상에는 비밀 값 파일(.env·.env.*·application-local.yml — CLAUDE.md 코딩 규칙)처럼 다른 곳에 없을 수 있는 것이
+# 무시 대상에는 비밀 값 파일(.env·.env.*·application-local.* — CLAUDE.md 코딩 규칙)처럼 다른 곳에 없을 수 있는 것이
 # 들어 있다.
 # limbing-aos 사본에서 옮겨 와 이 레포에 맞췄다(그쪽은 climpick-ai 사본에서 옮겨 와 임시 파일을 디렉터리 하나에 모으고
 # scratchpad 안쪽 목록도 20개에서 끊게 했다). 바뀐 것은 regenerable() 과 그 도우미다 — limbing-aos 의 local.properties
@@ -23,21 +23,23 @@
 #
 # 다시 만들 수 있는 것으로 치는 것은 /issue 3단계 게이트와 IDE·하네스가 만드는 자리뿐이다:
 #   - 최상위 .gradle·build 디렉터리(Gradle 게이트가 만든다)
-#   - 최상위 out·bin 디렉터리(IDE 가 컴파일 결과를 둔다 — out 은 IntelliJ IDEA, bin 은 Eclipse·VS Code(Java 확장).
-#     다시 빌드하면 생긴다)
 #   - .claude/settings.local.json 파일(하네스가 그 워크트리에서 받은 허용 설정을 적는다 — 잃어도 다시 묻는다)
 #   - 최상위 .idea 디렉터리와 최상위 *.iml 파일(개발자가 PR 의 코드를 보려고 워크트리를 IntelliJ IDEA 로 열면 생긴다 —
 #     IDEA 가 다시 만든다). 다만 .idea 안에 팀이 남기려고 만드는 폴더(runConfigurations·inspectionProfiles·
 #     dictionaries·scopes·fileTemplates·codeStyles — 프로젝트 파일로 저장한 실행 구성·설정)나 사람이 만든 작업이
-#     남는 폴더(shelf — Shelve Changes 로 치워 둔 변경, httpRequests·dataSources)가 하나라도 있으면 사람이 본다.
-#     workspace.xml 등 나머지는 IDE 가 사용자마다 따로 두는 로컬 상태다. codeStyles 는 limbing-aos 사본에서는
+#     남는 폴더(shelf — Shelve Changes 로 치워 둔 변경, dataSources)가 하나라도 있으면 사람이 본다.
+#     workspace.xml 등 나머지는 IDE 가 사용자마다 따로 두는 로컬 상태다. httpRequests 는 IntelliJ HTTP Client 가 요청을
+#     한 번만 돌려도 기록(http-requests-log)을 자동으로 쌓는 자리라 로컬 상태로 친다 — 서버 레포에서는 거의 늘 생겨서,
+#     사람이 보게 하면 머지 정리가 매번 멈춘다(be PR #2 리뷰). codeStyles 는 limbing-aos 사본에서는
 #     다시 만들 수 있는 것으로 쳤다(gradle.properties 의 kotlin.code.style=official 을 보고 Android Studio 가 스스로
 #     만든다 — aos 실측). 이 레포에는 그런 설정이 없어 사람이 프로젝트 코드 스타일을 바꿨을 때만 생기므로 사람이 본다
 #   - .DS_Store 파일(링크·디렉터리 제외 — orphan-check.sh 와 같다)
 #   - 빈 디렉터리(하네스가 워크트리 안에 빈 .claude/worktrees/ 를 만든다 — climpick-ai 에서 실측)
-# 비밀 값 파일(.env·.env.*·application-local.yml)은 위 목록에 없으니 늘 KEEP 으로 나온다. .gitignore 에 있는 그 밖의
+# 비밀 값 파일(.env·.env.*·application-local.*)은 위 목록에 없으니 늘 KEEP 으로 나온다. .gitignore 에 있는 그 밖의
 # IDE 파일(.vscode/·.settings·.classpath·.project·*.iws·*.ipr 등)과 HELP.md 도 사람이 만든 설정·메모가 들었을 수
-# 있어 사람이 본다.
+# 있어 사람이 본다. 최상위 out/·bin/ 도 사람이 본다 — IDE 가 컴파일 결과를 두는 자리(out 은 IntelliJ IDEA, bin 은
+# Eclipse·VS Code)지만 /issue 게이트가 만드는 자리가 아니고, .gitignore 에 걸려 사람이 둔 스크립트·메모가 추적 밖에
+# 숨을 수 있다(be PR #2 리뷰).
 # 이름만으로 넘기지 않는다. 같은 이름이 다른 자리에 있으면 사람이 만든 것일 수 있다 — 깊은 곳의 build/·out/·bin/
 # (.gitignore 가 어느 깊이든 무시한다), 최상위가 아닌 *.iml, scratchpad/ 에 남긴 메모(ai #31 리뷰에서 실측). 최상위
 # scratchpad/ 는 한 줄로만 나오므로 안을 들여다보고 하나씩 가린다(5단계가 거기 둔 PR 본문 파일은 다 쓰면 지우므로,
@@ -94,8 +96,7 @@ plain_dir() { [ -d "$1" ] && [ ! -L "$1" ]; }
 # .idea 안에 사람이 남기려고 만드는 폴더가 없으면 참.
 ide_local_only() {
   local kept
-  for kept in runConfigurations inspectionProfiles dictionaries scopes fileTemplates codeStyles shelf httpRequests \
-    dataSources; do
+  for kept in runConfigurations inspectionProfiles dictionaries scopes fileTemplates codeStyles shelf dataSources; do
     if [ -e "$1/$kept" ] || [ -L "$1/$kept" ]; then return 1; fi
   done
   return 0
@@ -112,7 +113,7 @@ regenerable() {
       ;;
   esac
   case "$q" in
-    .gradle | build | out | bin)
+    .gradle | build)
       plain_dir "$q"
       return
       ;;
