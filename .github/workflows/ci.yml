@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,4 +18,7 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
+      # DB 테스트는 Docker가 없으면 건너뛰도록 되어 있어서, CI에서는 Docker가 있는지 먼저 확인해 조용히 건너뛰는 일을 막는다
+      - name: Docker 확인
+        run: docker info
       - run: ./gradlew build

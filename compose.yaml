@@ -8,7 +8,7 @@ services:
       MYSQL_PASSWORD: mwt
       MYSQL_ROOT_PASSWORD: root
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"   # 내 컴퓨터에서만 접속(같은 와이파이의 다른 사람은 못 붙게)
     volumes:
       - mysql-data:/var/lib/mysql
 
