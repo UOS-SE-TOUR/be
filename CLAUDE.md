@@ -16,7 +16,7 @@
 
 ## 코딩 규칙
 
-- 주석·문서는 한국어로 쓴다.
+- 주석·문서는 한국어로 쓰고, 주석은 최소화한다 — 코드를 읽으면 알 수 있는 건 안 쓴다.
 - Lombok은 `@Getter`·`@NoArgsConstructor(access = AccessLevel.PROTECTED)`·`@RequiredArgsConstructor`·`@Slf4j`·`@Builder`만 쓴다. `@Builder`는 클래스가 아니라 생성자에 붙인다. 엔티티에 `@Setter`·`@Data` 금지.
 - 요청·응답 DTO는 `record`로 쓴다.
 - DB 스키마는 Flyway(`src/main/resources/db/migration/V<번호>__<설명>.sql`)로만 바꾼다. 머지된 마이그레이션은 고치지 않고 새 번호로 더한다(`ddl-auto: validate`).
