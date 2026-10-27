@@ -27,3 +27,11 @@ jobs:
       - name: Docker 확인
         run: docker info
       - run: ./gradlew build
+      # CI에서는 건너뛴 테스트를 허용하지 않는다. Testcontainers가 Docker에 붙지 못하면 DB 테스트가 실패하지 않고 건너뛰어서,
+      # docker info가 통과해도 빌드만 초록불이 될 수 있다
+      - name: 건너뛴 테스트 확인
+        run: |
+          if grep -l 'skipped="[1-9]' build/test-results/test/*.xml; then
+            echo "위 테스트 결과에 건너뛴 테스트가 있다 — Testcontainers가 Docker를 찾았는지 확인한다"
+            exit 1
+          fi
