@@ -29,8 +29,8 @@ docker compose up -d --wait   # 로컬 MySQL 8.4를 띄우고 접속 준비가 �
 
 내 컴퓨터에서 값을 바꿀 때는 둘 중 하나를 씁니다. 둘 다 `.gitignore`에 들어 있어 커밋되지 않습니다.
 
-- **`.env`:** 레포 맨 위에 `DB_PASSWORD=...`처럼 한 줄에 하나씩 적으면 서버가 뜰 때 읽습니다(`application.yml`의 `spring.config.import`).
-- **`application-local.yml`:** `src/main/resources/`에 두고 `SPRING_PROFILES_ACTIVE=local ./gradlew bootRun`처럼 local 프로필을 켜야 읽습니다. `.yaml`·`.properties`로 만들어도 커밋되지 않습니다.
+- **`.env`:** 레포 맨 위에 `DB_PASSWORD=secret`처럼 한 줄에 하나씩 적으면 서버가 뜰 때 읽습니다(`application.yml`의 `spring.config.import`). 따옴표나 `export` 없이 `이름=값`으로만 씁니다 — Java properties 문법으로 읽어서 따옴표도 값에 들어갑니다. `DB_USERNAME`·`DB_PASSWORD`는 `docker compose`도 같은 파일에서 읽어 MySQL 계정을 만듭니다. 다만 MySQL은 데이터 볼륨을 처음 만들 때만 이 값을 쓰므로, 바꾼 뒤에는 `docker compose down -v`로 볼륨을 지우고 다시 띄웁니다.
+- **`application-local.yml`:** 레포 맨 위에 두고 `SPRING_PROFILES_ACTIVE=local ./gradlew bootRun`처럼 local 프로필을 켜야 읽습니다. `src/main/resources/`에 두면 실행 파일(jar)에 함께 들어가니 거기에는 두지 않습니다. `.yaml`·`.properties`로 만들어도 커밋되지 않습니다.
 
 ## 화면과 연결
 
@@ -66,6 +66,7 @@ docker compose up -d --wait   # 로컬 MySQL 8.4를 띄우고 접속 준비가 �
 - **Lombok은 이것만 씁니다:** `@Getter`, `@NoArgsConstructor(access = AccessLevel.PROTECTED)`(엔티티), `@RequiredArgsConstructor`(의존성 주입), `@Slf4j`, 필요하면 `@Builder`. `@Builder`는 클래스가 아니라 필요한 필드만 받는 생성자에 붙입니다(빈 생성자와 함께 클래스에 붙이면 컴파일되지 않습니다). 엔티티에 `@Setter`·`@Data`는 쓰지 않습니다. 상태는 `Tour.addApplicants()`처럼 의미 있는 메소드로만 바꿉니다.
 - **요청·응답 DTO는 `record`로** 씁니다.
 - **"오늘"과 현재 시각은 주입한 `Clock`에서만 얻습니다.** `ClockConfig`가 서울 시간대 시계를 하나 만들어 둡니다. `LocalDate.now()`를 직접 부르지 않고, 예약 작업(`@Scheduled`)에는 `zone = "Asia/Seoul"`을 적습니다.
+- **시각(신청 시각 등)은 `Instant`로 둡니다.** Hibernate가 DB에 UTC로 저장합니다. 날짜만 필요한 값(출발일 등)은 `LocalDate`로 둡니다. `LocalDateTime`은 저장값이 서버 시간대에 따라 달라질 수 있어 시각 저장에 쓰지 않습니다.
 - **DB가 필요한 테스트**에는 `@Testcontainers(disabledWithoutDocker = true)`와 `@Import(TestcontainersConfiguration.class)`를 함께 붙입니다. 앞의 것은 Docker가 없을 때 실패 대신 건너뛰게 하고, 뒤의 것은 테스트용 MySQL을 붙입니다.
 
 ## 배포
