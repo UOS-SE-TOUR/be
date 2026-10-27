@@ -7,7 +7,7 @@
 준비물은 JDK 21과 Docker(로컬 MySQL용)입니다.
 
 ```bash
-docker compose up -d   # 로컬 MySQL 8.4를 띄운다 (DB 이름 mwt, 계정 mwt / 비밀번호 mwt)
+docker compose up -d --wait   # 로컬 MySQL 8.4를 띄우고 접속 준비가 끝날 때까지 기다린다 (DB 이름 mwt, 계정 mwt / 비밀번호 mwt)
 ./gradlew bootRun      # http://localhost:8080
 ```
 
@@ -37,6 +37,8 @@ docker compose up -d   # 로컬 MySQL 8.4를 띄운다 (DB 이름 mwt, 계정 mw
 화면(React)은 정적 호스팅에 따로 배포하고, 호스팅의 프록시(rewrite) 기능으로 `/api/*` 요청을 이 서버로 넘깁니다. 브라우저에는 화면과 서버가 같은 주소로 보이므로 로그인 쿠키(HttpOnly, SameSite=Lax)가 그대로 실리고, 서버에는 CORS 설정을 두지 않습니다.
 
 로컬에서는 화면 개발 서버의 프록시로 `/api`를 `http://localhost:8080`에 넘깁니다.
+
+**서버 API 주소는 모두 `/api`로 시작합니다**(설계산출물 4.9 서버 API 표, 예: `/api/members/login`). 그래서 화면 호스팅의 프록시, 서버 앞 웹 서버, 로컬 화면 개발 서버의 프록시는 모두 `/api`를 떼지 않고 경로를 그대로 넘깁니다. 어느 한 곳이라도 `/api`를 떼면 서버에서 404가 납니다.
 
 ## 패키지
 

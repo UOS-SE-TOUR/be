@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# 같은 PR에 연달아 push하면 앞선 빌드는 취소한다(main push는 끝까지 돈다)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
