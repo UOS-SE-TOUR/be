@@ -27,7 +27,8 @@
 #   - 최상위 .idea 디렉터리와 최상위 *.iml 파일(개발자가 PR 의 코드를 보려고 워크트리를 IntelliJ IDEA 로 열면 생긴다 —
 #     IDEA 가 다시 만든다). 다만 .idea 안에 팀이 남기려고 만드는 폴더(runConfigurations·inspectionProfiles·
 #     dictionaries·scopes·fileTemplates·codeStyles — 프로젝트 파일로 저장한 실행 구성·설정)나 사람이 만든 작업이
-#     남는 폴더(shelf — Shelve Changes 로 치워 둔 변경, dataSources)가 하나라도 있으면 사람이 본다.
+#     남는 자리(shelf — Shelve Changes 로 치워 둔 변경, dataSources 폴더와 DB 연결 설정 파일 dataSources.xml·
+#     dataSources.local.xml — be PR #2 리뷰)가 하나라도 있으면 사람이 본다.
 #     workspace.xml 등 나머지는 IDE 가 사용자마다 따로 두는 로컬 상태다. httpRequests 는 IntelliJ HTTP Client 가 요청을
 #     한 번만 돌려도 기록(http-requests-log)을 자동으로 쌓는 자리라 로컬 상태로 친다 — 서버 레포에서는 거의 늘 생겨서,
 #     사람이 보게 하면 머지 정리가 매번 멈춘다(be PR #2 리뷰). codeStyles 는 limbing-aos 사본에서는
@@ -96,7 +97,8 @@ plain_dir() { [ -d "$1" ] && [ ! -L "$1" ]; }
 # .idea 안에 사람이 남기려고 만드는 폴더가 없으면 참.
 ide_local_only() {
   local kept
-  for kept in runConfigurations inspectionProfiles dictionaries scopes fileTemplates codeStyles shelf dataSources; do
+  for kept in runConfigurations inspectionProfiles dictionaries scopes fileTemplates codeStyles shelf dataSources \
+    dataSources.xml dataSources.local.xml; do
     if [ -e "$1/$kept" ] || [ -L "$1/$kept" ]; then return 1; fi
   done
   return 0

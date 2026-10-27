@@ -958,6 +958,15 @@ touch "$IG/.idea/inspectionProfiles/Project_Default.xml"
 run "$R" "$S/ignored-check.sh" "$IG"
 check "ignored: 검사 프로필이 든 .idea" KEEP
 rm -rf "$IG/.idea/inspectionProfiles"
+# IntelliJ 의 DB 연결 설정은 폴더(dataSources/)가 아니라 파일(dataSources.xml·dataSources.local.xml)에 먼저 생긴다 — 사람이 본다
+# (be PR #2 리뷰).
+for f in dataSources.xml dataSources.local.xml; do
+  touch "$IG/.idea/$f"
+  run "$R" "$S/ignored-check.sh" "$IG"
+  check "ignored: $f 가 든 .idea" KEEP
+  has "ignored: $f .idea 줄" "keep .idea/"
+  rm -f "$IG/.idea/$f"
+done
 # IntelliJ HTTP Client 가 자동으로 쌓는 요청 기록은 로컬 상태다 — 이것만 있으면 지워도 된다(be PR #2 리뷰).
 mkdir -p "$IG/.idea/httpRequests"
 touch "$IG/.idea/httpRequests/http-requests-log.http"
