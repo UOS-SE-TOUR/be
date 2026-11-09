@@ -3,6 +3,7 @@ package com.mwt.warehouse;
 import java.util.List;
 import java.util.Optional;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -24,7 +25,6 @@ public class WarehouseService {
 
 	private final ItemRepository itemRepository;
 
-	/** 창고 물품 전체와 현재 수량을 이름 순으로 돌려준다. */
 	@Transactional(readOnly = true)
 	public List<Item> getItems() {
 		return itemRepository.findAll(Sort.by("name"));
@@ -49,9 +49,18 @@ public class WarehouseService {
 		try {
 			return itemRepository.save(new Item(name, theme, quantity));
 		} catch (DataIntegrityViolationException e) {
-			// 같은 이름의 새 물품을 다른 요청이 먼저 저장했다(이름 유일 제약)
+			if (!isUniqueViolation(e)) {
+				throw e;
+			}
+			// 같은 이름의 새 물품을 다른 요청이 먼저 저장했다(item에 걸린 유일 제약은 이름 하나뿐이다)
 			throw new BusinessException(HttpStatus.CONFLICT, "다른 직원이 같은 물품을 방금 추가했습니다. 다시 시도해 주세요.");
 		}
+	}
+
+	/** 스프링은 JPA 경로의 중복 키를 DuplicateKeyException으로 바꾸지 않으므로(be 실측) Hibernate가 가린 제약 종류를 본다. */
+	private static boolean isUniqueViolation(DataIntegrityViolationException e) {
+		return e.getCause() instanceof ConstraintViolationException violation
+				&& violation.getKind() == ConstraintViolationException.ConstraintKind.UNIQUE;
 	}
 
 }

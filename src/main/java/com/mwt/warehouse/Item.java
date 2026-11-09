@@ -37,7 +37,6 @@ public class Item {
 
 	private int quantity;
 
-	/** 새 물품. 이름은 {@link #normalizeName}으로 앞뒤 공백을 떼고 확인해 넣는다. */
 	Item(String name, Theme theme, int quantity) {
 		if (theme == null) {
 			throw new BusinessException("테마를 골라 주세요.");
@@ -48,7 +47,6 @@ public class Item {
 		this.quantity = quantity;
 	}
 
-	/** 들어온 수량만큼 창고 수량을 늘린다. */
 	public void addQuantity(int quantity) {
 		checkQuantity(quantity);
 		if (quantity > Integer.MAX_VALUE - this.quantity) {
@@ -57,7 +55,7 @@ public class Item {
 		this.quantity += quantity;
 	}
 
-	/** 앞뒤 공백을 뗀 물품 이름. 같은 물품인지는 이 값으로 찾는다. */
+	/** 같은 물품인지는 이 값(앞뒤 공백을 뗀 이름)으로 찾는다. */
 	static String normalizeName(String name) {
 		String trimmed = name == null ? "" : name.strip();
 		if (trimmed.isEmpty()) {
