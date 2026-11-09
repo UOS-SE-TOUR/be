@@ -14,6 +14,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.FieldError;
@@ -68,10 +70,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	/**
 	 * 예상하지 못한 오류. 자세한 내용은 서버 로그에만 남기고 화면에는 일반 문구만 보낸다.
 	 * 4xx를 정한 @ResponseStatus 예외는 삼키지 않고 다시 던져 스프링이 그 상태로 돌려주게 한다(본문은 ApiErrorController).
-	 * 로그인·권한 예외(Spring Security)는 @ResponseStatus가 없어 여기 잡히면 500이 되므로, 그 의존성을 더할 때 따로 다시 던지게 한다.
+	 * 로그인·권한 예외(Spring Security)도 다시 던져 Security가 401·403으로 돌려주게 한다(common.security의 SecurityConfig).
 	 */
 	@ExceptionHandler(Exception.class)
 	ResponseEntity<ErrorResponse> handleUnexpectedException(Exception ex, HttpServletRequest request) throws Exception {
+		if (ex instanceof AuthenticationException || ex instanceof AccessDeniedException) {
+			throw ex;
+		}
 		ResponseStatus responseStatus = AnnotatedElementUtils.findMergedAnnotation(ex.getClass(), ResponseStatus.class);
 		if (responseStatus != null && responseStatus.code().is4xxClientError()) {
 			throw ex;
@@ -121,8 +126,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return ResponseEntity.status(ex.getStatus()).body(new ErrorResponse(message));
 	}
 
-	/** 상태 코드마다 화면에 보일 일반 문구. */
-	static String messageFor(HttpStatusCode status) {
+	/** 상태 코드마다 화면에 보일 일반 문구. 401·403 응답을 직접 쓰는 common.security도 이 문구를 쓴다. */
+	public static String messageFor(HttpStatusCode status) {
 		return switch (status.value()) {
 			case 400 -> "요청 값이 올바르지 않습니다.";
 			case 401 -> "로그인이 필요합니다.";

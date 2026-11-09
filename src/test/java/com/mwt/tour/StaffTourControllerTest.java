@@ -25,11 +25,15 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.jayway.jsonpath.JsonPath;
 import com.mwt.TestcontainersConfiguration;
+import com.mwt.common.security.JwtTokenProvider;
+
+import jakarta.servlet.http.Cookie;
 
 /**
  * 여행 상품 기획 API(POST /api/v1/staff/tours, 설계산출물 5.8). 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다.
@@ -59,6 +63,9 @@ class StaffTourControllerTest {
 	@Autowired
 	TransactionTemplate transactionTemplate;
 
+	@Autowired
+	JwtTokenProvider jwtTokenProvider;
+
 	static Clock clock() {
 		return Clock.fixed(Instant.parse("2026-11-10T00:00:00Z"), ZoneId.of("Asia/Seoul"));
 	}
@@ -69,8 +76,24 @@ class StaffTourControllerTest {
 	}
 
 	@Test
+	void 고객은_상품을_등록할_수_없다() throws Exception {
+		Cookie customer = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "CUSTOMER"));
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).cookie(customer)
+				.content(body("HONEYMOON", "2026-12-01", "5", "4", PRICES, TRANSPORTS)))
+			.andExpect(status().isForbidden());
+
+		assertThat(tourRepository.count()).isZero();
+	}
+
+	/** 직원으로 로그인한 요청. 주소별 권한 규칙은 common.security의 SecurityConfigTest가 따로 본다. */
+	private MockHttpServletRequestBuilder staffPost() {
+		Cookie staff = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "STAFF"));
+		return post(URL).contentType(MediaType.APPLICATION_JSON).cookie(staff);
+	}
+
+	@Test
 	void 상품을_등록하면_201과_상품_ID를_돌려주고_가격과_옵션을_저장한다() throws Exception {
-		String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+		String response = mockMvc.perform(staffPost()
 				.content(body("HONEYMOON", "2026-12-01", "5", "4", PRICES, TRANSPORTS)))
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.tourId").isNumber())
@@ -99,7 +122,7 @@ class StaffTourControllerTest {
 	@ParameterizedTest(name = "{1}")
 	@MethodSource("rejectedRequests")
 	void 규칙에_어긋나면_400과_이유를_돌려주고_저장하지_않는다(String requestBody, String message) throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(requestBody))
+		mockMvc.perform(staffPost().content(requestBody))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"" + message + "\"}", JsonCompareMode.STRICT));
 
@@ -134,7 +157,7 @@ class StaffTourControllerTest {
 	@ParameterizedTest
 	@MethodSource("notIntegerRequests")
 	void 기간이나_정원이_정수가_아니면_잘라_받지_않고_400(String requestBody) throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(requestBody))
+		mockMvc.perform(staffPost().content(requestBody))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"요청 본문을 읽을 수 없습니다. JSON 형식과 값을 확인해 주세요.\"}",
 					JsonCompareMode.STRICT));
@@ -151,7 +174,7 @@ class StaffTourControllerTest {
 	@ParameterizedTest
 	@MethodSource("enumAsNumberRequests")
 	void 테마나_등급을_숫자로_보내면_순번으로_받지_않고_400(String requestBody) throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(requestBody))
+		mockMvc.perform(staffPost().content(requestBody))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"요청 본문을 읽을 수 없습니다. JSON 형식과 값을 확인해 주세요.\"}",
 					JsonCompareMode.STRICT));
@@ -169,7 +192,7 @@ class StaffTourControllerTest {
 	@ParameterizedTest
 	@MethodSource("tooLateRequests")
 	void 여행이_9999년_12월_31일을_넘으면_400(String departureDate, String duration) throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+		mockMvc.perform(staffPost()
 				.content(body("GOLF", departureDate, duration, "10", golfPrices(), TRANSPORTS)))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"여행은 9999년 12월 31일 안에 끝나야 합니다.\"}", JsonCompareMode.STRICT));
@@ -186,7 +209,7 @@ class StaffTourControllerTest {
 
 	@Test
 	void 여행이_9999년_12월_31일에_끝나면_등록한다() throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+		mockMvc.perform(staffPost()
 				.content(body("GOLF", "9999-12-30", "2", "10", golfPrices(), TRANSPORTS)))
 			.andExpect(status().isCreated());
 	}
