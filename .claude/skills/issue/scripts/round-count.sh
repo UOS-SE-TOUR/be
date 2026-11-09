@@ -6,8 +6,9 @@
 #   <루프>는 review(4단계 루프 — scratchpad/issue-rounds) 나 rereview(6단계 재리뷰 루프 — scratchpad/issue-rereview-rounds)
 #   다. 이슈 워크트리(연결 워크트리) 안에서 부른다 — 그 워크트리 최상위의 scratchpad/ 를 읽는다.
 #
-# 기록은 그 파일의 한 줄이고 꼴은 "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" 이다(끝 줄바꿈은 있어도
-# 없어도 된다). scratchpad/ 는 .gitignore 에 있어 커밋에 섞이지 않고, ignored-check.sh 는 이 두 파일을 지워도 되는 것으로
+# 기록은 그 파일의 한 줄이고 꼴은 "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" 이다(끝 줄바꿈은 없어도 되고
+# 여럿이어도 뗀다). counted 가 cap 이상인 기록도 그대로 낸다 — 상한에 닿았거나 사람이 알려 준 셈이 상한을 넘은 것이고,
+# SKILL.md 4단계 "이어받은 실행의 셈"이 첫 라운드 전에 묻는다. scratchpad/ 는 .gitignore 에 있어 커밋에 섞이지 않고, ignored-check.sh 는 이 두 파일을 지워도 되는 것으로
 # 친다 — 워크트리를 지울 때 기록도 함께 지워진다. 그래서 지운 워크트리를 다시 붙이면 기록이 없다(NONE).
 # 브랜치 설정(git config branch.<브랜치>.…)에 두지 않는 것은, 워크트리에 격리된 세션에서는 명령 가드가 공유 설정에 쓰는
 # git config 를 거부해서다(be 실측 — --worktree·--file 로 써도 거부했고, Write 도구도 공유 .git 안의 파일은 거부했다).
@@ -20,9 +21,9 @@
 #   NONE    기록 파일이 없다
 #   BROKEN  기록을 읽을 수 없다. 다음 줄이 reason <까닭> — type(기록 파일이 일반 파일이 아니다 — 디렉터리·심볼릭 링크 등,
 #           또는 scratchpad/ 가 심볼릭 링크이거나 디렉터리가 아니다) ·
-#           format(꼴이 다르다 — 줄이 둘 이상이거나 빈 파일이거나 NUL 이 들었거나, 숫자가 0 으로 시작하거나 네 자리를
-#           넘는다) ·
-#           range(cap 이 0 이거나, counted 가 cap 을 넘거나, streak 가 3 을 넘는다)
+#           format(꼴이 다르다 — 끝 줄바꿈을 뗀 뒤 줄이 둘 이상이거나 빈 파일이거나 NUL 이 들었거나, 숫자가 0 으로
+#           시작하거나 네 자리를 넘는다) ·
+#           range(cap 이 0 이거나 streak 가 3 을 넘는다)
 # 종료 코드: 0 판정함 · 2 사용법(인자 개수, 모르는 <루프>) · 3 환경 실패(레포 밖이나 본 체크아웃에서 불렀다, git 이
 # "레포가 아니다" 밖의 이유로 실패했다 — lib.sh rev_parse, 기록 파일을 읽지 못했다)
 
@@ -84,7 +85,8 @@ fi
 # 명령 치환은 NUL 을 조용히 버린다(bash 3.2 는 경고도 없다) — 버린 뒤의 값이 꼴에 맞을 수 있으니 NUL 이 든 파일은 먼저
 # 꼴이 다른 것으로 친다.
 all=$(wc -c < "$f") || die_env "기록 파일을 읽지 못했다: $f"
-nonul=$(LC_ALL=C tr -d '\000' < "$f" | wc -c) || die_env "기록 파일을 읽지 못했다: $f"
+# pipefail 이 없으면 파이프의 종료 코드가 wc 의 것이라 tr 의 읽기 실패가 format 으로 읽힌다.
+nonul=$(set -o pipefail; LC_ALL=C tr -d '\000' < "$f" | wc -c) || die_env "기록 파일을 읽지 못했다: $f"
 [ $((all)) -eq $((nonul)) ] || broken format
 # 명령 치환은 끝 줄바꿈을 모두 뗀다 — 남은 값에 줄바꿈이 있으면 줄이 둘 이상이다.
 v=$(cat "$f") || die_env "기록 파일을 읽지 못했다: $f"
@@ -96,7 +98,7 @@ re='^counted=(0|[123456789][0123456789]{0,3}) cap=(0|[123456789][0123456789]{0,3
 counted=${BASH_REMATCH[1]}
 cap=${BASH_REMATCH[2]}
 streak=${BASH_REMATCH[3]}
-if [ "$cap" -eq 0 ] || [ "$counted" -gt "$cap" ] || [ "$streak" -gt 3 ]; then
+if [ "$cap" -eq 0 ] || [ "$streak" -gt 3 ]; then
   broken range
 fi
 echo FOUND

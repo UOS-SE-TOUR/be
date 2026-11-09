@@ -1680,6 +1680,16 @@ run "$QW" "$S/round-count.sh" review
 check "round-count: 늘린 상한에 닿은 셈" FOUND
 has "round-count: 늘린 상한" "cap 12"
 has "round-count: 연속 3회로 멈춘 셈" "streak 3"
+# 상한을 넘은 셈도 그대로 낸다 — 사람이 알려 준 셈이 늘리기 전 상한을 넘을 수 있고, SKILL.md 가 첫 라운드 전에 묻는다.
+rc_put issue-rounds "counted=11 cap=10 streak=0"
+run "$QW" "$S/round-count.sh" review
+check "round-count: 상한을 넘은 셈" FOUND
+has "round-count: 상한을 넘은 셈의 counted" "counted 11"
+# 끝 빈 줄은 뗀다 — 편집기가 붙인 빈 줄로 셈을 묻지 않는다.
+printf '%s\n\n\n' "counted=5 cap=10 streak=0" > "$QW/scratchpad/issue-rounds"
+run "$QW" "$S/round-count.sh" review
+check "round-count: 끝 빈 줄" FOUND
+has "round-count: 끝 빈 줄 뒤의 counted" "counted 5"
 # 꼴이 다르면 BROKEN — 세션이 기록을 잘못 썼거나 사람이 손으로 고친 것이다. 짐작해 읽지 않고 묻게 한다. 줄이 둘이면
 # (>> 로 덧붙였다) 어느 줄이 지금 셈인지 모른다.
 for v in "counted=03 cap=10 streak=0" "counted=1  cap=10 streak=0" "counted=1 cap=10" "counted=1 cap=10 streak=0 x=1" \
@@ -1701,7 +1711,7 @@ run "$QW" "$S/round-count.sh" review
 check "round-count: NUL 이 든 파일" BROKEN
 has "round-count: NUL 이 든 파일은 format" "reason format"
 # 셈이 맞지 않으면 BROKEN range.
-for v in "counted=0 cap=0 streak=0" "counted=11 cap=10 streak=0" "counted=1 cap=10 streak=4"; do
+for v in "counted=0 cap=0 streak=0" "counted=1 cap=10 streak=4"; do
   rc_put issue-rounds "$v"
   run "$QW" "$S/round-count.sh" review
   check "round-count: 셈이 맞지 않으면 BROKEN [$v]" BROKEN
@@ -1974,10 +1984,13 @@ OUT=$(LC_ALL=C grep -nE '셈을 함께 알려|4단계 셈 모름|be #37 에서 �
 if [ -z "$OUT" ]; then ok; else bad "문서: 옛 인계 문구와 브랜치 설정 쓰기가 남지 않았다" "$OUT"; fi
 
 # 판정 스크립트와 이 테스트는 실행 권한을 둔다(lib.sh 는 불러오기만 하므로 뺀다) — 파일을 새로 써서 바꿔 끼우면 권한이
-# 빠진 채 커밋된다(be #37 셀프 리뷰).
+# 빠진 채 커밋된다(be #37 셀프 리뷰). 작업 트리의 권한과, git 이 인덱스에 올려 둔 모드(올렸으면)를 둘 다 본다 — 작업
+# 트리에서만 chmod 하고 올리지 않으면 커밋에는 빠진 채 들어간다.
 for f in "$S"/*.sh "$HERE/run.sh"; do
   [ "${f##*/}" = lib.sh ] && continue
   if [ -x "$f" ]; then ok; else bad "문서: 스크립트에 실행 권한이 있다" "$f"; fi
+  mode=$(git -C "$HERE" ls-files -s -- "$f" 2>/dev/null | cut -d' ' -f1)
+  if [ -z "$mode" ] || [ "$mode" = 100755 ]; then ok; else bad "문서: git 에 올린 스크립트 모드가 100755 다" "$f: $mode"; fi
 done
 
 # 판정 스크립트가 내는 branch-escaped 줄은 문서에 적혀 있어야 한다 — 안 적히면 그 줄을 받은 모델이 갈래를 모른다.
