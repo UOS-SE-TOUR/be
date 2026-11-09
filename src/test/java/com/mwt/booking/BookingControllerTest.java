@@ -1,8 +1,10 @@
 package com.mwt.booking;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.sql.PreparedStatement;
@@ -12,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -26,11 +29,14 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.mwt.TestcontainersConfiguration;
+import com.mwt.booking.RecordingSmsSender.Sent;
 import com.mwt.common.security.JwtTokenProvider;
+import com.mwt.notification.SmsSender;
 import com.mwt.tour.RegisterTourRequest;
 import com.mwt.tour.RegisterTourRequest.PriceInput;
 import com.mwt.tour.RegisterTourRequest.TransportInput;
@@ -41,8 +47,9 @@ import com.mwt.tour.TourService;
 import jakarta.servlet.http.Cookie;
 
 /**
- * 가격 계산(POST /api/v1/bookings/quote)과 이전 여행 조회(GET /api/v1/bookings/previous) API(설계산출물 4.9 서버 API 표,
- * 5.3·5.4·5.6·5.7). 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다. "오늘"은 2026-11-10(서울)로 고정한다.
+ * 가격 계산(POST /api/v1/bookings/quote), 신청(POST /api/v1/bookings), 이전 여행 조회(GET /api/v1/bookings/previous)
+ * API(설계산출물 4.9 서버 API 표, 5.3·5.4·5.4.1·5.6·5.7). 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다.
+ * "오늘"은 2026-11-10(서울)로 고정하고, 문자는 보내지 않고 RecordingSmsSender에 기록한다.
  * Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
 @Testcontainers(disabledWithoutDocker = true)
@@ -52,10 +59,15 @@ import jakarta.servlet.http.Cookie;
 class BookingControllerTest {
 
 	private static final String QUOTE = "/api/v1/bookings/quote";
+	private static final String APPLY = "/api/v1/bookings";
 	private static final String PREVIOUS = "/api/v1/bookings/previous";
+	private static final String CONFIRMED_MESSAGE = "[미스터 월드] 신청하신 여행 상품(골프 챌린지 투어 12/1 출발 5일)이 확정되었습니다.";
 
 	@TestBean
 	Clock clock;
+
+	@TestBean
+	SmsSender smsSender;
 
 	@Autowired
 	MockMvc mockMvc;
@@ -73,8 +85,13 @@ class BookingControllerTest {
 		return Clock.fixed(Instant.parse("2026-11-10T00:00:00Z"), ZoneId.of("Asia/Seoul"));
 	}
 
+	static SmsSender smsSender() {
+		return new RecordingSmsSender();
+	}
+
 	@AfterEach
 	void deleteAll() {
+		recorder().clear();
 		jdbcTemplate.update("delete from booking_option");
 		jdbcTemplate.update("delete from booking");
 		jdbcTemplate.update("delete from tour_price");
@@ -173,6 +190,80 @@ class BookingControllerTest {
 	}
 
 	@Test
+	void 신청하면_201과_상품_상태를_돌려주고_고른_내용과_할인한_가격을_신청_시각과_함께_저장한다() throws Exception {
+		long me = member("me");
+		booking(me, completedTour("2026-09-01"), 3_000_000, 0);
+		booking(me, completedTour("2026-10-01"), 3_000_000, 0);
+		long tourId = register(Theme.GOLF);
+		long hotel = optionId(tourId, "5등급 호텔");
+
+		ResultActions result = mockMvc.perform(apply(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d]}""".formatted(tourId, hotel)));
+
+		Map<String, Object> saved = jdbcTemplate.queryForMap("""
+				select id, member_id, level, headcount, total_price, discount,
+				       date_format(applied_at, '%Y-%m-%d %H:%i:%s') as applied_at
+				from booking where tour_id = ?""", tourId);
+		result.andExpect(status().isCreated())
+			.andExpect(content().json("""
+					{"bookingId": %d, "status": "RECRUITING"}""".formatted((Long) saved.get("id")), JsonCompareMode.STRICT));
+		assertThat(saved).containsAllEntriesOf(Map.of("member_id", me, "level", "GRAND", "headcount", 2,
+				"total_price", 3_200_000L, "discount", 320_000L, "applied_at", "2026-11-10 00:00:00"));
+		assertThat(jdbcTemplate.queryForList("select tour_option_id from booking_option where booking_id = ?", Long.class,
+				saved.get("id"))).containsExactly(hotel);
+		assertThat(appliedCount(tourId)).isEqualTo(2);
+		assertThat(recorder().sent()).isEmpty();
+	}
+
+	@Test
+	void 새로_확정되면_그때까지의_신청자_모두에게_이미_확정이면_이번_신청자에게만_문자를_보낸다() throws Exception {
+		long first = member("first", "010-1111-2222");
+		long second = member("second", "01033334444");
+		long third = member("third", "01055556666");
+		long tourId = register(Theme.GOLF);
+
+		applyAndExpect(first, tourId, 2, "RECRUITING");
+		assertThat(recorder().sent()).isEmpty();
+
+		applyAndExpect(second, tourId, 1, "CONFIRMED");
+		assertThat(recorder().sent())
+			.containsExactly(new Sent(List.of("010-1111-2222", "01033334444"), CONFIRMED_MESSAGE));
+
+		recorder().clear();
+		applyAndExpect(third, tourId, 7, "FULL");
+		assertThat(recorder().sent()).containsExactly(new Sent(List.of("01055556666"), CONFIRMED_MESSAGE));
+	}
+
+	@Test
+	void 남은_자리보다_많은_인원은_저장하지_않고_400() throws Exception {
+		long tourId = register(Theme.GOLF);
+		applyAndExpect(member("first"), tourId, 8, "CONFIRMED");
+
+		mockMvc.perform(apply(member("second"), request(tourId, 3)))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().json("{\"message\": \"남은 자리보다 인원이 많습니다.\"}", JsonCompareMode.STRICT));
+
+		assertThat(bookingCount(tourId)).isEqualTo(1);
+		assertThat(appliedCount(tourId)).isEqualTo(8);
+	}
+
+	@Test
+	void 마감됐거나_출발일이_지난_상품이면_가격_계산도_신청도_409() throws Exception {
+		long me = member("me");
+		long full = register(Theme.GOLF);
+		applyAndExpect(member("other"), full, 10, "FULL");
+		long departed = tour("2026-11-10", "RECRUITING", 0);
+
+		expectConflict(QUOTE, me, request(full, 1), "마감된 상품입니다.");
+		expectConflict(APPLY, me, request(full, 1), "마감된 상품입니다.");
+		expectConflict(QUOTE, me, request(departed, 1), "출발일이 오늘이거나 지난 상품은 신청할 수 없습니다.");
+		expectConflict(APPLY, me, request(departed, 1), "출발일이 오늘이거나 지난 상품은 신청할 수 없습니다.");
+
+		assertThat(bookingCount(full)).isEqualTo(1);
+		assertThat(bookingCount(departed)).isZero();
+	}
+
+	@Test
 	void 이전_여행은_그_회원의_완료된_여행을_출발일이_최근인_순서로_할인_뒤_가격과_함께_돌려준다() throws Exception {
 		long me = member("me");
 		long older = booking(me, completedTour("2026-09-01"), 3_000_000, 0);
@@ -206,10 +297,15 @@ class BookingControllerTest {
 
 		mockMvc.perform(post(QUOTE).contentType(MediaType.APPLICATION_JSON).content(request).cookie(staff))
 			.andExpect(status().isForbidden());
+		mockMvc.perform(post(APPLY).contentType(MediaType.APPLICATION_JSON).content(request).cookie(staff))
+			.andExpect(status().isForbidden());
 		mockMvc.perform(get(PREVIOUS).cookie(staff))
 			.andExpect(status().isForbidden());
 		mockMvc.perform(post(QUOTE).contentType(MediaType.APPLICATION_JSON).content(request))
 			.andExpect(status().isUnauthorized());
+		mockMvc.perform(post(APPLY).contentType(MediaType.APPLICATION_JSON).content(request))
+			.andExpect(status().isUnauthorized());
+		assertThat(bookingCount(tourId)).isZero();
 	}
 
 	private void expectRejected(long memberId, String request, String message) throws Exception {
@@ -218,8 +314,34 @@ class BookingControllerTest {
 			.andExpect(content().json("{\"message\": \"" + message + "\"}", JsonCompareMode.STRICT));
 	}
 
+	private void expectConflict(String path, long memberId, String request, String message) throws Exception {
+		mockMvc.perform(customer(post(path).contentType(MediaType.APPLICATION_JSON).content(request), memberId))
+			.andExpect(status().isConflict())
+			.andExpect(content().json("{\"message\": \"" + message + "\"}", JsonCompareMode.STRICT));
+	}
+
+	private void applyAndExpect(long memberId, long tourId, int headcount, String tourStatus) throws Exception {
+		mockMvc.perform(apply(memberId, request(tourId, headcount)))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.status").value(tourStatus));
+	}
+
+	private RecordingSmsSender recorder() {
+		return (RecordingSmsSender) smsSender;
+	}
+
+	/** 그랜드, 옵션 없음. */
+	private static String request(long tourId, int headcount) {
+		return """
+				{"tourId": %d, "level": "GRAND", "headcount": %d}""".formatted(tourId, headcount);
+	}
+
 	private MockHttpServletRequestBuilder quote(long memberId, String body) {
 		return customer(post(QUOTE).contentType(MediaType.APPLICATION_JSON).content(body), memberId);
+	}
+
+	private MockHttpServletRequestBuilder apply(long memberId, String body) {
+		return customer(post(APPLY).contentType(MediaType.APPLICATION_JSON).content(body), memberId);
 	}
 
 	private MockHttpServletRequestBuilder customer(MockHttpServletRequestBuilder request, long memberId) {
@@ -238,19 +360,28 @@ class BookingControllerTest {
 
 	/** 출발해 여행 종료일이 지난 골프 상품(5일). 상태 전이(#12)가 아직 없어 행을 직접 넣는다. */
 	private long completedTour(String departureDate) {
+		return tour(departureDate, "COMPLETED", 2);
+	}
+
+	/** 골프 상품(5일, 정원 10명) 행을 직접 넣는다. 등급별 가격과 옵션은 없다 — 출발일·상태 확인에서 거부되는 상품에만 쓴다. */
+	private long tour(String departureDate, String status, int appliedCount) {
 		return insert("""
 				insert into tour (theme, departure_date, duration, capacity, applied_count, status)
-				values ('GOLF', ?, 5, 10, 2, 'COMPLETED')""", departureDate);
+				values ('GOLF', ?, 5, 10, ?, ?)""", departureDate, appliedCount, status);
 	}
 
 	/** 회원 저장(member 모듈의 #9)이 아직 없어 행을 직접 넣는다. */
 	private long member(String loginId) {
-		return insert("""
-				insert into member (login_id, password, name, address, phone, member_type)
-				values (?, 'encoded', '고객', '서울', '01012345678', 'CUSTOMER')""", loginId);
+		return member(loginId, "01012345678");
 	}
 
-	/** 그랜드 2명 신청. 신청 저장(#17)이 아직 없어 행을 직접 넣는다. */
+	private long member(String loginId, String phone) {
+		return insert("""
+				insert into member (login_id, password, name, address, phone, member_type)
+				values (?, 'encoded', '고객', '서울', ?, 'CUSTOMER')""", loginId, phone);
+	}
+
+	/** 그랜드 2명 신청. 완료된 상품에는 신청 API로 신청할 수 없어 행을 직접 넣는다. */
 	private long booking(long memberId, long tourId, long totalPrice, long discount) {
 		return insert("""
 				insert into booking (member_id, tour_id, level, headcount, total_price, discount, applied_at)
@@ -264,6 +395,14 @@ class BookingControllerTest {
 
 	private long tourOf(long bookingId) {
 		return jdbcTemplate.queryForObject("select tour_id from booking where id = ?", Long.class, bookingId);
+	}
+
+	private int bookingCount(long tourId) {
+		return jdbcTemplate.queryForObject("select count(*) from booking where tour_id = ?", Integer.class, tourId);
+	}
+
+	private int appliedCount(long tourId) {
+		return jdbcTemplate.queryForObject("select applied_count from tour where id = ?", Integer.class, tourId);
 	}
 
 	private long insert(String sql, Object... args) {
