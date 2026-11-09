@@ -1777,6 +1777,19 @@ done
 OUT=$(LC_ALL=C grep -nE '미검증 후보가 남은|완결 보고\(모든 후보의 판정 포함\)|세지 않는 실행이 연속 3회' "$SKILL_DIR/SKILL.md")
 if [ -z "$OUT" ]; then ok; else bad "문서: 옛 완결 기준(미검증 후보가 남은 라운드는 세지 않는다)이 남지 않았다" "$OUT"; fi
 
+# 라운드 기록은 이어받은 실행·PR 갱신·6단계 재리뷰·멈춤 보고로 잇는다(be #28) — 갱신 갈래가 본문을 새로 쓰면 앞 실행의
+# 라운드 기록과 체크리스트가 PR 에서 지워지고, 셈을 잇지 않으면 이어받은 실행이 1/10부터 다시 센다. 5단계는 PR 이
+# 있는지 먼저 보고 본문 파일을 만든다 — 옛 순서(본문 파일을 갈림길보다 먼저 만든다)가 돌아오면 갱신 갈래가 기존 본문을
+# 받기 전에 파일을 쓴다.
+for want in '어느 단계에서 어떤 이유로 멈추든 그 보고에도' '**이어받은 실행은 앞 기록에서 이어 센다**' '1/10부터 세고 앞 기록을 찾지 못했다고' '**갱신 갈래는 기존 본문에서 시작한다**' 'gh pr view <번호> --json body --jq .body > "<파일>"' '기존 본문의 라운드 기록 뒤에 거기 없는 라운드만 더하고' '본문이 길다고 거부하면 멈추고 보고한다' '**이 재리뷰도 4단계 루프 그대로다**'; do
+  if LC_ALL=C grep -Fq -- "$want" "$SKILL_DIR/SKILL.md"; then ok; else bad "문서: 라운드 기록을 이어받기·PR 갱신·재리뷰·멈춤 보고로 잇는다" "$want"; fi
+done
+OUT=$(LC_ALL=C grep -n '갈림길보다 먼저 만든다' "$SKILL_DIR/SKILL.md")
+if [ -z "$OUT" ]; then ok; else bad "문서: 본문 파일을 PR 갈림길보다 먼저 만드는 옛 순서가 남지 않았다" "$OUT"; fi
+PR_AT=$(LC_ALL=C grep -n '이 브랜치의 PR이 이미 있는지 본다' "$SKILL_DIR/SKILL.md" | head -n 1 | cut -d: -f1)
+BODY_AT=$(LC_ALL=C grep -n '^- \*\*본문 파일은 ' "$SKILL_DIR/SKILL.md" | head -n 1 | cut -d: -f1)
+if [ -n "$PR_AT" ] && [ -n "$BODY_AT" ] && [ "$PR_AT" -lt "$BODY_AT" ]; then ok; else bad "문서: 5단계는 PR 이 있는지 본 뒤에 본문 파일을 만든다" "PR 확인 ${PR_AT}줄, 본문 파일 ${BODY_AT}줄"; fi
+
 # 판정 스크립트가 내는 branch-escaped 줄은 문서에 적혀 있어야 한다 — 안 적히면 그 줄을 받은 모델이 갈래를 모른다.
 if LC_ALL=C grep -Fq 'branch-escaped' "$T/docs.txt"; then ok; else bad "문서: branch-escaped 줄이 적혀 있다" "docs"; fi
 
