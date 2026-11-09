@@ -20,6 +20,7 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
+      start_period: 60s   # 느린 컴퓨터의 첫 초기화 동안 실패한 ping은 retries에 세지 않는다
 
 volumes:
   mysql-data:
