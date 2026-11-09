@@ -20,15 +20,16 @@
 - Lombok은 `@Getter`·`@NoArgsConstructor(access = AccessLevel.PROTECTED)`·`@RequiredArgsConstructor`·`@Slf4j`·`@Builder`만 쓴다. `@Builder`는 클래스가 아니라 생성자에 붙인다. 엔티티에 `@Setter`·`@Data` 금지.
 - 요청·응답 DTO는 `record`로 쓴다.
 - DB 스키마는 Flyway(`src/main/resources/db/migration/V<번호>__<설명>.sql`)로만 바꾼다. 머지된 마이그레이션은 고치지 않고 새 번호로 더한다(`ddl-auto: validate`).
-- "오늘"과 현재 시각은 주입한 `Clock`(`ClockConfig`, Asia/Seoul)에서만 얻는다. `LocalDate.now()` 직접 호출 금지, `@Scheduled`에는 `zone = "Asia/Seoul"`. 시각 값은 `Instant`, 날짜만이면 `LocalDate`로 두고 `LocalDateTime`으로 시각을 저장하지 않는다.
+- "오늘"과 현재 시각은 주입한 `Clock`(`ClockConfig`, Asia/Seoul)에서만 얻는다. `LocalDate.now()` 직접 호출 금지, `@Scheduled`에는 `zone = "Asia/Seoul"`.
+- 시각 값은 `Instant`, 날짜만이면 `LocalDate`로 두고 `LocalDateTime`으로 시각을 저장하지 않는다.
 - 비밀 값(API 키·JWT 비밀 키·직원 코드)은 환경변수로만 받는다. `.env`·`application-local.*`은 커밋 금지(.gitignore에 있음).
-- 도메인 규칙은 스프링 없는 단위 테스트로, DB가 필요한 테스트는 `@Testcontainers(disabledWithoutDocker = true)`와 `@Import(TestcontainersConfiguration.class)`를 함께 붙인다.
+- 도메인 규칙은 스프링 없는 단위 테스트로, DB가 필요한 테스트는 `@Testcontainers(disabledWithoutDocker = true)`와 `@Import(TestcontainersConfiguration.class)`를 함께 붙인다. CI는 건너뛴 테스트가 있으면 실패하니 `@Disabled`로 끈 테스트를 남기지 않는다.
 
 ## 빌드 / 실행
 
-- 실행: `docker compose up -d --wait`(로컬 MySQL, 준비될 때까지 기다림) → `./gradlew bootRun`.
+- 실행: `docker compose up -d --wait`(로컬 MySQL) → `./gradlew bootRun`.
 - AI 기본 게이트: `src/`·`build.gradle`·`settings.gradle`·`gradle/`·`gradlew`·`.github/`를 고쳤으면 `./gradlew build`(컴파일+테스트). Docker가 꺼져 있으면 DB 테스트는 SKIPPED로 끝나니 그 사실을 PR에 적고 CI 결과로 넘긴다.
-- `.claude/skills/`를 고쳤으면 그 스킬의 `tests/run.sh`(예: `bash .claude/skills/issue/tests/run.sh`)를 통과시킨다.
+- `.claude/skills/`를 고쳤으면 `bash .claude/skills/issue/tests/run.sh`를 통과시킨다.
 
 ## Git / 협업 규칙
 
@@ -47,4 +48,4 @@
 - 타입: `feat` · `fix` · `refactor` · `docs` · `chore` — 라벨은 이 5개. 커밋에는 필요하면 `build` · `ci` · `style` · `test` · `perf`도 쓴다.
 - 영역(모듈과 같다): `area: member` · `area: security` · `area: tour` · `area: booking` · `area: notification` · `area: voice` · `area: warehouse`
 - 이슈·PR에는 **타입 라벨 1개**를 붙이고, 작업이 한 모듈에 분명히 속하면 그 **영역 라벨 1개**를 더 붙인다. 여러 모듈에 걸치거나 모듈 밖(빌드 설정·문서·스킬) 작업은 영역 라벨 없이 둔다.
-- 상태·메타 라벨: 위 타입·영역이 아닌 라벨(GitHub 기본 `bug`·`enhancement`·`question` 등). 타입은 위 5개로만 정한다.
+- 상태·메타 라벨: 위 타입·영역이 아닌 라벨(GitHub 기본 `bug`·`enhancement`·`question` 등).
