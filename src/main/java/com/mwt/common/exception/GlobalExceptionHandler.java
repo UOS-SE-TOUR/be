@@ -29,6 +29,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.ElementKind;
+import jakarta.validation.Path;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -49,15 +51,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	/**
 	 * Controller 클래스에 @Validated를 붙여 인자를 검증했을 때의 실패는 400이다.
-	 * 같은 예외가 엔티티 저장이나 Service 검증에서 나면 서버 잘못이므로 500으로 돌리고 로그에 남긴다.
+	 * 같은 예외가 엔티티 저장·Service 검증·Controller 반환값 검증에서 나면 서버 잘못이므로 500으로 돌리고 로그에 남긴다.
 	 */
 	@ExceptionHandler(ConstraintViolationException.class)
 	ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex,
 			HttpServletRequest request) throws Exception {
 		Set<ConstraintViolation<?>> violations = ex.getConstraintViolations();
-		boolean controllerArguments = violations != null && !violations.isEmpty() && violations.stream()
-			.allMatch(v -> AnnotatedElementUtils.hasAnnotation(v.getRootBeanClass(), Controller.class));
-		if (!controllerArguments) {
+		if (violations == null || violations.isEmpty()
+				|| !violations.stream().allMatch(GlobalExceptionHandler::isControllerArgument)) {
 			return handleUnexpectedException(ex, request);
 		}
 		return ResponseEntity.badRequest().body(firstError(violations.stream()
@@ -66,12 +67,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	/**
 	 * 예상하지 못한 오류. 자세한 내용은 서버 로그에만 남기고 화면에는 일반 문구만 보낸다.
-	 * 자기 상태 코드를 가진 예외는 여기서 삼키지 않고 다시 던진다 — @ResponseStatus 예외는 스프링이 그 상태로 돌려주고
-	 * (본문은 ApiErrorController), 로그인·권한 예외(Spring Security)도 이 처리기에 잡히면 500이 되므로 같은 방법으로 넘긴다.
+	 * 4xx를 정한 @ResponseStatus 예외는 삼키지 않고 다시 던져 스프링이 그 상태로 돌려주게 한다(본문은 ApiErrorController).
+	 * 로그인·권한 예외(Spring Security)는 @ResponseStatus가 없어 여기 잡히면 500이 되므로, 그 의존성을 더할 때 따로 다시 던지게 한다.
 	 */
 	@ExceptionHandler(Exception.class)
 	ResponseEntity<ErrorResponse> handleUnexpectedException(Exception ex, HttpServletRequest request) throws Exception {
-		if (AnnotatedElementUtils.hasAnnotation(ex.getClass(), ResponseStatus.class)) {
+		ResponseStatus responseStatus = AnnotatedElementUtils.findMergedAnnotation(ex.getClass(), ResponseStatus.class);
+		if (responseStatus != null && responseStatus.code().is4xxClientError()) {
 			throw ex;
 		}
 		log.error("처리하지 못한 오류: {} {}", request.getMethod(), request.getRequestURI(), ex);
@@ -143,6 +145,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 			return "요청 본문을 읽을 수 없습니다. JSON 형식과 값을 확인해 주세요.";
 		}
 		return messageFor(status);
+	}
+
+	/** 검증 대상이 Controller이고 위반 자리가 메소드 인자일 때만 요청 잘못이다(반환값 위반은 서버 잘못). */
+	private static boolean isControllerArgument(ConstraintViolation<?> violation) {
+		if (!AnnotatedElementUtils.hasAnnotation(violation.getRootBeanClass(), Controller.class)) {
+			return false;
+		}
+		for (Path.Node node : violation.getPropertyPath()) {
+			if (node.getKind() == ElementKind.PARAMETER || node.getKind() == ElementKind.CROSS_PARAMETER) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** 필드 오류는 그 필드 이름으로, 아니면 받은 이름(파라미터 이름, 없으면 null)으로 정렬 기준을 잡는다. */

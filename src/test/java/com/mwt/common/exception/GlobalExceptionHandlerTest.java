@@ -34,6 +34,7 @@ import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 /**
  * 오류 응답 본문이 상태 코드와 상관없이 {"message": "..."} 하나뿐인지 본다.
@@ -132,9 +133,23 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
-	void ResponseStatus가_붙은_예외는_그_상태로() throws Exception {
+	void Controller_반환값_검증_실패는_서버_잘못이라_500() throws Exception {
+		mockMvc.perform(get("/test/return-value-constraint"))
+			.andExpect(status().isInternalServerError())
+			.andExpect(onlyMessage("서버에 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요."));
+	}
+
+	@Test
+	void ResponseStatus로_4xx를_정한_예외는_그_상태로() throws Exception {
 		mockMvc.perform(get("/test/response-status"))
 			.andExpect(status().isNotFound());
+	}
+
+	@Test
+	void ResponseStatus로_5xx를_정한_예외는_500과_일반_문구() throws Exception {
+		mockMvc.perform(get("/test/server-status"))
+			.andExpect(status().isInternalServerError())
+			.andExpect(onlyMessage("서버에 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요."));
 	}
 
 	@Test
@@ -224,9 +239,29 @@ class GlobalExceptionHandlerTest {
 			}
 		}
 
+		/** Controller에 @Validated를 붙였을 때 반환값 검증이 실패하면 AOP가 던지는 예외를 흉내 낸다. */
+		@GetMapping("/return-value-constraint")
+		void returnValueConstraint() throws NoSuchMethodException {
+			Method internalValue = TestController.class.getDeclaredMethod("internalValue");
+			try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+				throw new ConstraintViolationException(
+						factory.getValidator().forExecutables().validateReturnValue(this, internalValue, null));
+			}
+		}
+
+		@NotNull(message = "내부 값이 비었다")
+		String internalValue() {
+			return null;
+		}
+
 		@GetMapping("/response-status")
 		void responseStatus() {
 			throw new TestNotFoundException();
+		}
+
+		@GetMapping("/server-status")
+		void serverStatus() {
+			throw new TestUnavailableException();
 		}
 
 		@GetMapping("/conversion")
@@ -241,6 +276,10 @@ class GlobalExceptionHandlerTest {
 
 	@ResponseStatus(HttpStatus.NOT_FOUND)
 	static class TestNotFoundException extends RuntimeException {
+	}
+
+	@ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+	static class TestUnavailableException extends RuntimeException {
 	}
 
 	record TestRequest(
