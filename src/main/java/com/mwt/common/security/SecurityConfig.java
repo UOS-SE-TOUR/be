@@ -19,6 +19,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 
 import com.mwt.common.exception.ApiErrorController;
 import com.mwt.common.exception.ErrorResponse;
@@ -50,6 +52,7 @@ public class SecurityConfig {
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenProvider jwtTokenProvider, JsonMapper jsonMapper,
 			@Value(ApiErrorController.ERROR_PATH) String errorPath) throws Exception {
+		SecurityContextRepository contextRepository = new RequestAttributeSecurityContextRepository();   // 세션에 두지 않는다
 		http
 			// 4.10: 쿠키가 SameSite=Lax이고 상태를 바꾸는 GET이 없으므로 CSRF 토큰을 두지 않는다
 			.csrf(AbstractHttpConfigurer::disable)
@@ -57,6 +60,7 @@ public class SecurityConfig {
 			.httpBasic(AbstractHttpConfigurer::disable)
 			.logout(AbstractHttpConfigurer::disable)   // 로그아웃은 member 모듈의 API가 쿠키를 지운다
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+			.securityContext(context -> context.securityContextRepository(contextRepository))
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers(HttpMethod.POST, "/api/v1/members/signup", "/api/v1/members/login",
 						"/api/v1/members/logout").permitAll()
@@ -72,7 +76,8 @@ public class SecurityConfig {
 				.authenticationEntryPoint((request, response, e) ->
 						writeError(response, HttpStatus.UNAUTHORIZED, jsonMapper))
 				.accessDeniedHandler((request, response, e) -> writeError(response, HttpStatus.FORBIDDEN, jsonMapper)))
-			.addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider), UsernamePasswordAuthenticationFilter.class);
+			.addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, contextRepository),
+					UsernamePasswordAuthenticationFilter.class);
 		return http.build();
 	}
 
