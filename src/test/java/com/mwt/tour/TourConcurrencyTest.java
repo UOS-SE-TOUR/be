@@ -36,7 +36,8 @@ import com.mwt.common.exception.BusinessException;
 @SpringBootTest
 class TourConcurrencyTest {
 
-	private static final LocalDate TODAY = LocalDate.of(2026, 11, 10);
+	// 예약 작업은 이 날짜까지 출발하는 상품을 모두 바꾸므로, 같은 DB를 쓰는 다른 테스트의 상품이 걸리지 않게 아주 옛날로 둔다
+	private static final LocalDate MIDNIGHT_TODAY = LocalDate.of(2000, 1, 3);
 
 	@Autowired
 	TourService tourService;
@@ -114,7 +115,7 @@ class TourConcurrencyTest {
 
 	@Test
 	void 자정_예약_작업은_끝나지_않은_신청을_기다렸다가_더해진_인원으로_출발_처리한다() throws Exception {
-		Long tourId = save("2026-11-10", 10, 2);
+		Long tourId = save(MIDNIGHT_TODAY.toString(), 10, 2);
 		CountDownLatch added = new CountDownLatch(1);
 		CountDownLatch commit = new CountDownLatch(1);
 		ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -126,7 +127,7 @@ class TourConcurrencyTest {
 			}));
 			assertThat(added.await(30, TimeUnit.SECONDS)).isTrue();
 
-			Future<?> scheduler = executor.submit(() -> tourService.updateStatuses(TODAY));
+			Future<?> scheduler = executor.submit(() -> tourService.updateStatuses(MIDNIGHT_TODAY));
 			Thread.sleep(500);
 			assertThat(scheduler.isDone()).as("신청 트랜잭션이 상품을 잠근 동안 예약 작업은 기다린다").isFalse();
 
