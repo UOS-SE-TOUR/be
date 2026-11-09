@@ -62,6 +62,17 @@ class ApiErrorControllerTest {
 	}
 
 	@Test
+	void 스프링_부트_4의_오류_주소_설정을_따른다() throws Exception {
+		MockMvc movedErrorPath = MockMvcBuilders.standaloneSetup(new ApiErrorController())
+			.addPlaceholderValue("spring.web.error.path", "/api/error")
+			.defaultResponseCharacterEncoding(StandardCharsets.UTF_8)
+			.build();
+		movedErrorPath.perform(get("/api/error").requestAttr(RequestDispatcher.ERROR_STATUS_CODE, 403))
+			.andExpect(status().isForbidden())
+			.andExpect(content().json("{\"message\": \"권한이 없습니다.\"}", JsonCompareMode.STRICT));
+	}
+
+	@Test
 	void 오류_없이_바로_부르면_404() throws Exception {
 		mockMvc.perform(get("/error"))
 			.andExpect(status().isNotFound())

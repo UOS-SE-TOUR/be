@@ -20,7 +20,7 @@ import jakarta.servlet.http.HttpServletRequest;
 @RestController
 public class ApiErrorController implements ErrorController {
 
-	@RequestMapping("${server.error.path:${error.path:/error}}")
+	@RequestMapping("${spring.web.error.path:${error.path:/error}}")   // 스프링 부트 4의 BasicErrorController와 같은 주소
 	ResponseEntity<ErrorResponse> error(HttpServletRequest request) {
 		BusinessException business = findBusinessException(request.getAttribute(RequestDispatcher.ERROR_EXCEPTION));
 		if (business != null) {
