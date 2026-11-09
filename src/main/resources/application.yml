@@ -9,3 +9,10 @@ spring:
     hibernate:
       ddl-auto: validate   # 테이블은 Flyway(db/migration)가 만들고, JPA는 엔티티와 맞는지 확인만 한다
     open-in-view: false
+
+# NCP SENS 문자 발송(notification). 네 값이 모두 비어 있으면 문자를 보내지 않고 로그로만 남긴다
+sens:
+  access-key: ${SENS_ACCESS_KEY:}
+  secret-key: ${SENS_SECRET_KEY:}
+  service-id: ${SENS_SERVICE_ID:}
+  sender-number: ${SENS_SENDER_NUMBER:}
