@@ -38,3 +38,8 @@ sens:
 # 이름을 jwt.secret으로 두지 않는다 — 그러면 셸에 export한 JWT_SECRET을 스프링이 바로 그 이름에 넣어 테스트용 키까지 덮는다
 jwt:
   secret-key: ${JWT_SECRET:}
+
+# 직원으로 가입할 때 입력하는 직원 코드(member). 비어 있으면 서버가 뜨지 않는다.
+# 이름을 staff.code로 두지 않는다 — 위 jwt.secret-key와 같은 이유(셸에 export한 STAFF_CODE가 테스트용 값을 덮는다)
+member:
+  staff-code: ${STAFF_CODE:}

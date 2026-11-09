@@ -4,3 +4,7 @@
 # 테스트용 로그인 토큰 서명 키. 실제 서버는 환경변수 JWT_SECRET을 쓴다(README 환경변수 절)
 jwt:
   secret-key: test-only-jwt-secret-not-for-real-servers
+
+# 테스트용 직원 코드. 실제 서버는 환경변수 STAFF_CODE를 쓴다
+member:
+  staff-code: test-staff-code
