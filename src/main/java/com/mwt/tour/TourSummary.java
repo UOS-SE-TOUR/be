@@ -13,10 +13,14 @@ public record TourSummary(Long tourId, String title, LocalDate departureDate, in
 	private static final DateTimeFormatter TITLE_DATE = DateTimeFormatter.ofPattern("M/d");
 
 	static TourSummary from(Tour tour) {
-		String title = tour.getTheme().getDisplayName() + " " + tour.getDepartureDate().format(TITLE_DATE) + " 출발 "
+		return new TourSummary(tour.getId(), title(tour), tour.getDepartureDate(), tour.getDuration(),
+				tour.remainingSeats(), tour.getStatus());
+	}
+
+	/** 상품 이름. booking 모듈의 가격 계산 결과와 이전 여행도 같은 이름을 쓴다. */
+	public static String title(Tour tour) {
+		return tour.getTheme().getDisplayName() + " " + tour.getDepartureDate().format(TITLE_DATE) + " 출발 "
 				+ tour.getDuration() + "일";
-		return new TourSummary(tour.getId(), title, tour.getDepartureDate(), tour.getDuration(), tour.remainingSeats(),
-				tour.getStatus());
 	}
 
 }

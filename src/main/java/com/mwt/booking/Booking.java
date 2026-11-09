@@ -65,4 +65,8 @@ public class Booking {
 	@Column(nullable = false)
 	private Instant appliedAt;
 
+	public long finalPrice() {
+		return totalPrice - discount;
+	}
+
 }
