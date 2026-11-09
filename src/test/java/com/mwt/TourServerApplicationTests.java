@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.event.ApplicationListenerMethodAdapter;
+import org.springframework.context.support.AbstractApplicationContext;
 import org.springframework.scheduling.config.CronTask;
 import org.springframework.scheduling.config.ScheduledTask;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
@@ -23,6 +26,9 @@ class TourServerApplicationTests {
 	@Autowired
 	ScheduledTaskHolder scheduledTaskHolder;
 
+	@Autowired
+	ApplicationContext applicationContext;
+
 	@Test
 	void contextLoads() {
 	}
@@ -36,6 +42,14 @@ class TourServerApplicationTests {
 				assertThat(((CronTask) task).getExpression()).isEqualTo("0 0 0 * * *");
 				assertThat(task.getRunnable()).hasToString("com.mwt.tour.TourScheduler.updateStatuses");
 			});
+	}
+
+	@Test
+	void 서버가_뜰_때_상품_상태를_바꾸는_리스너가_등록돼_있다() {
+		assertThat(((AbstractApplicationContext) applicationContext).getApplicationListeners())
+			.filteredOn(ApplicationListenerMethodAdapter.class::isInstance)
+			.extracting(Object::toString)
+			.anySatisfy(listener -> assertThat(listener).contains("com.mwt.tour.TourScheduler.updateStatusesOnStartup()"));
 	}
 
 }
