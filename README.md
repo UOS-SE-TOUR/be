@@ -12,7 +12,7 @@ docker compose up -d --wait
 # 로그인 토큰 서명 키를 .env에 만들어 둔다 (없으면 서버가 뜨지 않는다. 이미 있으면 그대로 둔다)
 grep -qs '^JWT_SECRET=' .env || printf '\nJWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
 # 직원 코드도 같은 식으로 만들어 둔다 (직원으로 가입할 때 .env에 적힌 이 값을 입력한다)
-grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 4)" >> .env
+grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 8)" >> .env
 # 서버를 띄운다 (http://localhost:8080)
 ./gradlew bootRun
 ```
@@ -31,7 +31,7 @@ grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 
 | `DB_USERNAME` | `mwt` | MySQL 계정 |
 | `DB_PASSWORD` | `mwt` | MySQL 비밀번호 |
 | `JWT_SECRET` | (없음, 꼭 넣어야 함) | 로그인 토큰(JWT) 서명 키. 32바이트(영문·숫자 32자) 이상으로, `openssl rand -hex 32`로 만듭니다. 비어 있거나 짧으면 서버가 뜨지 않습니다. 서버(로컬·운영 등)마다 다른 값을 씁니다 — 같으면 한 서버에서 받은 토큰이 다른 서버에서도 통합니다 |
-| `STAFF_CODE` | (없음, 꼭 넣어야 함) | 직원으로 가입할 때 입력하는 직원 코드. 회사가 직원에게만 알려 주는 값이라 남이 짐작하기 어렵게 정합니다. 비어 있으면 서버가 뜨지 않습니다. 앞뒤 공백은 떼고 비교합니다 |
+| `STAFF_CODE` | (없음, 꼭 넣어야 함) | 직원으로 가입할 때 입력하는 직원 코드. 회사가 직원에게만 알려 주는 값이라 16자 이상 무작위 값(예: `openssl rand -hex 8`)으로 정합니다 — 가입 API에 시도 횟수 제한이 없습니다. 비어 있으면 서버가 뜨지 않습니다. 앞뒤 공백은 떼고 비교합니다 |
 | `SENS_ACCESS_KEY` | (없음) | NCP API 인증키의 Access Key ID(문자 발송) |
 | `SENS_SECRET_KEY` | (없음) | 위 Access Key의 Secret Key |
 | `SENS_SERVICE_ID` | (없음) | SENS SMS 프로젝트의 서비스 ID(`ncp:sms:kr:…` 꼴) |
@@ -57,7 +57,7 @@ OpenAI API 키(voice)는 그 모듈을 만들면서 더합니다. 이런 값은 
 
 화면(React)은 정적 호스팅에 따로 배포하고, 호스팅의 프록시(rewrite) 기능으로 `/api/*` 요청을 이 서버로 넘깁니다. 브라우저에는 화면과 서버가 같은 주소로 보이므로 로그인 쿠키(HttpOnly, SameSite=Lax)가 그대로 실리고, 서버에는 CORS 설정을 두지 않습니다.
 
-로컬에서는 화면 개발 서버의 프록시로 `/api`를 `http://localhost:8080`에 넘깁니다.
+로컬에서는 화면 개발 서버의 프록시로 `/api`를 `http://localhost:8080`에 넘깁니다. 로그인 쿠키는 Secure라 브라우저가 HTTPS에서만 저장하는데, Chrome·Firefox는 `http://localhost`만 예외로 받아 줍니다. 그래서 로컬 화면은 `localhost` 주소로 엽니다 — 같은 와이파이의 다른 기기에서 `http://192.168.…` 같은 IP 주소로 열면 로그인 응답은 성공해도 쿠키가 저장되지 않아 다음 요청이 401입니다.
 
 **서버 API 주소는 모두 `/api/v1`로 시작합니다**(설계산출물 4.9 서버 API 표, 예: `/api/v1/members/login`). 그래서 화면 호스팅의 프록시, 서버 앞 웹 서버, 로컬 화면 개발 서버의 프록시는 모두 `/api`로 시작하는 경로를 떼지 않고 그대로 넘깁니다. 어느 한 곳이라도 앞부분을 떼면 서버에서 404가 납니다.
 
