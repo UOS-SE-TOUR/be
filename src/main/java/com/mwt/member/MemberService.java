@@ -72,7 +72,7 @@ public class MemberService {
 		if (request.memberType() == MemberType.STAFF && !isStaffCode(request.staffCode())) {
 			throw new BusinessException("직원 코드가 맞지 않아 직원으로 가입할 수 없습니다.");
 		}
-		if (TextInput.length(request.password()) < MIN_PASSWORD_LENGTH) {   // 다듬지 않고 글자 수만 센다
+		if (TextInput.length(request.password()) < MIN_PASSWORD_LENGTH) {
 			throw new BusinessException("비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상으로 입력해 주세요.");
 		}
 		if (isTooLong(request.password())) {

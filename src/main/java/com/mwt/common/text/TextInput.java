@@ -31,11 +31,19 @@ public final class TextInput {
 		String composed = Normalizer.normalize(value, Normalizer.Form.NFC);
 		int start = 0;
 		int end = composed.length();
-		while (start < end && isBlank(composed.codePointAt(start))) {
-			start += Character.charCount(composed.codePointAt(start));
+		while (start < end) {
+			int codePoint = composed.codePointAt(start);
+			if (!isBlank(codePoint)) {
+				break;
+			}
+			start += Character.charCount(codePoint);
 		}
-		while (end > start && isBlank(composed.codePointBefore(end))) {
-			end -= Character.charCount(composed.codePointBefore(end));
+		while (end > start) {
+			int codePoint = composed.codePointBefore(end);
+			if (!isBlank(codePoint)) {
+				break;
+			}
+			end -= Character.charCount(codePoint);
 		}
 		return composed.substring(start, end);
 	}
@@ -62,25 +70,22 @@ public final class TextInput {
 	}
 
 	private static boolean isBlank(int codePoint) {
-		return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint) || isInvisible(codePoint);
+		return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)
+				|| Character.isISOControl(codePoint) || isInvisible(codePoint);
 	}
 
 	/**
-	 * 공백 문자로 치지 않지만 화면에 보이지 않는 글자. 앞뒤에서만 떼므로 이모지 가운데의 결합자(U+200D)는 남는다.
-	 * 이모지 끝의 모양 선택자(U+FE0F)와 깃발 이모지 끝의 태그 글자는 보이는 글자의 일부라 넣지 않는다.
+	 * 공백 문자로 치지 않지만 화면에 보이지 않는 글자. 유니코드 형식 문자(Cf — 폭 없는 공백·글자 방향 표시·BOM 등)와,
+	 * 빈 이름처럼 보이게 쓰이는 한글 채움 문자·점자 빈칸, 자소 결합자다. 앞뒤에서만 떼므로 이모지 가운데의 결합자(U+200D)는 남는다.
+	 * 깃발 이모지 끝의 태그 글자도 형식 문자지만 보이는 글자의 일부라 떼지 않는다.
 	 */
 	private static boolean isInvisible(int codePoint) {
-		return switch (codePoint) {
-			case 0x00AD,                                   // 보이지 않는 하이픈
-					0x115F, 0x1160, 0x3164, 0xFFA0,        // 한글 채움 문자(빈 이름처럼 보이게 쓰인다)
-					0x180E,                                // 몽골어 모음 구분자
-					0x200B, 0x200C, 0x200D,                // 폭 없는 공백·비결합자·결합자
-					0x200E, 0x200F, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
-					0x2066, 0x2067, 0x2068, 0x2069,        // 글자 방향 표시·지정·격리
-					0x2060, 0x2061, 0x2062, 0x2063, 0x2064, // 단어 결합자, 보이지 않는 수식 기호
-					0xFEFF -> true;                        // BOM(폭 없는 줄 바꿈 없는 공백)
-			default -> false;
-		};
+		if (codePoint >= 0xE0020 && codePoint <= 0xE007F) {
+			return false;
+		}
+		return Character.getType(codePoint) == Character.FORMAT
+				|| codePoint == 0x115F || codePoint == 0x1160 || codePoint == 0x3164 || codePoint == 0xFFA0
+				|| codePoint == 0x2800 || codePoint == 0x034F;
 	}
 
 	/** 마지막 글자에 받침이 있는지. 조사를 고를 수 없으니 label은 한글 음절로 끝나야 한다. */

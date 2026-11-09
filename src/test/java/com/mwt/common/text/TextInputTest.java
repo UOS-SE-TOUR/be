@@ -33,9 +33,9 @@ class TextInputTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(ints = {0x3164, 0x115F, 0x1160, 0xFFA0, 0x200E, 0x200F, 0x202A, 0x202E, 0x2066, 0x2069, 0x00AD, 0x2060,
-			0x2064, 0x180E})
-	void 한글_채움_문자와_글자_방향_표시도_보이지_않는_공백으로_뗀다(int codePoint) {
+	@ValueSource(ints = {0x3164, 0x115F, 0x1160, 0xFFA0, 0x2800, 0x034F, 0x200E, 0x200F, 0x202A, 0x202E, 0x2066, 0x2069,
+			0x061C, 0x206F, 0x00AD, 0x2060, 0x2064, 0x180E, 0xFFF9, 0x1D173, 0xE0001, 0x0000, 0x0001, 0x007F, 0x0085})
+	void 한글_채움_문자와_글자_방향_표시와_제어_문자도_보이지_않는_공백으로_뗀다(int codePoint) {
 		String invisible = Character.toString(codePoint);
 
 		assertThat(TextInput.normalize(invisible + "생수" + invisible)).isEqualTo("생수");
@@ -54,6 +54,14 @@ class TextInputTest {
 
 		assertThat(TextInput.normalize(family + " ")).isEqualTo(family);
 		assertThat(TextInput.normalize(redHeart)).isEqualTo(redHeart);
+	}
+
+	@Test
+	void 깃발_이모지_끝의_태그_글자는_떼지_않는다() {
+		// 잉글랜드 깃발: 검은 깃발 + 태그 글자 g·b·e·n·g + 태그 끝. 태그 글자는 형식 문자지만 깃발의 일부다
+		String england = new String(new int[] {0x1F3F4, 0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE0067, 0xE007F}, 0, 7);
+
+		assertThat(TextInput.normalize(england + " ")).isEqualTo(england);
 	}
 
 	@Test
