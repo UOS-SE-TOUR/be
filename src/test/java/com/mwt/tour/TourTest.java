@@ -70,6 +70,18 @@ class TourTest {
 		}
 
 		@Test
+		void 여행이_9999년_12월_31일을_넘으면_거부() {
+			assertRejected(() -> new Tour(Theme.GOLF, LocalDate.of(9999, 12, 31), 2, 10, TODAY),
+					"여행은 9999년 12월 31일 안에 끝나야 합니다.");
+			assertRejected(() -> new Tour(Theme.GOLF, LocalDate.of(10000, 1, 1), 1, 10, TODAY),
+					"여행은 9999년 12월 31일 안에 끝나야 합니다.");
+			assertRejected(() -> new Tour(Theme.GOLF, DEPARTURE, Integer.MAX_VALUE, 10, TODAY),
+					"여행은 9999년 12월 31일 안에 끝나야 합니다.");
+			assertThatCode(() -> new Tour(Theme.GOLF, LocalDate.of(9999, 12, 30), 2, 10, TODAY))
+				.doesNotThrowAnyException();
+		}
+
+		@Test
 		void 기간이_1일이면_만든다() {
 			assertThatCode(() -> new Tour(Theme.GOLF, DEPARTURE, 1, 10, TODAY)).doesNotThrowAnyException();
 		}
@@ -259,6 +271,12 @@ class TourTest {
 		void 교통_이름은_100자까지() {
 			assertThat(TourOption.transport("가".repeat(100), 0).getName()).hasSize(100);
 			assertRejected(() -> TourOption.transport("가".repeat(101), 0), "교통 이름은 100자까지 쓸 수 있습니다.");
+		}
+
+		@Test
+		void 교통_이름의_길이는_DB처럼_글자_수로_센다() {
+			assertThatCode(() -> TourOption.transport("🚌".repeat(100), 0)).doesNotThrowAnyException();
+			assertRejected(() -> TourOption.transport("🚌".repeat(101), 0), "교통 이름은 100자까지 쓸 수 있습니다.");
 		}
 
 		@Test

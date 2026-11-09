@@ -17,7 +17,7 @@ public enum Theme {
 	GOLF("골프 챌린지 투어", "유명 골프 리조트 테마 연출", "골프 액세서리(골프공)", "10인 승합 고급 차량"),
 	TREKKING("아웃도어 트레킹 투어", "트레킹·산악 테마 어드벤처 연출", "아웃도어 기념품(스카프)", "10인 승합 고급 차량");
 
-	private static final int HONEYMOON_HEADCOUNT = 2;
+	static final int HONEYMOON_HEADCOUNT = 2;
 
 	private final String displayName;
 	private final String service;

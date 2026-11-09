@@ -148,6 +148,49 @@ class StaffTourControllerTest {
 				body("GOLF", "2026-12-01", "5", "10.5", golfPrices(), TRANSPORTS));
 	}
 
+	@ParameterizedTest
+	@MethodSource("enumAsNumberRequests")
+	void 테마나_등급을_숫자로_보내면_순번으로_받지_않고_400(String requestBody) throws Exception {
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(requestBody))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().json("{\"message\": \"요청 본문을 읽을 수 없습니다. JSON 형식과 값을 확인해 주세요.\"}",
+					JsonCompareMode.STRICT));
+
+		assertThat(tourRepository.count()).isZero();
+	}
+
+	static Stream<String> enumAsNumberRequests() {
+		return Stream.of(
+				body("GOLF", "2026-12-01", "5", "10", golfPrices(), TRANSPORTS).replace("\"GOLF\"", "2"),
+				body("GOLF", "2026-12-01", "5", "10", golfPrices(), TRANSPORTS).replace("\"GOLF\"", "\"2\""),
+				body("GOLF", "2026-12-01", "5", "10", golfPrices(), TRANSPORTS).replace("\"CLASSIC\"", "0"));
+	}
+
+	@ParameterizedTest
+	@MethodSource("tooLateRequests")
+	void 여행이_9999년_12월_31일을_넘으면_400(String departureDate, String duration) throws Exception {
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+				.content(body("GOLF", departureDate, duration, "10", golfPrices(), TRANSPORTS)))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().json("{\"message\": \"여행은 9999년 12월 31일 안에 끝나야 합니다.\"}", JsonCompareMode.STRICT));
+
+		assertThat(tourRepository.count()).isZero();
+	}
+
+	static Stream<Arguments> tooLateRequests() {
+		return Stream.of(
+				Arguments.of("+10000-01-01", "1"),
+				Arguments.of("9999-12-31", "2"),
+				Arguments.of("2026-12-01", String.valueOf(Integer.MAX_VALUE)));
+	}
+
+	@Test
+	void 여행이_9999년_12월_31일에_끝나면_등록한다() throws Exception {
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+				.content(body("GOLF", "9999-12-30", "2", "10", golfPrices(), TRANSPORTS)))
+			.andExpect(status().isCreated());
+	}
+
 	private static String golfPrices() {
 		return """
 				[{"level": "CLASSIC", "price": 900000}, {"level": "GRAND", "price": 1500000}, \

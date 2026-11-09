@@ -68,7 +68,7 @@ public class TourOption {
 		if (trimmed.isEmpty()) {
 			throw new BusinessException("교통 이름을 입력해 주세요.");
 		}
-		if (trimmed.length() > NAME_MAX_LENGTH) {
+		if (trimmed.codePointCount(0, trimmed.length()) > NAME_MAX_LENGTH) {
 			throw new BusinessException("교통 이름은 " + NAME_MAX_LENGTH + "자까지 쓸 수 있습니다.");
 		}
 		if (unitPrice < 0) {

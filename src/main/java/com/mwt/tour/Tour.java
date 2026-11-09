@@ -35,6 +35,8 @@ import lombok.NoArgsConstructor;
 public class Tour {
 
 	private static final int MIN_CAPACITY = 3;
+	// MySQL DATE에 넣을 수 있는 마지막 날. 여행 종료일(출발일 + 기간 − 1일)까지 이 안에 있어야 저장하고 계산할 수 있다
+	private static final LocalDate LAST_STORABLE_DATE = LocalDate.of(9999, 12, 31);
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -78,10 +80,13 @@ public class Tour {
 		if (duration < 1) {
 			throw new BusinessException("기간은 1일 이상이어야 합니다.");
 		}
+		if (departureDate.isAfter(LAST_STORABLE_DATE) || departureDate.plusDays(duration - 1L).isAfter(LAST_STORABLE_DATE)) {
+			throw new BusinessException("여행은 9999년 12월 31일 안에 끝나야 합니다.");
+		}
 		if (capacity < MIN_CAPACITY) {
 			throw new BusinessException("정원은 " + MIN_CAPACITY + "명 이상이어야 합니다.");
 		}
-		if (theme == Theme.HONEYMOON && capacity % 2 != 0) {
+		if (theme == Theme.HONEYMOON && capacity % Theme.HONEYMOON_HEADCOUNT != 0) {
 			throw new BusinessException(theme.getDisplayName() + "의 정원은 짝수여야 합니다.");
 		}
 		this.theme = theme;
