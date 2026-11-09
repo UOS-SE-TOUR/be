@@ -8,9 +8,9 @@ on:
 permissions:
   contents: read
 
-# 같은 PR에 연달아 push하면 앞선 빌드는 취소한다. main push는 커밋마다 따로 묶여 서로 취소하지 않는다
+# 같은 PR에 연달아 push하면 앞선 빌드는 취소한다(main push는 커밋마다 따로 돈다)
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -23,21 +23,23 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
-      # DB 테스트는 Docker가 없으면 건너뛰도록 되어 있어서, CI에서는 Docker가 있는지 먼저 확인해 조용히 건너뛰는 일을 막는다
+      # Docker가 없으면 DB 테스트가 건너뛰어지니 빌드 전에 먼저 확인한다
       - name: Docker 확인
         run: docker info
       - run: ./gradlew build
-      # CI에서는 건너뛴 테스트를 허용하지 않는다. Testcontainers가 Docker에 붙지 못하면 DB 테스트가 실패하지 않고 건너뛰어서,
-      # docker info가 통과해도 빌드만 초록불이 될 수 있다
+      # CI에서는 건너뛴 테스트를 허용하지 않는다(Testcontainers가 Docker에 못 붙으면 DB 테스트가 조용히 건너뛰어진다)
       - name: 건너뛴 테스트 확인
         run: |
           shopt -s nullglob
-          results=(build/test-results/test/*.xml)
+          results=(build/test-results/*/*.xml)
           if [ ${#results[@]} -eq 0 ]; then
             echo "테스트 결과 파일이 없다 — 테스트가 돌았는지 확인한다"
             exit 1
           fi
           if grep -l 'skipped="[1-9]' "${results[@]}"; then
             echo "위 테스트 결과에 건너뛴 테스트가 있다 — Docker를 못 찾은 DB 테스트이거나 @Disabled·assume으로 끈 테스트다"
+            exit 1
+          elif [ $? -ne 1 ]; then
+            echo "테스트 결과 파일을 읽지 못했다"
             exit 1
           fi
