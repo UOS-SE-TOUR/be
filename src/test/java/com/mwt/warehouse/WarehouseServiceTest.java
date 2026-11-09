@@ -29,6 +29,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.mwt.TestcontainersConfiguration;
@@ -49,6 +50,9 @@ class WarehouseServiceTest {
 
 	@Autowired
 	ItemRepository itemRepository;
+
+	@Autowired
+	TransactionTemplate transactionTemplate;
 
 	@AfterEach
 	void deleteItems() {
@@ -77,6 +81,35 @@ class WarehouseServiceTest {
 		assertThat(added.getQuantity()).isEqualTo(15);
 		assertThat(itemRepository.findAll()).extracting(Item::getName, Item::getTheme, Item::getQuantity)
 			.containsExactly(tuple("생수", Theme.GOLF, 15));
+	}
+
+	@Test
+	void 있는_물품에는_테마_없이_수량을_더할_수_있다() {
+		warehouseService.addItem("생수", Theme.GOLF, 10);
+
+		Item added = warehouseService.addItem("생수", null, 5);
+
+		assertThat(added.getTheme()).isEqualTo(Theme.GOLF);
+		assertThat(added.getQuantity()).isEqualTo(15);
+	}
+
+	@Test
+	void 새_물품인데_테마가_없으면_만들지_않는다() {
+		assertThatThrownBy(() -> warehouseService.addItem("생수", null, 5))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("테마를 골라 주세요.");
+
+		assertThat(itemRepository.count()).isZero();
+	}
+
+	@Test
+	void 바깥_트랜잭션이_되돌려져도_추가한_물품은_남는다() {
+		transactionTemplate.executeWithoutResult(status -> {
+			warehouseService.addItem("생수", Theme.GOLF, 10);
+			status.setRollbackOnly();
+		});
+
+		assertThat(itemRepository.findAll()).extracting(Item::getQuantity).containsExactly(10);
 	}
 
 	@Test

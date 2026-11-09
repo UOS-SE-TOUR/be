@@ -87,6 +87,28 @@ class WarehouseControllerTest {
 	}
 
 	@Test
+	void 있는_물품에_더할_때는_테마를_보내지_않아도_된다() throws Exception {
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", "10")))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content("""
+				{"itemName": "생수", "quantity": 5}"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.theme").value("GOLF"))
+			.andExpect(jsonPath("$.quantity").value(15));
+	}
+
+	@Test
+	void 새_물품인데_테마를_보내지_않으면_400() throws Exception {
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content("""
+				{"itemName": "생수", "quantity": 5}"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().json("{\"message\": \"테마를 골라 주세요.\"}", JsonCompareMode.STRICT));
+
+		assertThat(itemRepository.count()).isZero();
+	}
+
+	@Test
 	void 목록은_이름_순으로_이름_테마_현재_수량을_준다() throws Exception {
 		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"스카프\"", "\"TREKKING\"", "12")))
 			.andExpect(status().isOk());

@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import com.mwt.common.exception.BusinessException;
 import com.mwt.tour.Theme;
@@ -25,7 +24,7 @@ class WarehouseServiceRetryTest {
 
 	private final ItemRepository itemRepository = mock(ItemRepository.class);
 	private final WarehouseService warehouseService = new WarehouseService(itemRepository,
-			new TransactionTemplate(mock(PlatformTransactionManager.class)));
+			mock(PlatformTransactionManager.class));
 
 	@Test
 	void 세_번_모두_겹치면_마지막_예외를_그대로_던진다() {
