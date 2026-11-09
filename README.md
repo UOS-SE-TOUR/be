@@ -9,6 +9,8 @@
 ```bash
 # 로컬 MySQL 8.4를 띄우고 접속 준비가 끝날 때까지 기다린다 (DB 이름 mwt, 계정 mwt / 비밀번호 mwt)
 docker compose up -d --wait
+# 처음 한 번만: 로그인 토큰 서명 키를 .env에 만들어 둔다 (없으면 서버가 뜨지 않는다)
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 # 서버를 띄운다 (http://localhost:8080)
 ./gradlew bootRun
 ```
@@ -26,6 +28,7 @@ docker compose up -d --wait
 | `DB_URL` | `jdbc:mysql://localhost:3306/mwt` | MySQL 주소 |
 | `DB_USERNAME` | `mwt` | MySQL 계정 |
 | `DB_PASSWORD` | `mwt` | MySQL 비밀번호 |
+| `JWT_SECRET` | (없음, 꼭 넣어야 함) | 로그인 토큰(JWT) 서명 키. 32바이트(영문·숫자 32자) 이상으로, `openssl rand -hex 32`로 만듭니다. 비어 있거나 짧으면 서버가 뜨지 않습니다 |
 | `SENS_ACCESS_KEY` | (없음) | NCP API 인증키의 Access Key ID(문자 발송) |
 | `SENS_SECRET_KEY` | (없음) | 위 Access Key의 Secret Key |
 | `SENS_SERVICE_ID` | (없음) | SENS SMS 프로젝트의 서비스 ID(`ncp:sms:kr:…` 꼴) |
@@ -33,7 +36,9 @@ docker compose up -d --wait
 
 `SENS_`로 시작하는 네 값이 모두 비어 있으면 문자를 보내지 않고 보낼 내용을 서버 로그에만 남깁니다(가짜 발송기, 테스트·시연 연습용). 일부만 넣으면 서버가 뜨지 않습니다.
 
-모듈을 만들면서 직원 코드(member), JWT 비밀 키(common.security), OpenAI API 키(voice)를 더합니다. 이런 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
+`JWT_SECRET`을 바꾸면 그 전에 받은 로그인 토큰이 모두 무효가 되어 다시 로그인해야 합니다. 테스트는 이 값 대신 `src/test/resources/config/application.yml`의 테스트용 키를 씁니다.
+
+모듈을 만들면서 직원 코드(member), OpenAI API 키(voice)를 더합니다. 이런 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
 
 내 컴퓨터에서 값을 바꿀 때는 둘 중 하나를 씁니다. 둘 다 `.gitignore`에 들어 있어 커밋되지 않습니다.
 
@@ -68,13 +73,33 @@ API가 실패하면 상태 코드와 함께 본문을 늘 아래 모양 하나�
 | 400 | 입력 오류와 업무 규칙 위반, 요청 본문(JSON) 형식 오류, 필수 요청 값이 없거나 형식이 틀림 |
 | 401 | 로그인하지 않았거나 로그인이 만료됨 |
 | 403 | 권한이 없음 |
-| 404 | 없는 주소 |
+| 404 | 없는 주소(권한 규칙에 없는 주소는 401·403 — 아래 "로그인과 권한") |
 | 500 | 서버 오류. 문구는 늘 "서버에 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요."이고 자세한 내용은 서버 로그에만 남습니다 |
 
 업무에 따라 다른 4xx(409 등)를 쓰기도 합니다. 서버 코드는 이렇게 씁니다.
 
 - 업무 규칙을 어기면 `throw new BusinessException("남은 자리보다 인원이 많습니다.");`처럼 예외를 던지기만 합니다(400). 다른 4xx가 필요하면 `new BusinessException(HttpStatus.CONFLICT, "...")`로 상태를 줍니다. 응답 모양은 `com.mwt.common.exception`이 정하므로 Controller에서 오류 응답을 직접 만들지 않습니다.
 - 요청 DTO의 검증 애너테이션에는 화면에 보일 문구를 `message`로 적습니다(예: `@NotBlank(message = "아이디를 입력해 주세요.")`). 검증 오류가 여럿이면 필드 이름 순으로 첫 문구 하나만 돌려줍니다.
+
+## 로그인과 권한
+
+로그인하면 서버가 로그인 토큰(JWT)을 `accessToken` 쿠키(HttpOnly)로 내려 주고, 브라우저는 요청마다 이 쿠키를 실어 보냅니다. 토큰에는 회원 ID와 회원 구분(고객·직원)이 들어 있고 24시간 뒤 만료됩니다(설계산출물 4.10). 서버는 요청마다 쿠키의 토큰을 확인하고, 설계산출물 4.9 서버 API 표의 "쓸 수 있는 사람"대로 주소마다 막습니다.
+
+| 주소(`/api/v1/` 뒤) | 쓸 수 있는 사람 |
+| --- | --- |
+| `POST members/signup`, `POST members/login`, `POST members/logout` | 누구나(로그아웃은 토큰이 만료되었어도 됩니다) |
+| `GET members/me` | 로그인한 회원 |
+| `tours/**`, `bookings/**`, `voice/**` | 고객 |
+| `staff/**` | 직원 |
+| 위에 없는 주소 | 아무도 쓸 수 없음 |
+
+API 문서(Swagger) 주소는 로그인 없이 열립니다.
+
+- 로그인하지 않았거나 토큰이 만료되었거나 틀리면 401 `{"message": "로그인이 필요합니다."}`, 로그인했지만 권한이 없으면 403 `{"message": "권한이 없습니다."}`입니다.
+- **위 표에 없는 주소는 Controller가 있어도 막습니다**(로그인 전 401, 로그인 뒤 403). 표의 꼴 밖에 API를 새로 만들면 `common.security`의 `SecurityConfig`에 규칙을 더합니다.
+- Controller는 로그인한 회원의 ID를 `@AuthenticationPrincipal Long memberId`로 받습니다.
+- 비밀번호는 `PasswordEncoder` 빈(BCrypt)으로 암호화합니다.
+- CSRF 토큰은 쓰지 않습니다. 쿠키가 SameSite=Lax라 다른 사이트에서 보낸 POST에는 쿠키가 실리지 않기 때문입니다(설계산출물 4.10). 그러니 상태를 바꾸는 API는 GET으로 만들지 않습니다.
 
 ## 패키지
 
@@ -83,7 +108,7 @@ API가 실패하면 상태 코드와 함께 본문을 늘 아래 모양 하나�
 | 패키지 | 하는 일 | 설계산출물 v0.5 |
 | --- | --- | --- |
 | `member` | 회원가입, 로그인, 로그아웃, 직원 코드 확인 | 4.2 |
-| `common.security` | 로그인 토큰(JWT) 만들기와 확인 | 4.3 |
+| `common.security` | 로그인 토큰(JWT) 만들기와 확인, API별 권한 검사, 비밀번호 암호화 | 4.3 |
 | `common.exception` | 오류 응답 형식(`{"message"}`)과 전역 예외 처리 | 4.9 |
 | `tour` | 여행 상품, 등급별 가격, 옵션, 상품 기획, 매일 상품 상태 바꾸기 | 4.4 |
 | `booking` | 가격 계산, 단골 할인, 신청, 확정 문자 요청, 이전 여행 | 4.5 |
