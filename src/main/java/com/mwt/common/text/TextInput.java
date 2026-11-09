@@ -33,17 +33,30 @@ public final class TextInput {
 		int end = composed.length();
 		while (start < end) {
 			int codePoint = composed.codePointAt(start);
-			if (!isBlank(codePoint) && !isModifierWithoutBase(codePoint)) {
+			if (!isBlank(codePoint) && !isModifier(codePoint)) {   // 맨 앞의 꾸밈 글자는 꾸밀 글자가 없다
 				break;
 			}
 			start += Character.charCount(codePoint);
 		}
 		while (end > start) {
 			int codePoint = composed.codePointBefore(end);
-			if (!isBlank(codePoint)) {
+			if (isBlank(codePoint)) {
+				end -= Character.charCount(codePoint);
+				continue;
+			}
+			if (!isModifier(codePoint)) {
 				break;
 			}
-			end -= Character.charCount(codePoint);
+			// 끝의 꾸밈 글자는 그 앞의 꾸밀 글자와 함께 본다. 꾸밀 글자가 공백이면 함께 뗀다. 맨 앞의 꾸밈 글자는 위에서 뗐으니
+			// 꾸밀 글자는 늘 start 뒤에 있다
+			int base = end;
+			while (isModifier(composed.codePointBefore(base))) {
+				base -= Character.charCount(composed.codePointBefore(base));
+			}
+			if (!isBlank(composed.codePointBefore(base))) {
+				break;
+			}
+			end = base;
 		}
 		return composed.substring(start, end);
 	}
@@ -90,10 +103,10 @@ public final class TextInput {
 	}
 
 	/**
-	 * 앞 글자를 꾸미는 보이지 않는 글자: 모양 선택자와 태그 글자. 맨 앞에서는 꾸밀 글자가 없어 떼고(이것만 넣으면 빈 이름이 된다),
-	 * 끝에서는 하트 같은 이모지·깃발 이모지의 일부일 수 있어 남긴다.
+	 * 앞 글자를 꾸미는 보이지 않는 글자(꾸밈 글자): 모양 선택자와 태그 글자. 맨 앞에서는 꾸밀 글자가 없어 떼고(이것만 넣으면 빈 이름이
+	 * 된다), 끝에서는 하트 같은 이모지·깃발 이모지·한자 이체자의 일부일 수 있어 꾸밀 글자가 공백일 때만 뗀다.
 	 */
-	private static boolean isModifierWithoutBase(int codePoint) {
+	private static boolean isModifier(int codePoint) {
 		return codePoint >= 0xFE00 && codePoint <= 0xFE0F || codePoint >= 0xE0100 && codePoint <= 0xE01EF
 				|| codePoint >= 0xE0020 && codePoint <= 0xE007F;
 	}

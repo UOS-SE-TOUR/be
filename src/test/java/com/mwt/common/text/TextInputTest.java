@@ -77,6 +77,25 @@ class TextInputTest {
 	}
 
 	@ParameterizedTest
+	@ValueSource(ints = {0xFE0F, 0xE0100, 0xE0067, 0xE007F})
+	void 끝의_꾸밈_글자는_꾸밀_글자가_공백이면_공백과_함께_뗀다(int codePoint) {
+		String modifier = Character.toString(codePoint);
+
+		assertThat(TextInput.normalize("생수 " + modifier)).isEqualTo("생수");
+		assertThat(TextInput.normalize("생수" + Character.toString(0x200B) + modifier + modifier + " ")).isEqualTo("생수");
+		assertThat(TextInput.normalize("생수 " + modifier + " " + modifier)).isEqualTo("생수");
+	}
+
+	@Test
+	void 끝의_꾸밈_글자는_꾸밀_글자가_보이면_남긴다() {
+		String heart = new String(new int[] {0x2764, 0xFE0F}, 0, 2);
+		String hanjaVariant = new String(new int[] {0x845B, 0xE0100}, 0, 2);   // 葛의 이체자
+
+		assertThat(TextInput.normalize("사랑" + heart + " ")).isEqualTo("사랑" + heart);
+		assertThat(TextInput.normalize(" " + hanjaVariant + " ")).isEqualTo(hanjaVariant);
+	}
+
+	@ParameterizedTest
 	@ValueSource(ints = {0x0600, 0x0605, 0x06DD, 0x070F, 0x0890, 0x08E2, 0x110BD, 0x110CD})
 	void 숫자_앞에_붙어_보이는_형식_문자는_떼지_않는다(int codePoint) {
 		String marked = new String(new int[] {codePoint, 0x0661, 0x0662, 0x0663}, 0, 4);   // 표시 + 아랍 숫자 123
