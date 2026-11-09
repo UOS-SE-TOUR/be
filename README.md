@@ -9,8 +9,8 @@
 ```bash
 # 로컬 MySQL 8.4를 띄우고 접속 준비가 끝날 때까지 기다린다 (DB 이름 mwt, 계정 mwt / 비밀번호 mwt)
 docker compose up -d --wait
-# 처음 한 번만: 로그인 토큰 서명 키를 .env에 만들어 둔다 (없으면 서버가 뜨지 않는다)
-printf '\nJWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
+# 로그인 토큰 서명 키를 .env에 만들어 둔다 (없으면 서버가 뜨지 않는다. 이미 있으면 그대로 둔다)
+grep -qs '^JWT_SECRET=' .env || printf '\nJWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
 # 서버를 띄운다 (http://localhost:8080)
 ./gradlew bootRun
 ```
