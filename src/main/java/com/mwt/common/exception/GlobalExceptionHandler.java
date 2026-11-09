@@ -2,6 +2,7 @@ package com.mwt.common.exception;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Stream;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.TypeMismatchException;
@@ -22,6 +23,7 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -33,10 +35,18 @@ import lombok.extern.slf4j.Slf4j;
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
+	private static final String TYPE_MISMATCH = "요청 값의 형식이 올바르지 않습니다: ";
+
 	@ExceptionHandler(BusinessException.class)
 	ResponseEntity<ErrorResponse> handleBusinessException(BusinessException ex) {
-		String message = StringUtils.hasText(ex.getMessage()) ? ex.getMessage() : messageFor(ex.getStatus());
-		return ResponseEntity.status(ex.getStatus()).body(new ErrorResponse(message));
+		return toResponse(ex);
+	}
+
+	/** 클래스에 @Validated를 붙여 메소드 인자를 검증했을 때의 실패. */
+	@ExceptionHandler(ConstraintViolationException.class)
+	ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex) {
+		return ResponseEntity.badRequest().body(firstError(ex.getConstraintViolations().stream()
+			.map(v -> new ValidationError(v.getPropertyPath().toString(), v.getMessage()))));
 	}
 
 	/** 예상하지 못한 오류. 자세한 내용은 서버 로그에만 남기고 화면에는 일반 문구만 보낸다. */
@@ -46,7 +56,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return ResponseEntity.internalServerError().body(new ErrorResponse(messageFor(HttpStatus.INTERNAL_SERVER_ERROR)));
 	}
 
-	/** 요청 본문 검증(@Valid) 실패. 검증 애너테이션의 message를 그대로 돌려준다. */
+	/** 요청 본문(@Valid)·쿼리 객체 검증과 바인딩 실패. 검증 애너테이션의 message를 그대로 돌려준다. */
 	@Override
 	protected @Nullable ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
@@ -60,15 +70,23 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return handleExceptionInternal(ex, firstError(ex.getAllErrors()), headers, status, request);
 	}
 
-	/** 상위 클래스가 처리한 모든 오류가 여기를 지난다. 본문을 ErrorResponse로 바꾼다. */
+	/** 상위 클래스가 처리한 모든 오류가 여기를 지난다. 본문을 ErrorResponse로 바꾸고, 5xx는 일반 문구만 보낸다. */
 	@Override
 	protected @Nullable ResponseEntity<Object> handleExceptionInternal(Exception ex, @Nullable Object body,
 			HttpHeaders headers, HttpStatusCode statusCode, WebRequest request) {
+		Object errorBody;
 		if (statusCode.is5xxServerError()) {
 			log.error("요청 처리 중 오류: {}", request.getDescription(false), ex);
+			errorBody = new ErrorResponse(messageFor(statusCode));
+		} else {
+			errorBody = body instanceof ErrorResponse ? body : new ErrorResponse(messageOf(ex, statusCode));
 		}
-		Object errorBody = body instanceof ErrorResponse ? body : new ErrorResponse(messageOf(ex, statusCode));
 		return super.handleExceptionInternal(ex, errorBody, headers, statusCode, request);
+	}
+
+	static ResponseEntity<ErrorResponse> toResponse(BusinessException ex) {
+		String message = StringUtils.hasText(ex.getMessage()) ? ex.getMessage() : messageFor(ex.getStatus());
+		return ResponseEntity.status(ex.getStatus()).body(new ErrorResponse(message));
 	}
 
 	/** 상태 코드마다 화면에 보일 일반 문구. */
@@ -89,7 +107,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 			return "필수 요청 값이 없습니다: " + e.getParameterName();
 		}
 		if (ex instanceof TypeMismatchException e && e.getPropertyName() != null) {
-			return "요청 값의 형식이 올바르지 않습니다: " + e.getPropertyName();
+			return TYPE_MISMATCH + e.getPropertyName();
 		}
 		if (ex instanceof HttpMessageNotReadableException) {
 			return "요청 본문을 읽을 수 없습니다. JSON 형식과 값을 확인해 주세요.";
@@ -97,15 +115,31 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return messageFor(status);
 	}
 
-	/** 검증 오류가 여럿이면 필드 이름 순으로 첫 번째 문구 하나만 보낸다(검증기가 내는 순서는 매번 다르다). */
 	private static ErrorResponse firstError(List<? extends MessageSourceResolvable> errors) {
-		return errors.stream()
-			.sorted(Comparator.comparing((MessageSourceResolvable e) -> e instanceof FieldError f ? f.getField() : ""))
-			.map(MessageSourceResolvable::getDefaultMessage)
-			.filter(StringUtils::hasText)
+		return firstError(errors.stream().map(e -> {
+			if (e instanceof FieldError f) {
+				// 바인딩 실패(숫자 자리에 글자 등)의 기본 문구는 스프링의 영어 설명이라 화면용 문구로 바꾼다
+				return new ValidationError(f.getField(), f.isBindingFailure() ? TYPE_MISMATCH + f.getField()
+						: f.getDefaultMessage());
+			}
+			return new ValidationError(null, e.getDefaultMessage());
+		}));
+	}
+
+	/**
+	 * 검증 오류가 여럿이면 문구 하나만 보낸다. 필드 이름 순이고, 필드에 붙지 않은 오류(클래스 단위 검증)는 뒤에 둔다.
+	 * 검증기가 내는 순서는 매번 달라 같은 필드 안에서는 문구로 정렬한다.
+	 */
+	private static ErrorResponse firstError(Stream<ValidationError> errors) {
+		return errors.filter(e -> StringUtils.hasText(e.message()))
+			.sorted(Comparator.comparing(ValidationError::field, Comparator.nullsLast(Comparator.<String>naturalOrder()))
+				.thenComparing(ValidationError::message))
 			.findFirst()
-			.map(ErrorResponse::new)
+			.map(e -> new ErrorResponse(e.message()))
 			.orElseGet(() -> new ErrorResponse(messageFor(HttpStatus.BAD_REQUEST)));
+	}
+
+	private record ValidationError(@Nullable String field, @Nullable String message) {
 	}
 
 }

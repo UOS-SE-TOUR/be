@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.ConversionNotSupportedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.json.JsonCompareMode;
@@ -25,7 +26,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Valid;
+import jakarta.validation.Validation;
+import jakarta.validation.ValidatorFactory;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 
@@ -98,6 +102,27 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
+	void 쿼리_객체_바인딩_실패는_400과_화면용_문구() throws Exception {
+		mockMvc.perform(get("/test/search").param("page", "abc"))
+			.andExpect(status().isBadRequest())
+			.andExpect(onlyMessage("요청 값의 형식이 올바르지 않습니다: page"));
+	}
+
+	@Test
+	void Validated_방식의_검증_실패도_400과_검증_문구() throws Exception {
+		mockMvc.perform(get("/test/constraint"))
+			.andExpect(status().isBadRequest())
+			.andExpect(onlyMessage("아이디를 입력해 주세요."));
+	}
+
+	@Test
+	void 스프링이_정한_5xx도_일반_문구만() throws Exception {
+		mockMvc.perform(get("/test/conversion"))
+			.andExpect(status().isInternalServerError())
+			.andExpect(onlyMessage("서버에 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요."));
+	}
+
+	@Test
 	void 없는_주소는_404() throws Exception {
 		mockMvc.perform(get("/test/nothing"))
 			.andExpect(status().isNotFound())
@@ -150,6 +175,25 @@ class GlobalExceptionHandlerTest {
 			throw new IllegalStateException("DB 비밀번호가 틀렸다");
 		}
 
+		@GetMapping("/search")
+		void search(SearchRequest request) {
+		}
+
+		@GetMapping("/constraint")
+		void constraint() {
+			try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+				throw new ConstraintViolationException(factory.getValidator().validate(new TestRequest("", "비밀번호")));
+			}
+		}
+
+		@GetMapping("/conversion")
+		void conversion() {
+			throw new ConversionNotSupportedException("값", String.class, null);
+		}
+
+	}
+
+	record SearchRequest(int page) {
 	}
 
 	record TestRequest(
