@@ -28,6 +28,7 @@
 
 - 실행: `docker compose up -d --wait`(로컬 MySQL, 준비될 때까지 기다림) → `./gradlew bootRun`.
 - AI 기본 게이트: `src/`·`build.gradle`·`settings.gradle`·`gradle/`·`gradlew`·`.github/`를 고쳤으면 `./gradlew build`(컴파일+테스트). Docker가 꺼져 있으면 DB 테스트는 SKIPPED로 끝나니 그 사실을 PR에 적고 CI 결과로 넘긴다.
+- `.claude/skills/`를 고쳤으면 그 스킬의 `tests/run.sh`(예: `bash .claude/skills/issue/tests/run.sh`)를 통과시킨다.
 
 ## Git / 협업 규칙
 
