@@ -43,3 +43,8 @@ jwt:
 # 이름을 staff.code로 두지 않는다 — 위 jwt.secret-key와 같은 이유(셸에 export한 STAFF_CODE가 테스트용 값을 덮는다)
 member:
   staff-code: ${STAFF_CODE:}
+
+# 음성으로 고르기(voice)가 부르는 OpenAI API 키. 비어 있어도 서버는 뜨고, POST /api/v1/voice/parse만 503을 돌려준다.
+# 이름을 openai.api-key로 두지 않는다 — 위 jwt.secret-key와 같은 이유(셸에 export한 OPENAI_API_KEY가 테스트의 빈 값을 덮는다)
+voice:
+  openai-api-key: ${OPENAI_API_KEY:}
