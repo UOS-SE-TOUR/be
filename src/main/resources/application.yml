@@ -9,6 +9,9 @@ spring:
     hibernate:
       ddl-auto: validate   # 테이블은 Flyway(db/migration)가 만들고, JPA는 엔티티와 맞는지 확인만 한다
     open-in-view: false
+  jackson:
+    deserialization:
+      accept-float-as-int: false   # 정수 칸(기간·정원·인원·수량 등)에 2.5 같은 소수가 오면 잘라 받지 않고 400으로 돌려준다
 
 # API 문서(Swagger). 화면 호스팅·Nginx 프록시가 /api만 서버로 넘기므로 문서도 /api 아래에 둔다
 springdoc:
