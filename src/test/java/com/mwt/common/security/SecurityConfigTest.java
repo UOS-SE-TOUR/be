@@ -2,14 +2,17 @@ package com.mwt.common.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.Callable;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +24,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -136,6 +140,15 @@ class SecurityConfigTest {
 	}
 
 	@Test
+	void 비동기로_응답해도_로그인한_회원으로_본다() throws Exception {
+		MvcResult started = mockMvc.perform(post("/api/v1/voice/async").cookie(customer()))
+			.andExpect(request().asyncStarted())
+			.andReturn();
+
+		mockMvc.perform(asyncDispatch(started)).andExpect(memberId(CUSTOMER_ID));
+	}
+
+	@Test
 	void Controller_안에서_난_권한_예외도_500이_아니라_403() throws Exception {
 		mockMvc.perform(get("/api/v1/tours/access-denied").cookie(customer())).andExpect(forbidden());
 	}
@@ -149,12 +162,16 @@ class SecurityConfigTest {
 		assertThat(passwordEncoder.matches("password2!", encoded)).isFalse();
 	}
 
-	/** 회원가입 요청 검증에서 막지 않으면 이 예외가 500이 된다(#9에서 비밀번호 길이 규칙으로 막는다). */
+	/**
+	 * 암호화는 예외를 던지므로 회원가입 요청 검증에서 막지 않으면 500이 된다(#9에서 비밀번호 길이 규칙으로 막는다).
+	 * 비교는 예외 없이 틀렸다고만 하므로 로그인은 "비밀번호가 틀림"으로 끝난다.
+	 */
 	@Test
 	void BCrypt는_72바이트를_넘는_비밀번호를_암호화하지_않는다() {
-		passwordEncoder.encode("a".repeat(72));
+		String encoded = passwordEncoder.encode("a".repeat(72));
 		assertThatThrownBy(() -> passwordEncoder.encode("가".repeat(25)))   // 한글은 한 글자 3바이트
 			.isInstanceOf(IllegalArgumentException.class);
+		assertThat(passwordEncoder.matches("가".repeat(25), encoded)).isFalse();
 	}
 
 	@Test
@@ -218,6 +235,11 @@ class SecurityConfigTest {
 		@PostMapping({ "/api/v1/bookings", "/api/v1/voice/parse", "/api/v1/staff/tours" })
 		Long post(@AuthenticationPrincipal Long memberId) {
 			return memberId;
+		}
+
+		@PostMapping("/api/v1/voice/async")
+		Callable<Long> async(@AuthenticationPrincipal Long memberId) {
+			return () -> memberId;
 		}
 
 		@GetMapping("/api/v1/tours/access-denied")

@@ -11,6 +11,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.context.SecurityContextHolderStrategy;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import jakarta.servlet.FilterChain;
@@ -34,6 +36,9 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
 	private final JwtTokenProvider jwtTokenProvider;
 	private final SecurityContextHolderStrategy contextHolder = SecurityContextHolder.getContextHolderStrategy();
 
+	// 비동기 응답(Callable 등)의 두 번째 디스패치에서는 이 필터가 다시 돌지 않고 Security가 요청 속성에서 로그인 정보를 다시 읽는다
+	private final SecurityContextRepository contextRepository = new RequestAttributeSecurityContextRepository();
+
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 			throws ServletException, IOException {
@@ -43,6 +48,7 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
 			SecurityContext context = contextHolder.createEmptyContext();
 			context.setAuthentication(authentication);
 			contextHolder.setContext(context);
+			contextRepository.saveContext(context, request, response);
 		});
 		chain.doFilter(request, response);
 	}

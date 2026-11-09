@@ -60,7 +60,7 @@ public class SecurityConfig {
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers(HttpMethod.POST, "/api/v1/members/signup", "/api/v1/members/login",
 						"/api/v1/members/logout").permitAll()
-				.requestMatchers(HttpMethod.GET, "/api/v1/members/me").authenticated()
+				.requestMatchers("/api/v1/members/me").authenticated()
 				.requestMatchers("/api/v1/tours/**", "/api/v1/bookings/**", "/api/v1/voice/**").hasRole(CUSTOMER)
 				.requestMatchers("/api/v1/staff/**").hasRole(STAFF)
 				// API 문서(Swagger)와, 필터·서블릿 컨테이너 오류를 {"message"}로 바꾸는 주소(ApiErrorController)

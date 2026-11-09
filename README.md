@@ -98,6 +98,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 - 로그인하지 않았거나 토큰이 만료되었거나 틀리면 401 `{"message": "로그인이 필요합니다."}`, 로그인했지만 권한이 없으면 403 `{"message": "권한이 없습니다."}`입니다.
 - **위 표에 없는 주소는 Controller가 있어도 막습니다**(로그인 전 401, 로그인 뒤 403). 표의 꼴 밖에 API를 새로 만들면 `common.security`의 `SecurityConfig`에 규칙을 더합니다.
 - Controller는 로그인한 회원의 ID를 `@AuthenticationPrincipal Long memberId`로 받습니다.
+- Controller를 `@WebMvcTest`로 테스트할 때는 `@Import({SecurityConfig.class, JwtTokenProvider.class, ClockConfig.class})`를 붙여야 이 규칙이 적용됩니다. 빠뜨리면 스프링 부트 기본 보안(CSRF 켜짐, 모든 주소 로그인 필요)으로 테스트하게 됩니다. 요청에는 `JwtTokenProvider.createToken(...)`으로 만든 토큰을 `accessToken` 쿠키로 실습니다(`common.security`의 `SecurityConfigTest` 참고).
 - 비밀번호는 `PasswordEncoder` 빈(BCrypt)으로 암호화합니다.
 - CSRF 토큰은 쓰지 않습니다. 쿠키가 SameSite=Lax라 다른 사이트에서 보낸 POST에는 쿠키가 실리지 않기 때문입니다(설계산출물 4.10). 그러니 상태를 바꾸는 API는 GET으로 만들지 않습니다.
 
