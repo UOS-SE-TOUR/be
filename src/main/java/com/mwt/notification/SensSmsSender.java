@@ -68,6 +68,11 @@ class SensSmsSender implements SmsSender {
 				return;
 			}
 			for (int from = 0; from < recipients.size(); from += MAX_RECIPIENTS) {
+				if (Thread.currentThread().isInterrupted()) {   // 서버 종료 등으로 재시도 대기가 끊겼다
+					log.error("문자 발송이 중단되어 보내지 못했습니다: phoneNumbers={}, message={}",
+							recipients.subList(from, recipients.size()), message);
+					return;
+				}
 				sendWithRetry(recipients.subList(from, Math.min(from + MAX_RECIPIENTS, recipients.size())), message);
 			}
 		}
@@ -128,7 +133,7 @@ class SensSmsSender implements SmsSender {
 	private void send(List<String> recipients, String message) {
 		String path = "/sms/v2/services/" + properties.serviceId() + "/messages";
 		String timestamp = String.valueOf(clock.millis());
-		SendRequest request = new SendRequest(typeOf(message), PhoneNumbers.digitsOnly(properties.senderNumber()),
+		SendRequest request = new SendRequest(typeOf(message), PhoneNumbers.normalize(properties.senderNumber()),
 				message, recipients.stream().map(Recipient::new).toList());
 		// URI로 넘겨 경로를 다시 인코딩하지 않는다 — 서명한 경로와 보내는 경로가 같아야 한다(서비스 ID에 ':'가 든다)
 		// 응답 본문은 읽지 않는다 — 2xx면 SENS가 받은 것이고, 본문 해석이 실패했다고 다시 보내면 문자가 두 번 간다

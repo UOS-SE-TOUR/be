@@ -160,6 +160,42 @@ class SensSmsSenderTest {
 	}
 
 	@Test
+	void 발신_번호도_국내_번호로_바꿔_보낸다() {
+		RestClient.Builder builder = RestClient.builder();
+		MockRestServiceServer otherServer = MockRestServiceServer.bindTo(builder).build();
+		SensProperties international = new SensProperties("test-access-key", "test-secret-key",
+				"ncp:sms:kr:123456789012:mwt", "+82 2-1234-5678");
+		otherServer.expect(requestTo(URL)).andExpect(jsonPath("$.from").value("0212345678")).andRespond(accepted());
+
+		new SensSmsSender(builder.build(), international, clock, Duration.ZERO).sendSms(List.of("01012345678"), "확정");
+
+		otherServer.verify();
+	}
+
+	@Test
+	void 재시도_대기가_인터럽트되면_남은_묶음을_보내지_않는다(CapturedOutput output) {
+		List<String> phoneNumbers = IntStream.rangeClosed(1, 101).mapToObj(i -> "010%08d".formatted(i)).toList();
+		RestClient.Builder builder = RestClient.builder();
+		MockRestServiceServer otherServer = MockRestServiceServer.bindTo(builder).build();
+		// 첫 묶음이 503을 받는 사이 서버 종료 등으로 인터럽트가 걸린다 → 재시도 대기(1ms)가 끊긴다
+		otherServer.expect(requestTo(URL)).andRespond(request -> {
+			Thread.currentThread().interrupt();
+			return withStatus(HttpStatus.SERVICE_UNAVAILABLE).createResponse(request);
+		});
+		SensSmsSender waitingSender = new SensSmsSender(builder.build(), properties, clock, Duration.ofMillis(1));
+
+		try {
+			waitingSender.sendSms(phoneNumbers, "확정");
+		}
+		finally {
+			Thread.interrupted();
+		}
+
+		otherServer.verify();
+		assertThat(output).contains("문자 발송이 중단되어 보내지 못했습니다: phoneNumbers=[01000000101]");
+	}
+
+	@Test
 	void 응답_본문을_읽지_못해도_성공으로_친다() {
 		expectRequest().andRespond(withStatus(HttpStatus.ACCEPTED).contentType(MediaType.APPLICATION_JSON).body("{"));
 
