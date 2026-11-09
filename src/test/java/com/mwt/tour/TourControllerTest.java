@@ -24,11 +24,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.mwt.TestcontainersConfiguration;
+import com.mwt.common.security.JwtTokenProvider;
 import com.mwt.tour.RegisterTourRequest.PriceInput;
 import com.mwt.tour.RegisterTourRequest.TransportInput;
+
+import jakarta.servlet.http.Cookie;
 
 /**
  * 고객의 상품 조회 API 셋(설계산출물 4.9 서버 API 표, 5.4·5.6). 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다.
@@ -63,6 +67,9 @@ class TourControllerTest {
 	@Autowired
 	JdbcTemplate jdbcTemplate;
 
+	@Autowired
+	JwtTokenProvider jwtTokenProvider;
+
 	static Clock clock() {
 		return Clock.fixed(Instant.parse("2026-11-10T00:00:00Z"), ZoneId.of("Asia/Seoul"));
 	}
@@ -70,6 +77,25 @@ class TourControllerTest {
 	@AfterEach
 	void deleteTours() {
 		tourRepository.deleteAll();
+	}
+
+	@Test
+	void 직원은_고객의_상품_조회_API를_쓸_수_없다() throws Exception {
+		long tourId = register(Theme.GOLF, "2026-12-01", 5, 10, ALL_PRICES);
+		Cookie staff = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "STAFF"));
+
+		mockMvc.perform(get("/api/v1/tours").param("theme", "GOLF").cookie(staff))
+			.andExpect(status().isForbidden());
+		mockMvc.perform(get("/api/v1/tours/{tourId}/levels", tourId).cookie(staff))
+			.andExpect(status().isForbidden());
+		mockMvc.perform(get("/api/v1/tours/{tourId}/options", tourId).param("level", "GRAND").cookie(staff))
+			.andExpect(status().isForbidden());
+	}
+
+	/** 고객으로 로그인한 GET 요청. 주소별 권한 규칙은 common.security의 SecurityConfigTest가 따로 본다. */
+	private MockHttpServletRequestBuilder customerGet(String urlTemplate, Object... uriVariables) {
+		Cookie customer = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "CUSTOMER"));
+		return get(urlTemplate, uriVariables).cookie(customer);
 	}
 
 	@Test
@@ -81,7 +107,7 @@ class TourControllerTest {
 		saveDeparted(Theme.GOLF, "2026-11-10");
 		saveDeparted(Theme.GOLF, "2026-11-01");
 
-		mockMvc.perform(get("/api/v1/tours").param("theme", "GOLF"))
+		mockMvc.perform(customerGet("/api/v1/tours").param("theme", "GOLF"))
 			.andExpect(status().isOk())
 			.andExpect(content().json("""
 					[{"tourId": %d, "title": "골프 챌린지 투어 11/20 출발 5일", "departureDate": "2026-11-20", "duration": 5,
@@ -94,21 +120,21 @@ class TourControllerTest {
 	void 그_테마의_다가오는_상품이_없으면_빈_목록() throws Exception {
 		saveDeparted(Theme.PARENTS, "2026-11-10");
 
-		mockMvc.perform(get("/api/v1/tours").param("theme", "PARENTS"))
+		mockMvc.perform(customerGet("/api/v1/tours").param("theme", "PARENTS"))
 			.andExpect(status().isOk())
 			.andExpect(content().json("[]", JsonCompareMode.STRICT));
 	}
 
 	@Test
 	void 상품_목록에_테마가_없으면_400() throws Exception {
-		mockMvc.perform(get("/api/v1/tours"))
+		mockMvc.perform(customerGet("/api/v1/tours"))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"필수 요청 값이 없습니다: theme\"}", JsonCompareMode.STRICT));
 	}
 
 	@Test
 	void 상품_목록의_테마가_없는_값이면_400() throws Exception {
-		mockMvc.perform(get("/api/v1/tours").param("theme", "golf"))
+		mockMvc.perform(customerGet("/api/v1/tours").param("theme", "golf"))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"요청 값의 형식이 올바르지 않습니다: theme\"}", JsonCompareMode.STRICT));
 	}
@@ -117,7 +143,7 @@ class TourControllerTest {
 	void 투어_등급은_고를_수_있는_등급만_등급_순으로_가격과_제공_내용을_돌려준다() throws Exception {
 		long tourId = register(Theme.HONEYMOON, "2026-12-01", 5, 4, GRAND_AND_PREMIUM_PRICES);
 
-		mockMvc.perform(get("/api/v1/tours/{tourId}/levels", tourId))
+		mockMvc.perform(customerGet("/api/v1/tours/{tourId}/levels", tourId))
 			.andExpect(status().isOk())
 			.andExpect(content().json("""
 					{"service": "로맨틱 스페셜 룸 데코레이션(2인 전용)", "souvenir": "커플 기념티", "vehicle": "2인 전용 고급 차량",
@@ -132,7 +158,7 @@ class TourControllerTest {
 	void 클래식을_고를_수_있는_테마면_클래식이_먼저다() throws Exception {
 		long tourId = register(Theme.GOLF, "2026-12-01", 5, 10, ALL_PRICES);
 
-		mockMvc.perform(get("/api/v1/tours/{tourId}/levels", tourId))
+		mockMvc.perform(customerGet("/api/v1/tours/{tourId}/levels", tourId))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.levels[*].level").value(contains("CLASSIC", "GRAND", "PREMIUM")))
 			.andExpect(jsonPath("$.levels[0].price").value(900_000))
@@ -142,7 +168,7 @@ class TourControllerTest {
 
 	@Test
 	void 없는_상품의_투어_등급은_404() throws Exception {
-		mockMvc.perform(get("/api/v1/tours/{tourId}/levels", Long.MAX_VALUE))
+		mockMvc.perform(customerGet("/api/v1/tours/{tourId}/levels", Long.MAX_VALUE))
 			.andExpect(status().isNotFound())
 			.andExpect(content().json("{\"message\": \"여행 상품을 찾을 수 없습니다.\"}", JsonCompareMode.STRICT));
 	}
@@ -151,7 +177,7 @@ class TourControllerTest {
 	void 옵션은_종류별로_받은_투어_등급_기준의_1인_요금_차이와_함께_돌려준다() throws Exception {
 		long tourId = register(Theme.GOLF, "2026-12-01", 5, 10, ALL_PRICES);
 
-		mockMvc.perform(get("/api/v1/tours/{tourId}/options", tourId).param("level", "GRAND"))
+		mockMvc.perform(customerGet("/api/v1/tours/{tourId}/options", tourId).param("level", "GRAND"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.hotels[*].name").value(contains("3등급 호텔", "4등급 호텔", "5등급 호텔")))
 			.andExpect(jsonPath("$.hotels[*].priceDiff").value(contains(-50_000, 0, 100_000)))
@@ -168,7 +194,7 @@ class TourControllerTest {
 	void 프리미엄_기준이면_샴페인은_기본_제공이라_0원이다() throws Exception {
 		long tourId = register(Theme.GOLF, "2026-12-01", 5, 10, ALL_PRICES);
 
-		mockMvc.perform(get("/api/v1/tours/{tourId}/options", tourId).param("level", "PREMIUM"))
+		mockMvc.perform(customerGet("/api/v1/tours/{tourId}/options", tourId).param("level", "PREMIUM"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.hotels[*].priceDiff").value(contains(-150_000, -100_000, 0)))
 			.andExpect(jsonPath("$.meals[*].priceDiff").value(contains(-70_000, -50_000, 0)))
@@ -179,7 +205,7 @@ class TourControllerTest {
 	void 허니문_상품에는_3등급_호텔과_도시락이_없다() throws Exception {
 		long tourId = register(Theme.HONEYMOON, "2026-12-01", 5, 4, GRAND_AND_PREMIUM_PRICES);
 
-		mockMvc.perform(get("/api/v1/tours/{tourId}/options", tourId).param("level", "GRAND"))
+		mockMvc.perform(customerGet("/api/v1/tours/{tourId}/options", tourId).param("level", "GRAND"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.hotels[*].name").value(contains("4등급 호텔", "5등급 호텔")))
 			.andExpect(jsonPath("$.meals[*].name").value(contains("현지식 레스토랑", "고급 레스토랑")));
@@ -189,7 +215,7 @@ class TourControllerTest {
 	void 테마가_고를_수_없는_투어_등급이면_400() throws Exception {
 		long tourId = register(Theme.HONEYMOON, "2026-12-01", 5, 4, GRAND_AND_PREMIUM_PRICES);
 
-		mockMvc.perform(get("/api/v1/tours/{tourId}/options", tourId).param("level", "CLASSIC"))
+		mockMvc.perform(customerGet("/api/v1/tours/{tourId}/options", tourId).param("level", "CLASSIC"))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"허니문 낭만 투어는 그랜드와 프리미엄만 고를 수 있습니다.\"}",
 					JsonCompareMode.STRICT));
@@ -199,14 +225,14 @@ class TourControllerTest {
 	void 옵션에_투어_등급이_없으면_400() throws Exception {
 		long tourId = register(Theme.GOLF, "2026-12-01", 5, 10, ALL_PRICES);
 
-		mockMvc.perform(get("/api/v1/tours/{tourId}/options", tourId))
+		mockMvc.perform(customerGet("/api/v1/tours/{tourId}/options", tourId))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"필수 요청 값이 없습니다: level\"}", JsonCompareMode.STRICT));
 	}
 
 	@Test
 	void 없는_상품의_옵션은_404() throws Exception {
-		mockMvc.perform(get("/api/v1/tours/{tourId}/options", Long.MAX_VALUE).param("level", "GRAND"))
+		mockMvc.perform(customerGet("/api/v1/tours/{tourId}/options", Long.MAX_VALUE).param("level", "GRAND"))
 			.andExpect(status().isNotFound())
 			.andExpect(content().json("{\"message\": \"여행 상품을 찾을 수 없습니다.\"}", JsonCompareMode.STRICT));
 	}
