@@ -37,7 +37,7 @@ public class Item {
 
 	private int quantity;
 
-	/** 새 물품. 이름은 {@link #normalizeName}을 거친 값을 넣는다. */
+	/** 새 물품. 이름은 {@link #normalizeName}으로 앞뒤 공백을 떼고 확인해 넣는다. */
 	Item(String name, Theme theme, int quantity) {
 		if (theme == null) {
 			throw new BusinessException("테마를 골라 주세요.");

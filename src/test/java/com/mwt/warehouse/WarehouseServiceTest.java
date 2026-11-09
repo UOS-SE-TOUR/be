@@ -80,6 +80,17 @@ class WarehouseServiceTest {
 			.containsExactly(tuple("생수", Theme.GOLF, 15));
 	}
 
+	@Test
+	void 대소문자만_다른_이름은_DB_정렬_규칙대로_같은_물품이다() {
+		warehouseService.addItem("Golf Ball", Theme.GOLF, 10);
+
+		Item added = warehouseService.addItem("golf ball", Theme.GOLF, 5);
+
+		assertThat(added.getName()).isEqualTo("Golf Ball");
+		assertThat(added.getQuantity()).isEqualTo(15);
+		assertThat(itemRepository.count()).isEqualTo(1);
+	}
+
 	@ParameterizedTest
 	@ValueSource(ints = {0, -3})
 	void 수량이_1보다_작으면_새_물품을_만들지_않는다(int quantity) {
@@ -139,6 +150,19 @@ class WarehouseServiceTest {
 		});
 		int saved = errors.get(0) == null ? 3 : 5;
 		assertThat(itemRepository.findAll()).extracting(Item::getQuantity).containsExactly(saved);
+	}
+
+	@Test
+	void 두_직원이_이름이_다른_새_물품을_동시에_넣으면_둘_다_저장된다() throws Exception {
+		PauseAfterFindByName.BARRIER.set(new CyclicBarrier(2));   // 둘 다 "없다"고 읽은 뒤에 저장한다
+
+		List<Throwable> errors = runConcurrently(List.of(
+				() -> warehouseService.addItem("골프공", Theme.GOLF, 3),
+				() -> warehouseService.addItem("스카프", Theme.TREKKING, 5)));
+
+		assertThat(errors).containsOnlyNulls();
+		assertThat(itemRepository.findAll()).extracting(Item::getName, Item::getQuantity)
+			.containsExactlyInAnyOrder(tuple("골프공", 3), tuple("스카프", 5));
 	}
 
 	/** 일을 스레드마다 하나씩 한꺼번에 시작하고, 일마다 던진 예외를 순서대로 모은다(성공이면 null). */
