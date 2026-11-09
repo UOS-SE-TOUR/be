@@ -44,6 +44,11 @@ tasks.named('bootRun') {
 	systemProperty 'spring.config.import', 'optional:file:.env[.properties]'
 }
 
+// 개인 설정 파일(비밀 값)이 src/main/resources에 놓여도 jar에 들어가지 않게 한다
+tasks.named('processResources') {
+	exclude 'application-local.*'
+}
+
 tasks.named('test') {
 	useJUnitPlatform()
 	testLogging {
