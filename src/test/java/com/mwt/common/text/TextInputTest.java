@@ -65,6 +65,18 @@ class TextInputTest {
 	}
 
 	@ParameterizedTest
+	@ValueSource(ints = {0xFE0F, 0xFE00, 0xE0100, 0xE01EF, 0xE0020, 0xE0067, 0xE007F})
+	void 맨_앞의_모양_선택자와_태그_글자는_꾸밀_글자가_없어_뗀다(int codePoint) {
+		String modifier = Character.toString(codePoint);
+
+		assertThat(TextInput.normalize(modifier + "생수")).isEqualTo("생수");
+		assertThat(TextInput.normalize(" " + modifier + modifier + " 생수")).isEqualTo("생수");
+		assertThatThrownBy(() -> TextInput.require(modifier, "물품 이름", 100)).hasMessage("물품 이름을 입력해 주세요.");
+		assertThatThrownBy(() -> TextInput.require(modifier + " " + modifier, "물품 이름", 100))
+			.hasMessage("물품 이름을 입력해 주세요.");
+	}
+
+	@ParameterizedTest
 	@ValueSource(ints = {0x0600, 0x0605, 0x06DD, 0x070F, 0x0890, 0x08E2, 0x110BD, 0x110CD})
 	void 숫자_앞에_붙어_보이는_형식_문자는_떼지_않는다(int codePoint) {
 		String marked = new String(new int[] {codePoint, 0x0661, 0x0662, 0x0663}, 0, 4);   // 표시 + 아랍 숫자 123

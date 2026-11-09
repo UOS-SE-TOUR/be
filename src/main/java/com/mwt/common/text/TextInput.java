@@ -33,7 +33,7 @@ public final class TextInput {
 		int end = composed.length();
 		while (start < end) {
 			int codePoint = composed.codePointAt(start);
-			if (!isBlank(codePoint)) {
+			if (!isBlank(codePoint) && !isModifierWithoutBase(codePoint)) {
 				break;
 			}
 			start += Character.charCount(codePoint);
@@ -87,6 +87,15 @@ public final class TextInput {
 		return Character.getType(codePoint) == Character.FORMAT
 				|| codePoint == 0x115F || codePoint == 0x1160 || codePoint == 0x3164 || codePoint == 0xFFA0
 				|| codePoint == 0x2800 || codePoint == 0x034F;
+	}
+
+	/**
+	 * 앞 글자를 꾸미는 보이지 않는 글자: 모양 선택자와 태그 글자. 맨 앞에서는 꾸밀 글자가 없어 떼고(이것만 넣으면 빈 이름이 된다),
+	 * 끝에서는 하트 같은 이모지·깃발 이모지의 일부일 수 있어 남긴다.
+	 */
+	private static boolean isModifierWithoutBase(int codePoint) {
+		return codePoint >= 0xFE00 && codePoint <= 0xFE0F || codePoint >= 0xE0100 && codePoint <= 0xE01EF
+				|| codePoint >= 0xE0020 && codePoint <= 0xE007F;
 	}
 
 	/** 유니코드 15 PropList.txt의 Prepended_Concatenation_Mark. */
