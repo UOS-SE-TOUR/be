@@ -77,15 +77,23 @@ public final class TextInput {
 	/**
 	 * 공백 문자로 치지 않지만 화면에 보이지 않는 글자. 유니코드 형식 문자(Cf — 폭 없는 공백·글자 방향 표시·BOM 등)와,
 	 * 빈 이름처럼 보이게 쓰이는 한글 채움 문자·점자 빈칸, 자소 결합자다. 앞뒤에서만 떼므로 이모지 가운데의 결합자(U+200D)는 남는다.
-	 * 깃발 이모지 끝의 태그 글자도 형식 문자지만 보이는 글자의 일부라 떼지 않는다.
+	 * 형식 문자 가운데 깃발 이모지 끝의 태그 글자와, 숫자 앞에 붙어 보이는 표시(아랍 숫자 기호 등 Prepended_Concatenation_Mark)는
+	 * 보이는 글자의 일부라 떼지 않는다.
 	 */
 	private static boolean isInvisible(int codePoint) {
-		if (codePoint >= 0xE0020 && codePoint <= 0xE007F) {
+		if (codePoint >= 0xE0020 && codePoint <= 0xE007F || isPrependedConcatenationMark(codePoint)) {
 			return false;
 		}
 		return Character.getType(codePoint) == Character.FORMAT
 				|| codePoint == 0x115F || codePoint == 0x1160 || codePoint == 0x3164 || codePoint == 0xFFA0
 				|| codePoint == 0x2800 || codePoint == 0x034F;
+	}
+
+	/** 유니코드 15 PropList.txt의 Prepended_Concatenation_Mark. */
+	private static boolean isPrependedConcatenationMark(int codePoint) {
+		return codePoint >= 0x0600 && codePoint <= 0x0605 || codePoint == 0x06DD || codePoint == 0x070F
+				|| codePoint == 0x0890 || codePoint == 0x0891 || codePoint == 0x08E2
+				|| codePoint == 0x110BD || codePoint == 0x110CD;
 	}
 
 	/** 마지막 글자에 받침이 있는지. 조사를 고를 수 없으니 label은 한글 음절로 끝나야 한다. */

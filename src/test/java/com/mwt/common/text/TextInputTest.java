@@ -64,6 +64,14 @@ class TextInputTest {
 		assertThat(TextInput.normalize(england + " ")).isEqualTo(england);
 	}
 
+	@ParameterizedTest
+	@ValueSource(ints = {0x0600, 0x0605, 0x06DD, 0x070F, 0x0890, 0x08E2, 0x110BD, 0x110CD})
+	void 숫자_앞에_붙어_보이는_형식_문자는_떼지_않는다(int codePoint) {
+		String marked = new String(new int[] {codePoint, 0x0661, 0x0662, 0x0663}, 0, 4);   // 표시 + 아랍 숫자 123
+
+		assertThat(TextInput.normalize(" " + marked)).isEqualTo(marked);
+	}
+
 	@Test
 	void null은_null로_둔다() {
 		assertThat(TextInput.normalize(null)).isNull();
