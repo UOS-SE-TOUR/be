@@ -9,6 +9,9 @@ spring:
     hibernate:
       ddl-auto: validate   # 테이블은 Flyway(db/migration)가 만들고, JPA는 엔티티와 맞는지 확인만 한다
     open-in-view: false
+  autoconfigure:
+    # 로그인은 JWT 쿠키로만 하므로 스프링 부트가 만드는 기본 계정(user와 임의 비밀번호)을 두지 않는다
+    exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
 
 # API 문서(Swagger). 화면 호스팅·Nginx 프록시가 /api만 서버로 넘기므로 문서도 /api 아래에 둔다
 springdoc:
@@ -24,3 +27,7 @@ sens:
   secret-key: ${SENS_SECRET_KEY:}
   service-id: ${SENS_SERVICE_ID:}
   sender-number: ${SENS_SENDER_NUMBER:}
+
+# 로그인 토큰(JWT) 서명 키(common.security). 비어 있거나 32바이트보다 짧으면 서버가 뜨지 않는다
+jwt:
+  secret: ${JWT_SECRET:}

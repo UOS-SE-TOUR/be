@@ -1,0 +1,6 @@
+# 테스트에만 더해지는 설정. src/main/resources/application.yml을 그대로 읽은 뒤 이 값으로 덮는다
+# (스프링 부트는 classpath의 application.yml과 config/application.yml을 둘 다 읽고 뒤의 것을 앞세운다)
+
+# 테스트용 로그인 토큰 서명 키. 실제 서버는 환경변수 JWT_SECRET을 쓴다(README 환경변수 절)
+jwt:
+  secret: test-only-jwt-secret-not-for-real-servers
