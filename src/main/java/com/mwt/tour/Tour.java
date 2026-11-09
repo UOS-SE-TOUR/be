@@ -19,7 +19,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 여행 상품 엔티티다(설계산출물 4.4). 등급별 가격(TourPrice)과 옵션(TourOption)은 상품에 딸려 함께 저장되고 지워진다.
+ * 여행 상품 엔티티다(설계산출물 4.4). 등급별 가격(TourPrice)과 옵션(TourOption)은 상품에 딸려 함께 저장된다.
  */
 @Entity
 @Getter

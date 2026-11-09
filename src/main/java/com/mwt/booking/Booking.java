@@ -1,8 +1,8 @@
 package com.mwt.booking;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 import com.mwt.member.Member;
 import com.mwt.tour.Tour;
@@ -56,7 +56,7 @@ public class Booking {
 			name = "booking_option",
 			joinColumns = @JoinColumn(name = "booking_id"),
 			inverseJoinColumns = @JoinColumn(name = "tour_option_id"))
-	private List<TourOption> options = new ArrayList<>();
+	private Set<TourOption> options = new LinkedHashSet<>();
 
 	private long totalPrice;
 
