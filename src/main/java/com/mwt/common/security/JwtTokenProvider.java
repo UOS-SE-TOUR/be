@@ -56,7 +56,7 @@ public class JwtTokenProvider {
 
 	/** memberType은 MemberType의 이름(CUSTOMER, STAFF)이다. 다른 값이면 권한 규칙에 맞지 않으므로 만들지 않는다. */
 	public String createToken(long memberId, String memberType) {
-		if (!SecurityConfig.isMemberType(memberType)) {
+		if (!MemberTypes.contains(memberType)) {
 			throw new IllegalArgumentException("모르는 회원 구분: " + memberType);
 		}
 		Instant now = clock.instant();
@@ -82,7 +82,7 @@ public class JwtTokenProvider {
 			throw new InvalidTokenException(e.getMessage(), e);
 		}
 		String memberType = jwt.getClaimAsString(MEMBER_TYPE_CLAIM);
-		if (!SecurityConfig.isMemberType(memberType)) {
+		if (!MemberTypes.contains(memberType)) {
 			throw new InvalidTokenException("토큰의 회원 구분을 모른다: " + memberType);
 		}
 		try {

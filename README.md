@@ -28,7 +28,7 @@ grep -qs '^JWT_SECRET=' .env || printf '\nJWT_SECRET=%s\n' "$(openssl rand -hex 
 | `DB_URL` | `jdbc:mysql://localhost:3306/mwt` | MySQL 주소 |
 | `DB_USERNAME` | `mwt` | MySQL 계정 |
 | `DB_PASSWORD` | `mwt` | MySQL 비밀번호 |
-| `JWT_SECRET` | (없음, 꼭 넣어야 함) | 로그인 토큰(JWT) 서명 키. 32바이트(영문·숫자 32자) 이상으로, `openssl rand -hex 32`로 만듭니다. 비어 있거나 짧으면 서버가 뜨지 않습니다 |
+| `JWT_SECRET` | (없음, 꼭 넣어야 함) | 로그인 토큰(JWT) 서명 키. 32바이트(영문·숫자 32자) 이상으로, `openssl rand -hex 32`로 만듭니다. 비어 있거나 짧으면 서버가 뜨지 않습니다. 서버(로컬·운영 등)마다 다른 값을 씁니다 — 같으면 한 서버에서 받은 토큰이 다른 서버에서도 통합니다 |
 | `SENS_ACCESS_KEY` | (없음) | NCP API 인증키의 Access Key ID(문자 발송) |
 | `SENS_SECRET_KEY` | (없음) | 위 Access Key의 Secret Key |
 | `SENS_SERVICE_ID` | (없음) | SENS SMS 프로젝트의 서비스 ID(`ncp:sms:kr:…` 꼴) |
@@ -88,7 +88,7 @@ API가 실패하면 상태 코드와 함께 본문을 늘 아래 모양 하나�
 | 주소(`/api/v1/` 뒤) | 쓸 수 있는 사람 |
 | --- | --- |
 | `POST members/signup`, `POST members/login`, `POST members/logout` | 누구나(로그아웃은 토큰이 만료되었어도 됩니다) |
-| `GET members/me` | 로그인한 회원 |
+| `members/me` | 로그인한 회원 |
 | `tours/**`, `bookings/**`, `voice/**` | 고객 |
 | `staff/**` | 직원 |
 | 위에 없는 주소 | 아무도 쓸 수 없음 |

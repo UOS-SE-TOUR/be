@@ -177,7 +177,7 @@ class SecurityConfigTest {
 	@Test
 	void 권한_규칙의_회원_구분은_MemberType_이름과_같다() {
 		assertThat(Arrays.stream(MemberType.values()).map(Enum::name))
-			.containsExactlyInAnyOrder(SecurityConfig.CUSTOMER, SecurityConfig.STAFF);
+			.containsExactlyInAnyOrder(MemberTypes.CUSTOMER, MemberTypes.STAFF);
 	}
 
 	private Cookie customer() {

@@ -47,7 +47,7 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
 			throws ServletException, IOException {
 		findClaims(request).ifPresent(claims -> {
 			UsernamePasswordAuthenticationToken authentication = UsernamePasswordAuthenticationToken.authenticated(
-					claims.memberId(), null, List.of(new SimpleGrantedAuthority(SecurityConfig.ROLE_PREFIX + claims.memberType())));
+					claims.memberId(), null, List.of(new SimpleGrantedAuthority(claims.memberType())));   // 권한 이름 = 회원 구분
 			SecurityContext context = contextHolder.createEmptyContext();
 			context.setAuthentication(authentication);
 			contextHolder.setContext(context);

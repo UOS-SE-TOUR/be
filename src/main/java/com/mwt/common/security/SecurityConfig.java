@@ -2,7 +2,6 @@ package com.mwt.common.security;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -41,14 +40,6 @@ import tools.jackson.databind.json.JsonMapper;
 @EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
-	/** 회원 구분 이름. member 모듈의 MemberType 이름과 같아야 한다(SecurityConfigTest가 확인한다). */
-	static final String CUSTOMER = "CUSTOMER";
-	static final String STAFF = "STAFF";
-	private static final Set<String> MEMBER_TYPES = Set.of(CUSTOMER, STAFF);
-
-	/** hasRole(...)이 권한 이름 앞에 붙여 찾는 말. */
-	static final String ROLE_PREFIX = "ROLE_";
-
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenProvider jwtTokenProvider, JsonMapper jsonMapper,
 			@Value(ApiErrorController.ERROR_PATH) String errorPath) throws Exception {
@@ -65,8 +56,9 @@ public class SecurityConfig {
 				.requestMatchers(HttpMethod.POST, "/api/v1/members/signup", "/api/v1/members/login",
 						"/api/v1/members/logout").permitAll()
 				.requestMatchers("/api/v1/members/me").authenticated()
-				.requestMatchers("/api/v1/tours/**", "/api/v1/bookings/**", "/api/v1/voice/**").hasRole(CUSTOMER)
-				.requestMatchers("/api/v1/staff/**").hasRole(STAFF)
+				.requestMatchers("/api/v1/tours/**", "/api/v1/bookings/**", "/api/v1/voice/**")
+				.hasAuthority(MemberTypes.CUSTOMER)
+				.requestMatchers("/api/v1/staff/**").hasAuthority(MemberTypes.STAFF)
 				// API 문서(Swagger)와, 필터·서블릿 컨테이너 오류를 {"message"}로 바꾸는 주소(ApiErrorController)
 				.requestMatchers("/api/swagger-ui.html", "/api/swagger-ui/**", "/api/docs", "/api/docs.yaml", "/api/docs/**",
 						errorPath)
@@ -79,10 +71,6 @@ public class SecurityConfig {
 			.addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, contextRepository),
 					UsernamePasswordAuthenticationFilter.class);
 		return http.build();
-	}
-
-	static boolean isMemberType(String value) {
-		return value != null && MEMBER_TYPES.contains(value);   // Set.of(...)는 contains(null)에서 예외를 던진다
 	}
 
 	@Bean
