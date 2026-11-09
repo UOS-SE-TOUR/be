@@ -28,6 +28,10 @@ final class PhoneNumbers {
 		return new Recipients(numbers.get(true), numbers.get(false));
 	}
 
+	static boolean isMobile(String phoneNumber) {
+		return MOBILE_NUMBER.matcher(normalize(phoneNumber)).matches();
+	}
+
 	static String digitsOnly(String phoneNumber) {
 		return phoneNumber.replaceAll("[^0-9]", "");
 	}

@@ -180,8 +180,48 @@ class MemberControllerTest {
 
 	@Test
 	void 칸_길이를_꽉_채워도_가입한다() throws Exception {
-		signUp(new Body("a".repeat(50), PASSWORD, "가".repeat(50), "가".repeat(255), "0".repeat(20), "CUSTOMER", null))
+		signUp(new Body("a".repeat(50), PASSWORD, "가".repeat(50), "가".repeat(255), "+82 10 - 1234 - 5678", "CUSTOMER",
+				null))
 			.andExpect(status().isCreated());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "01012345678", "010 1234 5678", "+82 10-1234-5678", "+82 010-1234-5678", "011-123-4567" })
+	void 휴대폰_번호면_하이픈_공백_국가_번호와_함께_받는다(String phone) throws Exception {
+		signUp(customer("hong").withPhone(phone)).andExpect(status().isCreated());
+
+		assertThat(memberRepository.findByLoginId("hong").orElseThrow().getPhone()).isEqualTo(phone);   // 입력한 그대로 둔다
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "02-123-4567", "abc", "010-1234-567", "010-1234-56789", "010.1234.5678", "010-abcd-1234-5678",
+			"(010) 1234-5678", "010-1234-5678+" })
+	void 연락처가_휴대폰_번호가_아니면_400이고_저장하지_않는다(String phone) throws Exception {
+		signUp(customer("hong").withPhone(phone)).andExpect(badRequest("연락처는 휴대폰 번호로 입력해 주세요(예: 010-1234-5678)."));
+
+		assertThat(memberRepository.count()).isZero();
+	}
+
+	@Test
+	void 직원도_연락처는_휴대폰_번호여야_한다() throws Exception {
+		signUp(staff("kim", STAFF_CODE).withPhone("02-123-4567"))
+			.andExpect(badRequest("연락처는 휴대폰 번호로 입력해 주세요(예: 010-1234-5678)."));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "1234567", "가나다라마바사", "a b c d" })
+	void 비밀번호가_8자보다_짧으면_400이고_저장하지_않는다(String password) throws Exception {
+		signUp(customer("hong").withPassword(password)).andExpect(badRequest("비밀번호는 8자 이상으로 입력해 주세요."));
+
+		assertThat(memberRepository.count()).isZero();
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "12345678", "가나다라마바사아" })
+	void 비밀번호가_8자면_가입한다(String password) throws Exception {
+		signUp(customer("hong").withPassword(password)).andExpect(status().isCreated());
+
+		logIn("hong", password).andExpect(status().isOk());
 	}
 
 	/** BCrypt가 72바이트까지만 받으므로 글자 수가 아니라 UTF-8 바이트로 센다(한글은 한 글자 3바이트). */

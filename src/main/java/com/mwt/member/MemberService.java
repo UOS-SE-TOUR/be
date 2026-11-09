@@ -3,6 +3,7 @@ package com.mwt.member;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,6 +16,7 @@ import org.springframework.util.StringUtils;
 
 import com.mwt.common.exception.BusinessException;
 import com.mwt.common.exception.GlobalExceptionHandler;
+import com.mwt.notification.SmsSender;
 
 /**
  * 회원가입과 로그인을 처리하는 member 모듈의 공개 Service다(설계산출물 4.2). 다른 모듈은 회원을 getMember로 가져간다.
@@ -25,7 +27,12 @@ public class MemberService {
 	/** BCrypt는 72바이트를 넘는 비밀번호를 암호화하지 않고 예외를 던진다. */
 	static final int MAX_PASSWORD_BYTES = 72;
 
+	static final int MIN_PASSWORD_LENGTH = 8;
+
 	static final int MIN_STAFF_CODE_BYTES = 16;
+
+	/** 연락처에 쓸 수 있는 글자. 숫자 사이의 하이픈·공백과 국가 번호의 +만 받는다. */
+	private static final Pattern PHONE_CHARACTERS = Pattern.compile("\\+?[0-9 -]+");
 
 	static final String LOGIN_ID_TAKEN = "이미 쓰는 아이디입니다.";
 
@@ -51,14 +58,24 @@ public class MemberService {
 		this.staffCode = code;
 	}
 
-	/** 회원가입(MWT-UC1). 직원은 직원 코드가 맞아야 가입한다. 가입한 회원 ID를 돌려준다. */
+	/**
+	 * 회원가입(MWT-UC1). 직원은 직원 코드가 맞아야 가입한다. 비밀번호는 8자 이상 72바이트 이하, 연락처는 고객·직원 모두
+	 * 휴대폰 번호다. 가입한 회원 ID를 돌려준다.
+	 */
 	@Transactional
 	public Long signUp(SignUpRequest request) {
 		if (request.memberType() == MemberType.STAFF && !isStaffCode(request.staffCode())) {
 			throw new BusinessException("직원 코드가 맞지 않아 직원으로 가입할 수 없습니다.");
 		}
+		if (request.password().codePointCount(0, request.password().length()) < MIN_PASSWORD_LENGTH) {
+			throw new BusinessException("비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상으로 입력해 주세요.");
+		}
 		if (isTooLong(request.password())) {
 			throw new BusinessException("비밀번호가 너무 깁니다. 영문·숫자는 72자, 한글은 24자까지 쓸 수 있습니다.");
+		}
+		// 확정 문자를 받을 수 있는 번호만 받는다. 휴대폰 번호 꼴이 아니면 문자가 조용히 빠지므로(notification) 가입 때 알린다
+		if (!PHONE_CHARACTERS.matcher(request.phone()).matches() || !SmsSender.isMobileNumber(request.phone())) {
+			throw new BusinessException("연락처는 휴대폰 번호로 입력해 주세요(예: 010-1234-5678).");
 		}
 		if (memberRepository.existsByLoginId(request.loginId())) {
 			throw new BusinessException(LOGIN_ID_TAKEN);
