@@ -1,0 +1,88 @@
+package com.mwt.common.text;
+
+import java.text.Normalizer;
+
+import org.jspecify.annotations.Nullable;
+
+import com.mwt.common.exception.BusinessException;
+
+/**
+ * 사람이 입력한 이름·아이디 같은 글자를 다듬는다. 모듈마다 따로 다듬으면 같은 이름이 모듈마다 달라지므로 모두 이것을 부른다.
+ *
+ * <ul>
+ * <li>NFC로 모은다. macOS에서 붙여 넣은 글은 한글이 자모로 풀린 꼴(NFD)일 수 있어, 모으지 않으면 눈으로 같은 이름이 다른 글자가 된다.</li>
+ * <li>앞뒤 공백을 뗀다. {@link String#strip()}이 떼지 않는 줄 바꿈 없는 공백(U+00A0)과 폭 없는 공백(U+200B) 같은 보이지 않는
+ * 글자도 뗀다.</li>
+ * <li>글자 수는 DB(utf8mb4 VARCHAR)처럼 유니코드 코드포인트로 센다. 이모지 하나도 한 글자다.</li>
+ * </ul>
+ *
+ * 비밀번호는 공백도 비밀번호의 일부이므로 이것으로 다듬지 않는다.
+ */
+public final class TextInput {
+
+	/** 공백 문자로 치지 않지만 화면에 보이지 않는 글자: 폭 없는 공백, 폭 없는 비결합자·결합자, 단어 결합자, BOM. */
+	private static final String ZERO_WIDTH = "​‌‍⁠﻿";
+
+	private TextInput() {
+	}
+
+	/** NFC로 모으고 앞뒤 공백(보이지 않는 공백 포함)을 뗀다. null은 null로 둔다. */
+	public static @Nullable String normalize(@Nullable String value) {
+		if (value == null) {
+			return null;
+		}
+		String composed = Normalizer.normalize(value, Normalizer.Form.NFC);
+		int start = 0;
+		int end = composed.length();
+		while (start < end && isBlank(composed.codePointAt(start))) {
+			start += Character.charCount(composed.codePointAt(start));
+		}
+		while (end > start && isBlank(composed.codePointBefore(end))) {
+			end -= Character.charCount(composed.codePointBefore(end));
+		}
+		return composed.substring(start, end);
+	}
+
+	/**
+	 * 꼭 입력해야 하는 글자를 다듬어 돌려준다. 다듬은 뒤 비었거나 maxLength자를 넘으면 label로 만든 문구로 거부한다
+	 * (예: label이 "물품 이름"이면 "물품 이름을 입력해 주세요.", "물품 이름은 100자까지 쓸 수 있습니다.").
+	 */
+	public static String require(@Nullable String value, String label, int maxLength) {
+		String normalized = normalize(value);
+		if (normalized == null || normalized.isEmpty()) {
+			throw new BusinessException(label + objectParticle(label) + " 입력해 주세요.");
+		}
+		if (length(normalized) > maxLength) {
+			throw new BusinessException(label + topicParticle(label) + " " + maxLength + "자까지 쓸 수 있습니다.");
+		}
+		return normalized;
+	}
+
+	/** 글자 수. DB처럼 코드포인트로 센다. */
+	public static int length(String value) {
+		return value.codePointCount(0, value.length());
+	}
+
+	private static boolean isBlank(int codePoint) {
+		return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)
+				|| ZERO_WIDTH.indexOf(codePoint) >= 0;
+	}
+
+	private static String objectParticle(String label) {
+		return endsWithFinalConsonant(label) ? "을" : "를";
+	}
+
+	private static String topicParticle(String label) {
+		return endsWithFinalConsonant(label) ? "은" : "는";
+	}
+
+	/** 마지막 글자에 받침이 있는지. 조사를 고를 수 없으니 label은 한글 음절로 끝나야 한다. */
+	private static boolean endsWithFinalConsonant(String label) {
+		char last = label.isEmpty() ? 0 : label.charAt(label.length() - 1);
+		if (last < '가' || last > '힣') {
+			throw new IllegalArgumentException("항목 이름은 한글 음절로 끝나야 조사를 고를 수 있다: " + label);
+		}
+		return (last - '가') % 28 != 0;
+	}
+
+}
