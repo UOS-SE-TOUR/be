@@ -208,7 +208,7 @@ public class Tour {
 		return capacity - appliedCount;
 	}
 
-	private void checkLevel(TourLevel level) {
+	void checkLevel(TourLevel level) {
 		if (level == null) {
 			throw new BusinessException("투어 등급을 골라 주세요.");
 		}

@@ -54,6 +54,7 @@ public class TourService {
 	@Transactional(readOnly = true)
 	public TourOptionsResponse getOptions(Long tourId, TourLevel level) {
 		Tour tour = getTour(tourId);
+		tour.checkLevel(level);
 		Map<OptionCategory, List<TourOptionsResponse.Option>> byCategory = tour.getOptions().stream()
 			.sorted(Comparator.comparing(TourOption::getId))
 			.collect(Collectors.groupingBy(TourOption::getCategory, () -> new EnumMap<>(OptionCategory.class),

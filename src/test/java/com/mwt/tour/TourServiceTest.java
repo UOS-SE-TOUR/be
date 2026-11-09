@@ -87,6 +87,18 @@ class TourServiceTest {
 					e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
 	}
 
+	@Test
+	void 옵션_목록은_옵션이_없는_상품이어도_투어_등급부터_확인한다() {
+		Tour tour = save(Theme.HONEYMOON, "2026-11-11");
+
+		assertThatThrownBy(() -> tourService.getOptions(tour.getId(), TourLevel.CLASSIC))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("허니문 낭만 투어는 그랜드와 프리미엄만 고를 수 있습니다.");
+		assertThatThrownBy(() -> tourService.getOptions(tour.getId(), null))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("투어 등급을 골라 주세요.");
+	}
+
 	/** 출발일 하루 전을 "오늘"로 넣어 만든다. 그래서 오늘이거나 지난 출발일의 상품도 저장할 수 있다. */
 	private Tour save(Theme theme, String departureDate) {
 		LocalDate date = LocalDate.parse(departureDate);
