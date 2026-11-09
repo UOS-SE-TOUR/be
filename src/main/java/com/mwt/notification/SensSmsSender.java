@@ -2,7 +2,6 @@ package com.mwt.notification;
 
 import java.net.ConnectException;
 import java.net.URI;
-import java.net.UnknownHostException;
 import java.net.http.HttpConnectTimeoutException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -10,12 +9,16 @@ import java.security.GeneralSecurityException;
 import java.time.Clock;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -43,6 +46,9 @@ class SensSmsSender implements SmsSender {
 
 	private static final Charset EUC_KR = Charset.forName("EUC-KR");
 
+	/** 하이픈 등을 뗀 휴대폰 번호(010·011·016·017·018·019로 시작하는 10·11자리). */
+	private static final Pattern MOBILE_NUMBER = Pattern.compile("01[016789][0-9]{7,8}");
+
 	private final RestClient restClient;
 	private final SensProperties properties;
 	private final Clock clock;
@@ -56,12 +62,16 @@ class SensSmsSender implements SmsSender {
 	@Override
 	public void sendSms(List<String> phoneNumbers, String message) {
 		try {
-			List<String> recipients = phoneNumbers.stream()
+			// 잘못된 번호 하나가 같은 요청의 다른 사람까지 실패(400)시키지 않게 휴대폰 번호 꼴만 보낸다
+			Map<Boolean, List<String>> numbers = phoneNumbers.stream()
 					.filter(Objects::nonNull)
 					.map(SensSmsSender::digitsOnly)
-					.filter(number -> !number.isEmpty())
 					.distinct()
-					.toList();
+					.collect(Collectors.partitioningBy(number -> MOBILE_NUMBER.matcher(number).matches()));
+			List<String> recipients = numbers.get(true);
+			if (!numbers.get(false).isEmpty()) {
+				log.warn("휴대폰 번호 꼴이 아닌 번호는 빼고 보냅니다: {}", numbers.get(false));
+			}
 			if (recipients.isEmpty() || message == null || message.isBlank()) {
 				log.warn("받는 번호나 문자 내용이 없어 문자를 보내지 않았습니다: phoneNumbers={}", phoneNumbers);
 				return;
@@ -94,19 +104,19 @@ class SensSmsSender implements SmsSender {
 	}
 
 	/**
-	 * SENS에 닿지 못했거나(연결 실패) SENS가 처리하지 못했다고 답했을 때(5xx·429)만 다시 보낸다.
-	 * 응답을 못 받은 경우(읽기 시간 초과)는 SENS가 이미 받았을 수 있어 같은 문자가 두 번 가지 않게 다시 보내지 않고,
-	 * 다른 4xx(키·번호 오류)는 다시 보내도 실패한다.
+	 * SENS에 닿지 못했거나(연결 실패) 처리하지 못했다고 답했을 때(429, 502·504 밖의 5xx)만 다시 보낸다.
+	 * 응답을 못 받은 경우(읽기 시간 초과, 게이트웨이가 SENS 응답을 못 받은 502·504)는 SENS가 이미 받았을 수 있어
+	 * 같은 문자가 두 번 가지 않게 다시 보내지 않고, 다른 4xx(키·번호 오류)는 다시 보내도 실패한다.
 	 */
 	private static boolean isRetryable(RuntimeException e) {
 		if (e instanceof RestClientResponseException response) {
-			return response.getStatusCode().is5xxServerError()
-					|| response.getStatusCode().isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS);
+			HttpStatusCode status = response.getStatusCode();
+			return status.isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS) || (status.is5xxServerError()
+					&& !status.isSameCodeAs(HttpStatus.BAD_GATEWAY) && !status.isSameCodeAs(HttpStatus.GATEWAY_TIMEOUT));
 		}
 		if (e instanceof ResourceAccessException) {
 			Throwable cause = e.getCause();
-			return cause instanceof ConnectException || cause instanceof HttpConnectTimeoutException
-					|| cause instanceof UnknownHostException;
+			return cause instanceof ConnectException || cause instanceof HttpConnectTimeoutException;
 		}
 		return false;
 	}

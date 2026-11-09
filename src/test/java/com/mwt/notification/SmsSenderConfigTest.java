@@ -47,6 +47,9 @@ class SmsSenderConfigTest {
 						.getFailure()
 						.rootCause()
 						.hasMessageContaining("SENS_SENDER_NUMBER"));
+		// 발신 번호만 적어 둔 것도 일부만 넣은 것이다(가짜 발송기로 조용히 넘어가지 않는다)
+		runner.withPropertyValues("sens.access-key=", "sens.secret-key=", "sens.service-id=", "sens.sender-number=미정")
+				.run(context -> assertThat(context).hasFailed());
 	}
 
 }

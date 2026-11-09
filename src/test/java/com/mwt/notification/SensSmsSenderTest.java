@@ -72,7 +72,9 @@ class SensSmsSenderTest {
 						 "messages": [{"to": "01012345678"}, {"to": "01087654321"}]}""", JsonCompareMode.STRICT))
 				.andRespond(accepted());
 
-		sender.sendSms(List.of("010-1234-5678", "01087654321", "010 1234 5678"), "여행 상품이 확정되었습니다");
+		// 하이픈·공백은 떼고, 같은 번호는 한 번만, 휴대폰 번호 꼴이 아닌 번호(국가 번호, 유선 전화)는 빼고 보낸다
+		sender.sendSms(List.of("010-1234-5678", "01087654321", "010 1234 5678", "+82 10-1111-2222", "02-123-4567"),
+				"여행 상품이 확정되었습니다");
 
 		server.verify();
 	}
@@ -137,11 +139,14 @@ class SensSmsSenderTest {
 
 	@Test
 	void SENS가_받았을_수_있거나_다시_보내도_안_되는_실패는_다시_보내지_않는다(CapturedOutput output) {
-		// 응답을 못 받으면 SENS가 이미 받았을 수 있다(다시 보내면 문자가 두 번 간다). 4xx는 키·번호 오류라 다시 보내도 실패한다
+		// 응답을 못 받으면(읽기 시간 초과, 게이트웨이 504) SENS가 이미 받았을 수 있다(다시 보내면 문자가 두 번 간다).
+		// 4xx는 키·번호 오류라 다시 보내도 실패한다
 		expectRequest().andRespond(withException(new HttpTimeoutException("request timed out")));
+		expectRequest().andRespond(withStatus(HttpStatus.GATEWAY_TIMEOUT));
 		expectRequest().andRespond(withBadRequest());
 
 		assertThatCode(() -> {
+			sender.sendSms(List.of("01012345678"), "확정");
 			sender.sendSms(List.of("01012345678"), "확정");
 			sender.sendSms(List.of("01012345678"), "확정");
 		}).doesNotThrowAnyException();

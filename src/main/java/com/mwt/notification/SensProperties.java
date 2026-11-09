@@ -12,7 +12,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 record SensProperties(String accessKey, String secretKey, String serviceId, String senderNumber) {
 
 	boolean isEmpty() {
-		return missingNames().size() == 4;
+		return isBlank(accessKey) && isBlank(secretKey) && isBlank(serviceId) && isBlank(senderNumber);
 	}
 
 	/** 비어 있는 값의 환경변수 이름. */
