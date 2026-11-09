@@ -8,3 +8,7 @@ jwt:
 # 테스트용 직원 코드. 실제 서버는 환경변수 STAFF_CODE를 쓴다
 member:
   staff-code: test-only-staff-code
+
+# 테스트는 OpenAI를 부르지 않는다. 셸에 OPENAI_API_KEY가 있어도 비워 둔다
+voice:
+  openai-api-key: ""
