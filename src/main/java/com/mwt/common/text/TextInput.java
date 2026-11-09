@@ -88,27 +88,38 @@ public final class TextInput {
 	}
 
 	/**
-	 * 공백 문자로 치지 않지만 화면에 보이지 않는 글자. 유니코드 형식 문자(Cf — 폭 없는 공백·글자 방향 표시·BOM 등)와,
-	 * 빈 이름처럼 보이게 쓰이는 한글 채움 문자·점자 빈칸, 자소 결합자다. 앞뒤에서만 떼므로 이모지 가운데의 결합자(U+200D)는 남는다.
-	 * 형식 문자 가운데 깃발 이모지 끝의 태그 글자와, 숫자 앞에 붙어 보이는 표시(아랍 숫자 기호 등 Prepended_Concatenation_Mark)는
-	 * 보이는 글자의 일부라 떼지 않는다.
+	 * 공백 문자로 치지 않지만 화면에 보이지 않는 글자. 유니코드가 보이지 않는 글자로 정한 것(Default_Ignorable_Code_Point — 폭 없는
+	 * 공백·글자 방향 표시·BOM·한글 채움 문자 등)과 나머지 형식 문자(Cf), 빈 이름처럼 보이게 쓰이는 점자 빈칸이다. 앞뒤에서만 떼므로
+	 * 이모지 가운데의 결합자(U+200D)는 남는다. 꾸밈 글자(isModifier)와, 숫자 앞에 붙어 보이는 형식 문자(아랍 숫자 기호 등
+	 * Prepended_Concatenation_Mark)는 여기서 빼고 따로 다룬다.
 	 */
 	private static boolean isInvisible(int codePoint) {
-		if (codePoint >= 0xE0020 && codePoint <= 0xE007F || isPrependedConcatenationMark(codePoint)) {
+		if (isModifier(codePoint) || isPrependedConcatenationMark(codePoint)) {
 			return false;
 		}
-		return Character.getType(codePoint) == Character.FORMAT
-				|| codePoint == 0x115F || codePoint == 0x1160 || codePoint == 0x3164 || codePoint == 0xFFA0
-				|| codePoint == 0x2800 || codePoint == 0x034F;
+		return isDefaultIgnorable(codePoint) || Character.getType(codePoint) == Character.FORMAT || codePoint == 0x2800;
 	}
 
 	/**
-	 * 앞 글자를 꾸미는 보이지 않는 글자(꾸밈 글자): 모양 선택자와 태그 글자. 맨 앞에서는 꾸밀 글자가 없어 떼고(이것만 넣으면 빈 이름이
-	 * 된다), 끝에서는 하트 같은 이모지·깃발 이모지·한자 이체자의 일부일 수 있어 꾸밀 글자가 공백일 때만 뗀다.
+	 * 앞 글자를 꾸미는 보이지 않는 글자(꾸밈 글자): 이체 선택자(Variation_Selector)와 태그 글자. 맨 앞에서는 꾸밀 글자가 없어
+	 * 떼고(이것만 넣으면 빈 이름이 된다), 끝에서는 하트 같은 이모지·깃발 이모지·한자 이체자의 일부일 수 있어 꾸밀 글자가 공백일 때만 뗀다.
 	 */
 	private static boolean isModifier(int codePoint) {
-		return codePoint >= 0xFE00 && codePoint <= 0xFE0F || codePoint >= 0xE0100 && codePoint <= 0xE01EF
+		return codePoint >= 0x180B && codePoint <= 0x180D || codePoint == 0x180F
+				|| codePoint >= 0xFE00 && codePoint <= 0xFE0F || codePoint >= 0xE0100 && codePoint <= 0xE01EF
 				|| codePoint >= 0xE0020 && codePoint <= 0xE007F;
+	}
+
+	/** 유니코드 15 DerivedCoreProperties.txt의 Default_Ignorable_Code_Point. */
+	private static boolean isDefaultIgnorable(int codePoint) {
+		return codePoint == 0x00AD || codePoint == 0x034F || codePoint == 0x061C
+				|| codePoint == 0x115F || codePoint == 0x1160 || codePoint == 0x17B4 || codePoint == 0x17B5
+				|| codePoint >= 0x180B && codePoint <= 0x180F
+				|| codePoint >= 0x200B && codePoint <= 0x200F || codePoint >= 0x202A && codePoint <= 0x202E
+				|| codePoint >= 0x2060 && codePoint <= 0x206F || codePoint == 0x3164
+				|| codePoint >= 0xFE00 && codePoint <= 0xFE0F || codePoint == 0xFEFF || codePoint == 0xFFA0
+				|| codePoint >= 0xFFF0 && codePoint <= 0xFFF8 || codePoint >= 0x1BCA0 && codePoint <= 0x1BCA3
+				|| codePoint >= 0x1D173 && codePoint <= 0x1D17A || codePoint >= 0xE0000 && codePoint <= 0xE0FFF;
 	}
 
 	/** 유니코드 15 PropList.txt의 Prepended_Concatenation_Mark. */
