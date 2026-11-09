@@ -11,6 +11,8 @@
 docker compose up -d --wait
 # 로그인 토큰 서명 키를 .env에 만들어 둔다 (없으면 서버가 뜨지 않는다. 이미 있으면 그대로 둔다)
 grep -qs '^JWT_SECRET=' .env || printf '\nJWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
+# 직원 코드도 같은 식으로 만들어 둔다 (직원으로 가입할 때 .env에 적힌 이 값을 입력한다)
+grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 4)" >> .env
 # 서버를 띄운다 (http://localhost:8080)
 ./gradlew bootRun
 ```
@@ -29,6 +31,7 @@ grep -qs '^JWT_SECRET=' .env || printf '\nJWT_SECRET=%s\n' "$(openssl rand -hex 
 | `DB_USERNAME` | `mwt` | MySQL 계정 |
 | `DB_PASSWORD` | `mwt` | MySQL 비밀번호 |
 | `JWT_SECRET` | (없음, 꼭 넣어야 함) | 로그인 토큰(JWT) 서명 키. 32바이트(영문·숫자 32자) 이상으로, `openssl rand -hex 32`로 만듭니다. 비어 있거나 짧으면 서버가 뜨지 않습니다. 서버(로컬·운영 등)마다 다른 값을 씁니다 — 같으면 한 서버에서 받은 토큰이 다른 서버에서도 통합니다 |
+| `STAFF_CODE` | (없음, 꼭 넣어야 함) | 직원으로 가입할 때 입력하는 직원 코드. 회사가 직원에게만 알려 주는 값이라 남이 짐작하기 어렵게 정합니다. 비어 있으면 서버가 뜨지 않습니다. 앞뒤 공백은 떼고 비교합니다 |
 | `SENS_ACCESS_KEY` | (없음) | NCP API 인증키의 Access Key ID(문자 발송) |
 | `SENS_SECRET_KEY` | (없음) | 위 Access Key의 Secret Key |
 | `SENS_SERVICE_ID` | (없음) | SENS SMS 프로젝트의 서비스 ID(`ncp:sms:kr:…` 꼴) |
@@ -38,7 +41,9 @@ grep -qs '^JWT_SECRET=' .env || printf '\nJWT_SECRET=%s\n' "$(openssl rand -hex 
 
 `JWT_SECRET`을 바꾸면 그 전에 받은 로그인 토큰이 모두 무효가 되어 다시 로그인해야 합니다. 테스트는 이 값 대신 `src/test/resources/config/application.yml`의 테스트용 키를 씁니다.
 
-모듈을 만들면서 직원 코드(member), OpenAI API 키(voice)를 더합니다. 이런 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
+`STAFF_CODE`를 바꿔도 이미 가입한 직원은 그대로입니다. 테스트는 테스트용 직원 코드(위 테스트 설정 파일)를 씁니다.
+
+OpenAI API 키(voice)는 그 모듈을 만들면서 더합니다. 이런 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
 
 내 컴퓨터에서 값을 바꿀 때는 둘 중 하나를 씁니다. 둘 다 `.gitignore`에 들어 있어 커밋되지 않습니다.
 
@@ -95,6 +100,7 @@ API가 실패하면 상태 코드와 함께 본문을 늘 아래 모양 하나�
 
 API 문서(Swagger) 주소는 로그인 없이 열립니다.
 
+- 로그인(`POST members/login`) 응답 본문은 `{"memberType": "CUSTOMER", "name": "홍길동"}`이고, 새로고침 뒤 부르는 `GET members/me`도 같은 모양입니다. 화면은 쿠키의 토큰을 읽을 수 없으므로 이 값으로 로그인 상태를 둡니다. 로그아웃(`POST members/logout`, 204)은 같은 이름과 `Path=/`로 값 없이 `Max-Age=0`인 쿠키를 내려 브라우저에서 지웁니다.
 - 로그인하지 않았거나 토큰이 만료되었거나 틀리면 401 `{"message": "로그인이 필요합니다."}`, 로그인했지만 권한이 없으면 403 `{"message": "권한이 없습니다."}`입니다.
 - **위 표에 없는 주소는 Controller가 있어도 막습니다**(로그인 전 401, 로그인 뒤 403). 표의 꼴 밖에 API를 새로 만들면 `common.security`의 `SecurityConfig`에 규칙을 더합니다.
 - Controller는 로그인한 회원의 ID를 `@AuthenticationPrincipal Long memberId`로 받습니다.
