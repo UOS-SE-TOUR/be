@@ -1,6 +1,6 @@
 package com.mwt.member;
 
-import org.springframework.util.StringUtils;
+import com.mwt.common.text.TextInput;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -19,13 +19,13 @@ public record SignUpRequest(
 		@NotNull(message = "회원 구분을 골라 주세요.") MemberType memberType,
 		String staffCode) {
 
-	/** 앞뒤 공백은 뗀다. 비밀번호는 입력한 그대로 둔다. */
+	/** TextInput으로 다듬고(NFC·보이지 않는 공백까지 앞뒤 공백 떼기) 검증 애너테이션은 다듬은 값을 본다. 비밀번호는 입력한 그대로 둔다. */
 	public SignUpRequest {
-		loginId = StringUtils.trimWhitespace(loginId);
-		name = StringUtils.trimWhitespace(name);
-		address = StringUtils.trimWhitespace(address);
-		phone = StringUtils.trimWhitespace(phone);
-		staffCode = StringUtils.trimWhitespace(staffCode);
+		loginId = TextInput.normalize(loginId);
+		name = TextInput.normalize(name);
+		address = TextInput.normalize(address);
+		phone = TextInput.normalize(phone);
+		staffCode = TextInput.normalize(staffCode);
 	}
 
 	@Override

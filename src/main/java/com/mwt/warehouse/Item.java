@@ -1,8 +1,7 @@
 package com.mwt.warehouse;
 
-import java.text.Normalizer;
-
 import com.mwt.common.exception.BusinessException;
+import com.mwt.common.text.TextInput;
 import com.mwt.tour.Theme;
 
 import jakarta.persistence.Column;
@@ -58,16 +57,9 @@ public class Item {
 		this.quantity += quantity;
 	}
 
-	/** 같은 물품인지는 이 값과 테마로 찾는다. 자모를 풀어 쓴 한글(NFD, macOS에서 붙여 넣은 글 등)도 NFC로 모아 같은 이름이 되게 한다. */
+	/** 같은 물품인지는 이 값과 테마로 찾는다. 자모를 풀어 쓴 한글과 보이지 않는 앞뒤 공백도 다듬어 같은 이름이 되게 한다(TextInput). */
 	static String normalizeName(String name) {
-		String trimmed = name == null ? "" : Normalizer.normalize(name, Normalizer.Form.NFC).strip();
-		if (trimmed.isEmpty()) {
-			throw new BusinessException("물품 이름을 입력해 주세요.");
-		}
-		if (trimmed.codePointCount(0, trimmed.length()) > NAME_MAX_LENGTH) {
-			throw new BusinessException("물품 이름은 " + NAME_MAX_LENGTH + "자까지 쓸 수 있습니다.");
-		}
-		return trimmed;
+		return TextInput.require(name, "물품 이름", NAME_MAX_LENGTH);
 	}
 
 	static void checkTheme(Theme theme) {

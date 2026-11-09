@@ -44,7 +44,7 @@ class ItemTest {
 
 	@ParameterizedTest
 	@NullAndEmptySource
-	@ValueSource(strings = {"   ", "\t\n"})
+	@ValueSource(strings = {"   ", "\t\n", "\u00A0", "\u200B"})
 	void 이름이_비었으면_거부한다(String name) {
 		assertThatThrownBy(() -> Item.normalizeName(name))
 			.isInstanceOf(BusinessException.class)

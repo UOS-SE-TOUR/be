@@ -1,6 +1,6 @@
 package com.mwt.member;
 
-import org.springframework.util.StringUtils;
+import com.mwt.common.text.TextInput;
 
 import jakarta.validation.constraints.NotBlank;
 
@@ -11,9 +11,9 @@ public record LogInRequest(
 		@NotBlank(message = "아이디를 입력해 주세요.") String loginId,
 		@NotBlank(message = "비밀번호를 입력해 주세요.") String password) {
 
-	/** 아이디는 가입할 때처럼 앞뒤 공백을 뗀다. */
+	/** 아이디는 가입할 때처럼 다듬는다. 비밀번호는 입력한 그대로 둔다. */
 	public LogInRequest {
-		loginId = StringUtils.trimWhitespace(loginId);
+		loginId = TextInput.normalize(loginId);
 	}
 
 	@Override

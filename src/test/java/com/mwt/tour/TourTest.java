@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -259,6 +260,19 @@ class TourTest {
 			assertRejected(() -> tour.addOptions(List.of(TourOption.transport(BASE_TRANSPORT, 0),
 					TourOption.transport(" " + BASE_TRANSPORT, 100_000))),
 					"같은 이름의 교통 선택지가 두 개 있습니다: " + BASE_TRANSPORT);
+		}
+
+		@Test
+		void 자모를_풀어_쓰거나_보이지_않는_공백만_다른_교통_이름도_같은_이름으로_거부() {
+			Tour tour = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			String name = "비행기 이코노미석";
+
+			assertRejected(() -> tour.addOptions(List.of(TourOption.transport(name, 0),
+					TourOption.transport(Normalizer.normalize(name, Normalizer.Form.NFD), 100_000))),
+					"같은 이름의 교통 선택지가 두 개 있습니다: " + name);
+			assertRejected(() -> tour.addOptions(List.of(TourOption.transport(name, 0),
+					TourOption.transport("\u00A0" + name + "\u200B", 100_000))),
+					"같은 이름의 교통 선택지가 두 개 있습니다: " + name);
 		}
 
 		@Test

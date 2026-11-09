@@ -12,10 +12,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import com.mwt.common.exception.BusinessException;
 import com.mwt.common.exception.GlobalExceptionHandler;
+import com.mwt.common.text.TextInput;
 import com.mwt.notification.SmsSender;
 
 /**
@@ -48,11 +48,12 @@ public class MemberService {
 
 	MemberService(MemberRepository memberRepository, PasswordEncoder passwordEncoder,
 			@Value("${member.staff-code:}") String staffCode) {
-		if (!StringUtils.hasText(staffCode)) {
+		// .env 값 끝의 공백까지 코드로 치지 않는다. 입력(SignUpRequest)도 같은 방법(TextInput)으로 다듬는다
+		String normalized = TextInput.normalize(staffCode);
+		if (normalized == null || normalized.isEmpty()) {
 			throw new IllegalStateException("환경변수 STAFF_CODE가 비어 있습니다. README 환경변수 절을 보고 넣어 주세요.");
 		}
-		// .env 값 끝의 공백까지 코드로 치지 않는다. 입력(SignUpRequest)도 같은 방법으로 뗀다
-		byte[] code = StringUtils.trimWhitespace(staffCode).getBytes(StandardCharsets.UTF_8);
+		byte[] code = normalized.getBytes(StandardCharsets.UTF_8);
 		if (code.length < MIN_STAFF_CODE_BYTES) {   // 가입 API에 시도 횟수 제한이 없어 짧은 코드는 하나씩 넣어 보면 맞힌다
 			throw new IllegalStateException("STAFF_CODE가 너무 짧습니다(" + code.length + "바이트). " + MIN_STAFF_CODE_BYTES
 					+ "바이트 이상으로 넣어 주세요(예: openssl rand -hex 8).");
@@ -71,7 +72,7 @@ public class MemberService {
 		if (request.memberType() == MemberType.STAFF && !isStaffCode(request.staffCode())) {
 			throw new BusinessException("직원 코드가 맞지 않아 직원으로 가입할 수 없습니다.");
 		}
-		if (request.password().codePointCount(0, request.password().length()) < MIN_PASSWORD_LENGTH) {
+		if (TextInput.length(request.password()) < MIN_PASSWORD_LENGTH) {
 			throw new BusinessException("비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상으로 입력해 주세요.");
 		}
 		if (isTooLong(request.password())) {

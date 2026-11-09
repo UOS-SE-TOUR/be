@@ -84,15 +84,15 @@ class MemberServiceTest {
 
 	@ParameterizedTest
 	@NullAndEmptySource
-	@ValueSource(strings = { " ", "\t" })
+	@ValueSource(strings = { " ", "\t", "\u00A0", "\u200B" })
 	void 직원_코드가_비어_있으면_서버가_뜨지_않는다(String staffCode) {
 		assertThatThrownBy(() -> new MemberService(null, new BCryptPasswordEncoder(), staffCode))
 			.isInstanceOf(IllegalStateException.class)
-			.hasMessageContaining("STAFF_CODE");
+			.hasMessageContaining("STAFF_CODE가 비어 있습니다");
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "1234", "0123456789abcde", " 0123456789abcde ", "가나다라마" })   // 마지막은 15바이트
+	@ValueSource(strings = { "1234", "0123456789abcde", " 0123456789abcde ", "\u00A00123456789abcde\u200B", "가나다라마" })   // 마지막은 15바이트
 	void 직원_코드가_16바이트보다_짧으면_서버가_뜨지_않는다(String staffCode) {
 		assertThatThrownBy(() -> new MemberService(null, new BCryptPasswordEncoder(), staffCode))
 			.isInstanceOf(IllegalStateException.class)
@@ -102,6 +102,17 @@ class MemberServiceTest {
 	@Test
 	void 직원_코드가_16바이트면_뜬다() {
 		new MemberService(null, new BCryptPasswordEncoder(), " 0123456789abcdef ");
+	}
+
+	@Test
+	void 환경변수_직원_코드의_보이지_않는_앞뒤_공백은_코드로_치지_않는다() {
+		MemberService service = new MemberService(memberRepository, new BCryptPasswordEncoder(),
+				"\u00A0" + STAFF_CODE + "\u200B");
+		when(memberRepository.save(any(Member.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		service.signUp(signUp(PASSWORD, "010-1234-5678", MemberType.STAFF, STAFF_CODE));
+
+		verify(memberRepository).save(any(Member.class));
 	}
 
 	@ParameterizedTest
