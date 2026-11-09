@@ -24,12 +24,13 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import lombok.extern.slf4j.Slf4j;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 솔라피 문자 발송 API(POST /messages/v4/send-many/fast)로 문자를 보낸다.
@@ -44,8 +45,11 @@ class SolapiSmsSender implements SmsSender {
 	/** 처음 보낸 뒤 실패하면 더 보내는 횟수(설계산출물 v0.5 4.6 retryCount = 1). */
 	private static final int RETRY_COUNT = 1;
 
-	/** 한 요청에 넣을 수 있는 메시지 수(솔라피 send-many 최대 10,000건). */
-	static final int MAX_RECIPIENTS = 10_000;
+	/**
+	 * 한 요청에 넣는 받는 사람 수. 솔라피는 10,000건까지 받지만, 읽기 시간 초과는 다시 보내지 않아 그 묶음의 접수 여부를 알 수 없게
+	 * 되므로 한 번에 그렇게 되는 사람 수를 줄인다.
+	 */
+	static final int MAX_RECIPIENTS = 100;
 
 	private static final String SALT_CHARACTERS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -55,19 +59,24 @@ class SolapiSmsSender implements SmsSender {
 
 	private final RestClient restClient;
 	private final SolapiProperties properties;
+	private final String senderNumber;
+	private final JsonMapper jsonMapper;
 	private final Clock clock;
 	private final Duration retryDelay;
 	private final Supplier<String> salts;
 
-	SolapiSmsSender(RestClient restClient, SolapiProperties properties, Clock clock, Duration retryDelay) {
-		this(restClient, properties, clock, retryDelay, SolapiSmsSender::randomSalt);
+	SolapiSmsSender(RestClient restClient, SolapiProperties properties, JsonMapper jsonMapper, Clock clock,
+			Duration retryDelay) {
+		this(restClient, properties, jsonMapper, clock, retryDelay, SolapiSmsSender::randomSalt);
 	}
 
 	/** salts는 테스트가 서명을 재현하려고 바꿔 넣는다. */
-	SolapiSmsSender(RestClient restClient, SolapiProperties properties, Clock clock, Duration retryDelay,
-			Supplier<String> salts) {
+	SolapiSmsSender(RestClient restClient, SolapiProperties properties, JsonMapper jsonMapper, Clock clock,
+			Duration retryDelay, Supplier<String> salts) {
 		this.restClient = restClient;
 		this.properties = properties;
+		this.senderNumber = PhoneNumbers.normalize(properties.senderNumber());
+		this.jsonMapper = jsonMapper;
 		this.clock = clock;
 		this.retryDelay = retryDelay;
 		this.salts = salts;
@@ -100,14 +109,10 @@ class SolapiSmsSender implements SmsSender {
 
 	private void sendWithRetry(List<String> recipients, String message) {
 		for (int attempt = 1;; attempt++) {
+			String responseBody;
 			try {
-				logResult(recipients, send(recipients, message));
-				return;
+				responseBody = send(recipients, message);
 			} catch (RuntimeException e) {
-				if (isUnreadableResponse(e)) {   // 2xx를 받았으니 솔라피가 받은 것이다 — 다시 보내면 문자가 두 번 간다
-					log.warn("문자 발송은 요청했지만 접수 결과를 읽지 못했습니다: phoneNumbers={}", recipients, e);
-					return;
-				}
 				if (attempt <= RETRY_COUNT && isRetryable(e)) {
 					log.warn("문자 발송에 실패해 한 번 더 보냅니다: {}", e.toString());
 					if (waitBeforeRetry()) {
@@ -117,26 +122,33 @@ class SolapiSmsSender implements SmsSender {
 				log.error("문자를 보내지 못했습니다(시도 {}번): phoneNumbers={}, message={}", attempt, recipients, message, e);
 				return;
 			}
+			logResult(recipients, responseBody);
+			return;
 		}
 	}
 
 	/**
 	 * 솔라피는 요청을 받으면 200을 돌려주고, 그중 접수하지 못한 메시지(발신 번호 미등록, 잔액 부족 등)를 failedMessageList로 알린다.
-	 * 그래서 200이어도 실패한 번호가 있으면 이유와 함께 ERROR로 남긴다.
+	 * 그래서 200이어도 실패한 번호가 있으면 이유와 함께 ERROR로 남긴다. 본문을 읽지 못하면 접수됐는지 알 수 없으니 그것도 ERROR로
+	 * 남기고, 솔라피가 이미 받았을 수 있어 다시 보내지는 않는다(다시 보내면 문자가 두 번 간다).
 	 */
-	private static void logResult(List<String> recipients, SendResponse response) {
-		List<FailedMessage> failed = response == null || response.failedMessageList() == null
-				? List.of() : response.failedMessageList();
+	private void logResult(List<String> recipients, String responseBody) {
+		SendResponse response;
+		try {
+			response = responseBody == null ? null : jsonMapper.readValue(responseBody, SendResponse.class);
+		} catch (JacksonException e) {
+			response = null;
+		}
+		if (response == null) {
+			log.error("문자 발송은 요청했지만 응답을 읽지 못해 접수됐는지 알 수 없습니다: phoneNumbers={}, 응답={}", recipients,
+					responseBody);
+			return;
+		}
+		List<FailedMessage> failed = response.failedMessageList() == null ? List.of() : response.failedMessageList();
 		if (!failed.isEmpty()) {
 			log.error("솔라피가 접수하지 않은 문자가 있습니다({}건): {}", failed.size(), failed);
 		}
 		log.info("문자 발송을 요청했습니다: 받는 사람 {}명, 접수 실패 {}명", recipients.size(), failed.size());
-	}
-
-	/** 응답(2xx)은 받았는데 본문을 읽지 못했다. 상태 코드 오류와 연결 오류는 각자의 예외로 온다. */
-	private static boolean isUnreadableResponse(RuntimeException e) {
-		return e instanceof RestClientException && !(e instanceof RestClientResponseException)
-				&& !(e instanceof ResourceAccessException);
 	}
 
 	/**
@@ -167,19 +179,22 @@ class SolapiSmsSender implements SmsSender {
 		}
 	}
 
-	private SendResponse send(List<String> recipients, String message) {
-		String from = PhoneNumbers.normalize(properties.senderNumber());
-		SendRequest request = new SendRequest(recipients.stream().map(to -> new Message(to, from, message)).toList());
+	/** 응답 본문은 문자열로 받아 logResult가 읽는다 — 여기서 나는 예외는 요청·응답 단계의 것만 남게 한다. */
+	private String send(List<String> recipients, String message) {
+		SendRequest request = new SendRequest(recipients.stream().map(to -> new Message(to, senderNumber, message)).toList());
 		return restClient.post()
 				.uri(URI.create(SEND_URL))
 				.contentType(MediaType.APPLICATION_JSON)
 				.header(HttpHeaders.AUTHORIZATION, authorization())
 				.body(request)
 				.retrieve()
-				.body(SendResponse.class);
+				.body(String.class);
 	}
 
-	/** 솔라피 API Key 인증: date와 salt를 이어 붙인 글을 API Secret으로 HmacSHA256한 16진수가 서명이다. */
+	/**
+	 * 솔라피 API Key 인증: date와 salt를 이어 붙인 글을 API Secret으로 HmacSHA256한 16진수가 서명이다.
+	 * 솔라피는 한 번 쓴 서명을 다시 받지 않으므로(403) 다시 보낼 때도 새로 만든다.
+	 */
 	private String authorization() {
 		String date = OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
 		String salt = salts.get();

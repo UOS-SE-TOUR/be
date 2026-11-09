@@ -19,7 +19,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
 import org.hamcrest.Matchers;
@@ -39,6 +41,8 @@ import org.springframework.test.web.client.ResponseActions;
 import org.springframework.test.web.client.ResponseCreator;
 import org.springframework.web.client.RestClient;
 
+import tools.jackson.databind.json.JsonMapper;
+
 @ExtendWith(OutputCaptureExtension.class)
 class SolapiSmsSenderTest {
 
@@ -51,6 +55,8 @@ class SolapiSmsSenderTest {
 
 	private final SolapiProperties properties = new SolapiProperties("test-api-key", "test-api-secret", "010-9999-8888");
 
+	private final JsonMapper jsonMapper = JsonMapper.builder().build();
+
 	// 밀리초는 서명 시각에서 버린다
 	private final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_123L), ZoneId.of("Asia/Seoul"));
 
@@ -62,7 +68,7 @@ class SolapiSmsSenderTest {
 	void setUp() {
 		RestClient.Builder builder = RestClient.builder();
 		server = MockRestServiceServer.bindTo(builder).build();
-		sender = new SolapiSmsSender(builder.build(), properties, clock, Duration.ZERO, () -> SALT);
+		sender = new SolapiSmsSender(builder.build(), properties, jsonMapper, clock, Duration.ZERO, () -> SALT);
 	}
 
 	@Test
@@ -99,10 +105,10 @@ class SolapiSmsSenderTest {
 	}
 
 	@Test
-	void 받는_사람이_만_명을_넘으면_나눠_보낸다() {
-		List<String> phoneNumbers = IntStream.rangeClosed(1, 10_001).mapToObj(i -> "010%08d".formatted(i)).toList();
-		expectRequest().andExpect(jsonPath("$.messages.length()").value(10_000)).andRespond(accepted());
-		expectRequest().andExpect(jsonPath("$.messages[0].to").value("01000010001")).andRespond(accepted());
+	void 받는_사람이_100명을_넘으면_나눠_보낸다() {
+		List<String> phoneNumbers = IntStream.rangeClosed(1, 101).mapToObj(i -> "010%08d".formatted(i)).toList();
+		expectRequest().andExpect(jsonPath("$.messages.length()").value(100)).andRespond(accepted());
+		expectRequest().andExpect(jsonPath("$.messages[0].to").value("01000000101")).andRespond(accepted());
 
 		sender.sendSms(phoneNumbers, "확정");
 
@@ -180,13 +186,42 @@ class SolapiSmsSenderTest {
 	}
 
 	@Test
-	void 응답_본문을_읽지_못해도_다시_보내지_않는다(CapturedOutput output) {
+	void 응답_본문을_읽지_못하면_접수_여부를_모른다고_ERROR로_남기고_다시_보내지_않는다(CapturedOutput output) {
 		expectRequest().andRespond(withSuccess("{", MediaType.APPLICATION_JSON));
+		expectRequest().andRespond(withStatus(HttpStatus.OK));
 
-		assertThatCode(() -> sender.sendSms(List.of("01012345678"), "확정")).doesNotThrowAnyException();
+		assertThatCode(() -> {
+			sender.sendSms(List.of("01012345678"), "확정");
+			sender.sendSms(List.of("01012345678"), "확정");
+		}).doesNotThrowAnyException();
 
 		server.verify();
-		assertThat(output).contains("접수 결과를 읽지 못했습니다").doesNotContain("한 번 더 보냅니다");
+		assertThat(output).contains("ERROR")
+				.contains("응답을 읽지 못해 접수됐는지 알 수 없습니다: phoneNumbers=[01012345678], 응답={")
+				.contains("응답을 읽지 못해 접수됐는지 알 수 없습니다: phoneNumbers=[01012345678], 응답=null")
+				.doesNotContain("한 번 더 보냅니다");
+	}
+
+	@Test
+	void 다시_보낼_때는_새_salt로_서명한다() {
+		RestClient.Builder builder = RestClient.builder();
+		MockRestServiceServer otherServer = MockRestServiceServer.bindTo(builder).build();
+		List<String> authorizations = new ArrayList<>();
+		otherServer.expect(requestTo(URL))
+				.andExpect(request -> authorizations.add(request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION)))
+				.andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+		otherServer.expect(requestTo(URL))
+				.andExpect(request -> authorizations.add(request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION)))
+				.andRespond(accepted());
+		AtomicInteger count = new AtomicInteger();
+		SolapiSmsSender countingSalts = new SolapiSmsSender(builder.build(), properties, jsonMapper, clock, Duration.ZERO,
+				() -> "salt%028d".formatted(count.incrementAndGet()));
+
+		countingSalts.sendSms(List.of("01012345678"), "확정");
+
+		otherServer.verify();
+		assertThat(authorizations).hasSize(2).doesNotHaveDuplicates();
+		assertThat(authorizations.get(1)).contains("salt=salt0000000000000000000000000002");
 	}
 
 	@Test
@@ -197,7 +232,7 @@ class SolapiSmsSenderTest {
 		otherServer.expect(requestTo(URL)).andExpect(jsonPath("$.messages[0].from").value("01099998888"))
 				.andRespond(accepted());
 
-		new SolapiSmsSender(builder.build(), international, clock, Duration.ZERO, () -> SALT)
+		new SolapiSmsSender(builder.build(), international, jsonMapper, clock, Duration.ZERO, () -> SALT)
 				.sendSms(List.of("01012345678"), "확정");
 
 		otherServer.verify();
@@ -209,21 +244,23 @@ class SolapiSmsSenderTest {
 		MockRestServiceServer otherServer = MockRestServiceServer.bindTo(builder).build();
 		String authorization = "HMAC-SHA256 apiKey=test-api-key, date=2023-11-15T07:13:20\\+09:00, "
 				+ "salt=[0-9a-zA-Z]{32}, signature=[0-9a-f]{64}";
+		List<String> authorizations = new ArrayList<>();
 		otherServer.expect(ExpectedCount.twice(), requestTo(URL))
 				.andExpect(header(HttpHeaders.AUTHORIZATION, Matchers.matchesPattern(authorization)))
+				.andExpect(request -> authorizations.add(request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION)))
 				.andRespond(accepted());
-		SolapiSmsSender randomSalted = new SolapiSmsSender(builder.build(), properties, clock, Duration.ZERO);
+		SolapiSmsSender randomSalted = new SolapiSmsSender(builder.build(), properties, jsonMapper, clock, Duration.ZERO);
 
 		randomSalted.sendSms(List.of("01012345678"), "확정");
 		randomSalted.sendSms(List.of("01012345678"), "확정");
 
 		otherServer.verify();
-		assertThat(SolapiSmsSender.randomSalt()).matches("[0-9a-zA-Z]{32}").isNotEqualTo(SolapiSmsSender.randomSalt());
+		assertThat(authorizations).hasSize(2).doesNotHaveDuplicates();
 	}
 
 	@Test
 	void 재시도_대기가_인터럽트되면_남은_묶음을_보내지_않는다(CapturedOutput output) {
-		List<String> phoneNumbers = IntStream.rangeClosed(1, 10_001).mapToObj(i -> "010%08d".formatted(i)).toList();
+		List<String> phoneNumbers = IntStream.rangeClosed(1, 101).mapToObj(i -> "010%08d".formatted(i)).toList();
 		RestClient.Builder builder = RestClient.builder();
 		MockRestServiceServer otherServer = MockRestServiceServer.bindTo(builder).build();
 		// 첫 묶음이 503을 받는 사이 서버 종료 등으로 인터럽트가 걸린다 → 재시도 대기(1ms)가 끊긴다
@@ -231,8 +268,8 @@ class SolapiSmsSenderTest {
 			Thread.currentThread().interrupt();
 			return withStatus(HttpStatus.SERVICE_UNAVAILABLE).createResponse(request);
 		});
-		SolapiSmsSender waitingSender = new SolapiSmsSender(builder.build(), properties, clock, Duration.ofMillis(1),
-				() -> SALT);
+		SolapiSmsSender waitingSender = new SolapiSmsSender(builder.build(), properties, jsonMapper, clock,
+				Duration.ofMillis(1), () -> SALT);
 
 		try {
 			waitingSender.sendSms(phoneNumbers, "확정");
@@ -241,7 +278,7 @@ class SolapiSmsSenderTest {
 		}
 
 		otherServer.verify();
-		assertThat(output).contains("문자 발송이 중단되어 보내지 못했습니다: phoneNumbers=[01000010001]");
+		assertThat(output).contains("문자 발송이 중단되어 보내지 못했습니다: phoneNumbers=[01000000101]");
 	}
 
 	@Test

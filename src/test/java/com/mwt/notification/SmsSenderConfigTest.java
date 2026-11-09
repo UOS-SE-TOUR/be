@@ -8,10 +8,14 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import com.mwt.ClockConfig;
 
+import tools.jackson.databind.json.JsonMapper;
+
 class SmsSenderConfigTest {
 
+	// 서버에서는 스프링 부트가 만드는 JsonMapper를 받는다
 	private final ApplicationContextRunner runner = new ApplicationContextRunner()
-			.withUserConfiguration(SmsSenderConfig.class, ClockConfig.class);
+			.withUserConfiguration(SmsSenderConfig.class, ClockConfig.class)
+			.withBean(JsonMapper.class, () -> JsonMapper.builder().build());
 
 	@Test
 	void 솔라피_설정이_비어_있으면_가짜_발송기를_쓴다() {

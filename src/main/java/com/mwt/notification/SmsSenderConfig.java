@@ -12,6 +12,7 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import lombok.extern.slf4j.Slf4j;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 솔라피 설정 세 개가 모두 있으면 SolapiSmsSender를, 모두 비어 있으면 FakeSmsSender를 SmsSender 빈으로 둔다.
@@ -29,7 +30,7 @@ class SmsSenderConfig {
 	private static final Duration RETRY_DELAY = Duration.ofSeconds(1);
 
 	@Bean
-	SmsSender smsSender(SolapiProperties properties, Clock clock) {
+	SmsSender smsSender(SolapiProperties properties, JsonMapper jsonMapper, Clock clock) {
 		if (properties.isEmpty()) {
 			log.warn("솔라피 설정이 없어 문자를 보내지 않고 로그로만 남깁니다(가짜 발송기)");
 			return new FakeSmsSender();
@@ -39,7 +40,7 @@ class SmsSenderConfig {
 			throw new IllegalStateException("솔라피 설정이 일부만 있습니다. 비어 있는 환경변수: " + String.join(", ", missing)
 					+ " (세 개를 모두 넣거나 모두 비우세요)");
 		}
-		return new SolapiSmsSender(solapiRestClient(), properties, clock, RETRY_DELAY);
+		return new SolapiSmsSender(solapiRestClient(), properties, jsonMapper, clock, RETRY_DELAY);
 	}
 
 	private static RestClient solapiRestClient() {
