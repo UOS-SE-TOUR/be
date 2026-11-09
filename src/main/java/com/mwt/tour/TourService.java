@@ -12,6 +12,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.mwt.common.exception.BusinessException;
@@ -100,8 +101,9 @@ public class TourService {
 	 * <p>신청(booking 행)을 저장하기 <b>전에</b> 부른다. 신청을 먼저 저장하면 booking.tour_id 외래 키 확인이 상품 행에 공유 잠금을 걸어,
 	 * 같은 상품의 동시 신청 둘이 서로의 공유 잠금을 기다리다 한쪽이 교착(Deadlock, 500)으로 실패한다(be 실측: 먼저 저장하면 3번 중 3번, 먼저 더하면 0번).
 	 * 그래서 NEWLY_CONFIRMED일 때 문자 받을 신청자는 이번 신청을 저장한 뒤에 찾아야 이번 신청자도 든다.
+	 * <p>부르는 쪽 트랜잭션 밖에서 부르면 바로 실패한다(MANDATORY) — 따로 커밋되면 인원만 늘고 신청 저장은 실패할 수 있어서다.
 	 */
-	@Transactional
+	@Transactional(propagation = Propagation.MANDATORY)
 	public ConfirmChange addApplicants(Long tourId, int headcount) {
 		return findTour(tourId, tourRepository::findByIdForUpdate).addApplicants(headcount);
 	}
@@ -109,7 +111,7 @@ public class TourService {
 	/**
 	 * 출발일과 여행 종료일에 따라 상태를 바꾼다(예약 작업 TourScheduler가 매일 부른다, 설계산출물 1.3 (9)·6장).
 	 * 출발일이 오늘이거나 지난 상품은 출발 처리하고(취소·진행 중), 여행 종료일이 지난 진행 중 상품은 완료한다.
-	 * 날짜가 지났는지로 찾으므로 서버가 꺼져 건너뛴 날의 상품도 바뀐다 — 그사이 여행이 끝났으면 한 번에 완료까지 간다.
+	 * 날짜가 지났는지로 찾으므로 서버가 꺼져 0시를 건너뛴 날의 상품도 다음 0시에 돌 때 함께 바뀐다 — 그사이 여행이 끝났으면 한 번에 완료까지 간다.
 	 */
 	@Transactional
 	public void updateStatuses(LocalDate today) {
@@ -120,7 +122,8 @@ public class TourService {
 		// 위에서 진행 중이 된 상품도 찾도록, 이 조회 앞에서 JPA가 바뀐 상태를 DB에 먼저 쓴다(flush)
 		List<Tour> finished = tourRepository.findFinished(today);
 		finished.forEach(Tour::complete);
-		log.info("상품 상태를 바꿨다({}): 출발 {}개, 완료 {}개", today, departing.size(), finished.size());
+		long cancelled = departing.stream().filter(tour -> tour.getStatus() == TourStatus.CANCELLED).count();
+		log.info("상품 상태를 바꿨다({}): 출발 처리 {}개 중 취소 {}개, 완료 {}개", today, departing.size(), cancelled, finished.size());
 	}
 
 	/** 여행 상품 기획(MWT-UC8). 상품을 만들고 등급별 가격과 옵션 목록을 넣어 저장한 뒤 상품 ID를 돌려준다. */

@@ -1,6 +1,7 @@
 package com.mwt.tour;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -57,7 +59,7 @@ class TourConcurrencyTest {
 	void 동시에_들어온_신청이_정원을_넘지_않는다() throws Exception {
 		Long tourId = save("2026-11-20", 5, 0);
 
-		List<Object> results = runConcurrently(8, () -> tourService.addApplicants(tourId, 1));
+		List<Object> results = runConcurrently(8, () -> addInOwnTransaction(tourId, 1));
 
 		assertThat(results).filteredOn(ConfirmChange.class::isInstance).hasSize(5);
 		assertThat(results).filteredOn(ConfirmChange.NOT_CONFIRMED::equals).hasSize(2);
@@ -78,7 +80,7 @@ class TourConcurrencyTest {
 
 		ConfirmChange change = transactionTemplate.execute(status -> {
 			assertThat(tourService.getTour(tourId).getAppliedCount()).isZero();   // 신청이 상품을 먼저 읽어 확인하는 흐름
-			runInOtherThread(() -> tourService.addApplicants(tourId, 2));
+			runInOtherThread(() -> addInOwnTransaction(tourId, 2));
 			return tourService.addApplicants(tourId, 1);
 		});
 
@@ -94,12 +96,20 @@ class TourConcurrencyTest {
 
 		transactionTemplate.executeWithoutResult(status -> {
 			tourService.getTour(tourId);
-			runInOtherThread(() -> tourService.addApplicants(tourId, 2));
+			runInOtherThread(() -> addInOwnTransaction(tourId, 2));
 			assertThat(tourService.addApplicants(tourId, 1)).isEqualTo(ConfirmChange.NEWLY_CONFIRMED);
 			assertThat(tourService.addApplicants(tourId, 1)).isEqualTo(ConfirmChange.ALREADY_CONFIRMED);
 		});
 
 		assertThat(tourRepository.findById(tourId).orElseThrow().getAppliedCount()).isEqualTo(4);
+	}
+
+	@Test
+	void 신청_트랜잭션_밖에서_부르면_인원을_더하지_않고_바로_실패한다() {
+		Long tourId = save("2026-11-20", 10, 0);
+
+		assertThatThrownBy(() -> tourService.addApplicants(tourId, 1)).isInstanceOf(IllegalTransactionStateException.class);
+		assertThat(tourRepository.findById(tourId).orElseThrow().getAppliedCount()).isZero();
 	}
 
 	@Test
@@ -143,6 +153,11 @@ class TourConcurrencyTest {
 		Long tourId = tourRepository.save(tour).getId();
 		savedTourIds.add(tourId);
 		return tourId;
+	}
+
+	/** 신청 한 건처럼 자기 트랜잭션에서 인원을 더하고 커밋한다. */
+	private ConfirmChange addInOwnTransaction(Long tourId, int headcount) {
+		return transactionTemplate.execute(status -> tourService.addApplicants(tourId, headcount));
 	}
 
 	/** 같은 일을 스레드마다 하나씩 한꺼번에 시작하고, 돌려준 값이나 던진 예외를 모은다. */
