@@ -6,19 +6,24 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.mwt.common.exception.BusinessException;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 여행 상품 흐름을 처리하는 tour 모듈의 공개 Service다(설계산출물 4.4). 다른 모듈은 여행 상품의 상태를 이 클래스로만 바꾼다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TourService {
@@ -73,11 +78,7 @@ public class TourService {
 	 */
 	@Transactional(readOnly = true)
 	public Tour getTour(Long tourId) {
-		if (tourId == null) {
-			throw new BusinessException("여행 상품을 골라 주세요.");
-		}
-		return tourRepository.findById(tourId)
-			.orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "여행 상품을 찾을 수 없습니다."));
+		return findTour(tourId, tourRepository::findById);
 	}
 
 	/**
@@ -94,6 +95,41 @@ public class TourService {
 			.toList();
 	}
 
+	/**
+	 * 신청 인원을 더하고 확정 변화를 돌려준다(booking 모듈이 신청할 때 같은 트랜잭션에서 부른다, 설계산출물 5.4.1).
+	 * 상품 행을 잠근 채 더하므로 동시에 들어온 신청이 정원을 넘지 않는다. 거부되면(BusinessException) 그 트랜잭션이 되돌려진다.
+	 * <p>신청(booking 행)을 저장하기 <b>전에</b> 부른다. 신청을 먼저 저장하면 booking.tour_id 외래 키 확인이 상품 행에 공유 잠금을 걸어,
+	 * 같은 상품의 동시 신청 둘이 서로의 공유 잠금을 기다리다 한쪽이 교착(Deadlock, 500)으로 실패한다(be 실측: 먼저 저장하면 3번 중 3번, 먼저 더하면 0번).
+	 * 그래서 NEWLY_CONFIRMED일 때 문자 받을 신청자는 이번 신청을 저장한 뒤에 찾아야 이번 신청자도 든다.
+	 * <p>부르는 쪽 트랜잭션 밖에서 부르면 바로 실패한다(MANDATORY) — 따로 커밋되면 인원만 늘고 신청 저장은 실패할 수 있어서다.
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public ConfirmChange addApplicants(Long tourId, int headcount) {
+		return findTour(tourId, tourRepository::findByIdForUpdate).addApplicants(headcount);
+	}
+
+	/**
+	 * 출발일과 여행 종료일에 따라 상태를 바꾼다(예약 작업 TourScheduler가 매일 0시와 서버가 뜰 때 부른다, 설계산출물 1.3 (9)·6장).
+	 * 출발일이 오늘이거나 지난 상품은 출발 처리하고(취소·진행 중), 여행 종료일이 지난 진행 중 상품은 완료한다.
+	 * 날짜가 지났는지로 찾으므로 0시에 서버가 꺼져 있었던 날의 상품도 다음에 돌 때 함께 바뀐다 — 그사이 여행이 끝났으면 한 번에 완료까지 간다.
+	 */
+	@Transactional
+	public void updateStatuses(LocalDate today) {
+		// 상품마다 잠그고 최신 값으로 다시 읽어 출발 처리한다. 자정 직전에 시작한 신청이 그 상품에 인원을 더하는 중이면
+		// 끝날 때까지 기다렸다가 더해진 인원으로 판단하고, 그 인원을 낡은 값으로 덮어쓰지 않는다.
+		// 기다리는 사이 다른 실행이 먼저 출발 처리했으면 건너뛴다
+		List<Tour> departing = tourRepository.findDeparting(today).stream()
+			.flatMap(found -> tourRepository.findByIdForUpdate(found.getId()).stream())
+			.filter(Tour::canDepart)
+			.toList();
+		departing.forEach(Tour::depart);
+		// 위에서 진행 중이 된 상품도 찾도록, 이 조회 앞에서 JPA가 바뀐 상태를 DB에 먼저 쓴다(flush)
+		List<Tour> finished = tourRepository.findFinished(today);
+		finished.forEach(Tour::complete);
+		long cancelled = departing.stream().filter(tour -> tour.getStatus() == TourStatus.CANCELLED).count();
+		log.info("상품 상태를 바꿨다({}): 출발 {}개(그중 취소 {}개), 완료 {}개", today, departing.size(), cancelled, finished.size());
+	}
+
 	/** 여행 상품 기획(MWT-UC8). 상품을 만들고 등급별 가격과 옵션 목록을 넣어 저장한 뒤 상품 ID를 돌려준다. */
 	@Transactional
 	public Long registerTour(RegisterTourRequest request) {
@@ -106,6 +142,15 @@ public class TourService {
 			.map(transport -> TourOption.transport(transport.name(), transport.unitPrice()))
 			.toList());
 		return tourRepository.save(tour).getId();
+	}
+
+	/** 상품 ID가 비었으면 400, 없는 상품이면 404다. */
+	private static Tour findTour(Long tourId, Function<Long, Optional<Tour>> finder) {
+		if (tourId == null) {
+			throw new BusinessException("여행 상품을 골라 주세요.");
+		}
+		return finder.apply(tourId)
+			.orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "여행 상품을 찾을 수 없습니다."));
 	}
 
 }

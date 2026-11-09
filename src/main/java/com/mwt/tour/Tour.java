@@ -34,7 +34,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Tour {
 
-	private static final int MIN_CAPACITY = 3;
+	// 신청 인원 합계가 이만큼 모이면 확정된다(설계산출물 6장). 정원이 이보다 작으면 확정될 수 없어 등록도 받지 않는다
+	private static final int MIN_CONFIRMED_COUNT = 3;
 	// MySQL DATE에 넣을 수 있는 마지막 날. 여행 종료일(출발일 + 기간 − 1일)까지 이 안에 있어야 저장하고 계산할 수 있다
 	private static final LocalDate LAST_STORABLE_DATE = LocalDate.of(9999, 12, 31);
 
@@ -83,8 +84,8 @@ public class Tour {
 		if (departureDate.isAfter(LAST_STORABLE_DATE) || departureDate.plusDays(duration - 1L).isAfter(LAST_STORABLE_DATE)) {
 			throw new BusinessException("여행은 9999년 12월 31일 안에 끝나야 합니다.");
 		}
-		if (capacity < MIN_CAPACITY) {
-			throw new BusinessException("정원은 " + MIN_CAPACITY + "명 이상이어야 합니다.");
+		if (capacity < MIN_CONFIRMED_COUNT) {
+			throw new BusinessException("정원은 " + MIN_CONFIRMED_COUNT + "명 이상이어야 합니다.");
 		}
 		if (theme == Theme.HONEYMOON && capacity % Theme.HONEYMOON_HEADCOUNT != 0) {
 			throw new BusinessException(theme.getDisplayName() + "의 정원은 짝수여야 합니다.");
@@ -187,6 +188,60 @@ public class Tour {
 		if (!departureDate.isAfter(today)) {
 			throw new BusinessException("출발일이 오늘이거나 지난 상품은 신청할 수 없습니다.");
 		}
+		checkSeats(headcount);
+		checkLevel(level);
+		theme.checkHeadcount(headcount);
+		checkOptions(optionIds);
+	}
+
+	/**
+	 * 신청 인원을 더하고 상태를 바꾼다(설계산출물 6장 전이표): 합계가 정원과 같으면 마감, 3명 이상이면 확정, 아니면 모집 중 그대로다.
+	 * 모집 중·확정 상품이 아니거나 남은 자리보다 많은 인원은 거부한다. 상품을 잠그고 더해야 동시 신청이 정원을 넘지 않으므로,
+	 * 상태를 바꾸는 이 메소드와 depart·complete는 tour 패키지 안(TourService)에서만 부른다.
+	 */
+	ConfirmChange addApplicants(int headcount) {
+		checkSeats(headcount);
+		theme.checkHeadcount(headcount);
+		boolean wasConfirmed = status == TourStatus.CONFIRMED;
+		appliedCount += headcount;
+		if (appliedCount == capacity) {
+			status = TourStatus.FULL;
+		} else if (appliedCount >= MIN_CONFIRMED_COUNT) {
+			status = TourStatus.CONFIRMED;
+		}
+		if (wasConfirmed) {
+			return ConfirmChange.ALREADY_CONFIRMED;
+		}
+		return status == TourStatus.RECRUITING ? ConfirmChange.NOT_CONFIRMED : ConfirmChange.NEWLY_CONFIRMED;
+	}
+
+	/** 출발 처리할 상태(모집 중·확정·마감)인지 본다. */
+	boolean canDepart() {
+		return status == TourStatus.RECRUITING || status == TourStatus.CONFIRMED || status == TourStatus.FULL;
+	}
+
+	/** 출발일에 상태를 바꾼다(설계산출물 6장): 모집 중(3명 미만)이면 취소, 확정·마감이면 진행 중. */
+	void depart() {
+		status = switch (status) {
+			case RECRUITING -> TourStatus.CANCELLED;
+			case CONFIRMED, FULL -> TourStatus.IN_PROGRESS;
+			default -> throw new IllegalStateException("상품 " + id + "은 " + status + "라 출발 처리할 수 없다.");
+		};
+	}
+
+	/** 여행 종료일이 지나면 진행 중을 완료로 바꾼다(설계산출물 6장). 완료 상품의 신청이 이전 여행이 된다. */
+	void complete() {
+		if (status != TourStatus.IN_PROGRESS) {
+			throw new IllegalStateException("상품 " + id + "은 " + status + "라 완료 처리할 수 없다.");
+		}
+		status = TourStatus.COMPLETED;
+	}
+
+	public int remainingSeats() {
+		return capacity - appliedCount;
+	}
+
+	private void checkSeats(int headcount) {
 		if (status != TourStatus.RECRUITING && status != TourStatus.CONFIRMED && status != TourStatus.FULL) {
 			throw new BusinessException("신청할 수 없는 상품입니다.");
 		}
@@ -199,13 +254,6 @@ public class Tour {
 		if (headcount > remainingSeats()) {
 			throw new BusinessException("남은 자리보다 인원이 많습니다.");
 		}
-		checkLevel(level);
-		theme.checkHeadcount(headcount);
-		checkOptions(optionIds);
-	}
-
-	public int remainingSeats() {
-		return capacity - appliedCount;
 	}
 
 	void checkLevel(TourLevel level) {

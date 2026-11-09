@@ -20,7 +20,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.mwt.common.exception.BusinessException;
 
 /**
- * 여행 상품의 업무 규칙(설계산출물 1.3 (1)·(3)·(5)·(6)·(7), 4.4 Tour, 5.8 부 흐름).
+ * 여행 상품의 업무 규칙(설계산출물 1.3 (1)~(7), 4.4 Tour, 5.8 부 흐름)과 상태 전이(6장 전이표).
  */
 class TourTest {
 
@@ -496,6 +496,180 @@ class TourTest {
 
 	}
 
+	/** 6장 전이표의 addApplicants 전이 다섯 개와 거부. */
+	@Nested
+	class 신청_인원_더하기 {
+
+		@Test
+		void 모집_중에_3명이_안_되면_모집_중_그대로() {
+			Tour tour = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+
+			assertThat(tour.addApplicants(1)).isEqualTo(ConfirmChange.NOT_CONFIRMED);
+			assertThat(tour.addApplicants(1)).isEqualTo(ConfirmChange.NOT_CONFIRMED);
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.RECRUITING);
+			assertThat(tour.getAppliedCount()).isEqualTo(2);
+		}
+
+		@Test
+		void 모집_중에_3명이_모이면_확정() {
+			Tour tour = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			tour.addApplicants(2);
+
+			assertThat(tour.addApplicants(1)).isEqualTo(ConfirmChange.NEWLY_CONFIRMED);
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.CONFIRMED);
+			assertThat(tour.getAppliedCount()).isEqualTo(3);
+			assertThat(tour.remainingSeats()).isEqualTo(7);
+		}
+
+		@Test
+		void 모집_중에_정원이_한_번에_차면_마감() {
+			Tour tour = new Tour(Theme.GOLF, DEPARTURE, 5, 4, TODAY);
+			tour.addApplicants(1);
+
+			assertThat(tour.addApplicants(3)).isEqualTo(ConfirmChange.NEWLY_CONFIRMED);
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.FULL);
+			assertThat(tour.remainingSeats()).isZero();
+		}
+
+		@Test
+		void 확정에서_자리가_남으면_확정_그대로() {
+			Tour tour = tourIn(TourStatus.CONFIRMED);
+
+			assertThat(tour.addApplicants(6)).isEqualTo(ConfirmChange.ALREADY_CONFIRMED);
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.CONFIRMED);
+			assertThat(tour.getAppliedCount()).isEqualTo(9);
+		}
+
+		@Test
+		void 확정에서_정원이_차면_마감() {
+			Tour tour = tourIn(TourStatus.CONFIRMED);
+
+			assertThat(tour.addApplicants(7)).isEqualTo(ConfirmChange.ALREADY_CONFIRMED);
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.FULL);
+		}
+
+		@Test
+		void 허니문은_두_쌍째에_확정되고_정원이_차면_마감() {
+			Tour honeymoon = new Tour(Theme.HONEYMOON, DEPARTURE, 5, 6, TODAY);
+
+			assertThat(honeymoon.addApplicants(2)).isEqualTo(ConfirmChange.NOT_CONFIRMED);
+			assertThat(honeymoon.addApplicants(2)).isEqualTo(ConfirmChange.NEWLY_CONFIRMED);
+			assertThat(honeymoon.getStatus()).isEqualTo(TourStatus.CONFIRMED);
+			assertThat(honeymoon.addApplicants(2)).isEqualTo(ConfirmChange.ALREADY_CONFIRMED);
+			assertThat(honeymoon.getStatus()).isEqualTo(TourStatus.FULL);
+		}
+
+		@Test
+		void 남은_자리보다_많으면_거부하고_그대로_둔다() {
+			Tour tour = tourIn(TourStatus.CONFIRMED);
+
+			assertRejected(() -> tour.addApplicants(8), "남은 자리보다 인원이 많습니다.");
+			assertThat(tour.getAppliedCount()).isEqualTo(3);
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.CONFIRMED);
+		}
+
+		@Test
+		void 마감이면_거부() {
+			Tour tour = tourIn(TourStatus.FULL);
+
+			assertRejected(() -> tour.addApplicants(1), "마감된 상품입니다.");
+			assertThat(tour.getAppliedCount()).isEqualTo(10);
+		}
+
+		@ParameterizedTest
+		@EnumSource(value = TourStatus.class, names = {"CANCELLED", "IN_PROGRESS", "COMPLETED"})
+		void 출발했거나_끝난_상품이면_거부(TourStatus status) {
+			Tour tour = tourIn(status);
+			int appliedCount = tour.getAppliedCount();
+
+			assertRejected(() -> tour.addApplicants(1), "신청할 수 없는 상품입니다.");
+			assertThat(tour.getStatus()).isEqualTo(status);
+			assertThat(tour.getAppliedCount()).isEqualTo(appliedCount);
+		}
+
+		@ParameterizedTest
+		@ValueSource(ints = {0, -1})
+		void 인원이_1명_미만이면_거부(int headcount) {
+			Tour tour = tourIn(TourStatus.CONFIRMED);
+
+			assertRejected(() -> tour.addApplicants(headcount), "인원은 1명 이상이어야 합니다.");
+			assertThat(tour.getAppliedCount()).isEqualTo(3);
+		}
+
+		@Test
+		void 허니문이_2명이_아니면_거부() {
+			Tour honeymoon = new Tour(Theme.HONEYMOON, DEPARTURE, 5, 6, TODAY);
+
+			assertRejected(() -> honeymoon.addApplicants(1), "허니문 낭만 투어는 2명만 신청할 수 있습니다.");
+			assertThat(honeymoon.getAppliedCount()).isZero();
+		}
+
+	}
+
+	/** 6장 전이표의 depart·complete 전이 네 개와, 그 밖의 상태에서 부르면 생기는 오류. */
+	@Nested
+	class 출발과_완료 {
+
+		@ParameterizedTest
+		@ValueSource(ints = {0, 2})
+		void 모집_중이면_출발일에_취소(int appliedCount) {
+			Tour tour = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			if (appliedCount > 0) {
+				tour.addApplicants(appliedCount);
+			}
+
+			tour.depart();
+
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.CANCELLED);
+		}
+
+		@ParameterizedTest
+		@EnumSource(value = TourStatus.class, names = {"CONFIRMED", "FULL"})
+		void 확정이나_마감이면_출발일에_진행_중(TourStatus status) {
+			Tour tour = tourIn(status);
+
+			tour.depart();
+
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.IN_PROGRESS);
+		}
+
+		@Test
+		void 진행_중이면_완료() {
+			Tour tour = tourIn(TourStatus.IN_PROGRESS);
+
+			tour.complete();
+
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.COMPLETED);
+		}
+
+		@ParameterizedTest
+		@EnumSource(TourStatus.class)
+		void 출발_처리할_상태는_모집_중_확정_마감뿐이다(TourStatus status) {
+			boolean expected = status == TourStatus.RECRUITING || status == TourStatus.CONFIRMED || status == TourStatus.FULL;
+
+			assertThat(tourIn(status).canDepart()).isEqualTo(expected);
+		}
+
+		@ParameterizedTest
+		@EnumSource(value = TourStatus.class, names = {"CANCELLED", "IN_PROGRESS", "COMPLETED"})
+		void 이미_출발했거나_끝난_상품은_출발_처리하지_않는다(TourStatus status) {
+			Tour tour = tourIn(status);
+
+			assertThatThrownBy(tour::depart).isInstanceOf(IllegalStateException.class);
+			assertThat(tour.getStatus()).isEqualTo(status);
+		}
+
+		@ParameterizedTest
+		@EnumSource(value = TourStatus.class, names = "IN_PROGRESS", mode = EnumSource.Mode.EXCLUDE)
+		void 진행_중이_아니면_완료하지_않는다(TourStatus status) {
+			Tour tour = tourIn(status);
+
+			assertThatThrownBy(tour::complete).isInstanceOf(IllegalStateException.class);
+			assertThat(tour.getStatus()).isEqualTo(status);
+		}
+
+	}
+
 	private static void assertRejected(ThrowingCallable call, String message) {
 		assertThatThrownBy(call).isInstanceOf(BusinessException.class).hasMessage(message);
 	}
@@ -527,6 +701,28 @@ class TourTest {
 		for (TourOption option : tour.getOptions()) {
 			ReflectionTestUtils.setField(option, "id", id++);
 		}
+		return tour;
+	}
+
+	/** 정원 10명인 골프 상품을 전이 메소드로 그 상태까지 옮긴다. 확정·진행 중·완료 상품의 신청 인원은 3명이다. */
+	private static Tour tourIn(TourStatus status) {
+		Tour tour = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+		switch (status) {
+			case RECRUITING -> { }
+			case CONFIRMED -> tour.addApplicants(3);
+			case FULL -> tour.addApplicants(10);
+			case CANCELLED -> tour.depart();
+			case IN_PROGRESS -> {
+				tour.addApplicants(3);
+				tour.depart();
+			}
+			case COMPLETED -> {
+				tour.addApplicants(3);
+				tour.depart();
+				tour.complete();
+			}
+		}
+		assertThat(tour.getStatus()).isEqualTo(status);
 		return tour;
 	}
 
