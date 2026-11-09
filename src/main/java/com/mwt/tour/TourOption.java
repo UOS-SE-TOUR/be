@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.mwt.common.exception.BusinessException;
+import com.mwt.common.text.TextInput;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -62,19 +63,16 @@ public class TourOption {
 		this.defaultFor = defaultFor;
 	}
 
-	/** 직원이 입력한 교통 선택지 하나. unitPrice는 기본 교통 대비 1인 추가 요금이고, 기본 교통은 0원이다. */
+	/**
+	 * 직원이 입력한 교통 선택지 하나. unitPrice는 기본 교통 대비 1인 추가 요금이고, 기본 교통은 0원이다.
+	 * 이름은 TextInput으로 다듬어, 자모를 풀어 쓴 한글이나 보이지 않는 앞뒤 공백만 다른 이름도 Tour.addOptions에서 같은 이름이 된다.
+	 */
 	public static TourOption transport(String name, long unitPrice) {
-		String trimmed = name == null ? "" : name.strip();
-		if (trimmed.isEmpty()) {
-			throw new BusinessException("교통 이름을 입력해 주세요.");
-		}
-		if (trimmed.codePointCount(0, trimmed.length()) > NAME_MAX_LENGTH) {
-			throw new BusinessException("교통 이름은 " + NAME_MAX_LENGTH + "자까지 쓸 수 있습니다.");
-		}
+		String normalized = TextInput.require(name, "교통 이름", NAME_MAX_LENGTH);
 		if (unitPrice < 0) {
 			throw new BusinessException("교통 추가 요금은 0원 이상이어야 합니다.");
 		}
-		return new TourOption(OptionCategory.TRANSPORT, trimmed, unitPrice, null);
+		return new TourOption(OptionCategory.TRANSPORT, normalized, unitPrice, null);
 	}
 
 	/**

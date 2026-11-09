@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.text.Normalizer;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
@@ -110,6 +111,19 @@ class MemberControllerTest {
 	}
 
 	@Test
+	void 보이지_않는_앞뒤_공백과_자모를_풀어_쓴_한글도_다듬어_저장한다() throws Exception {
+		String decomposedName = Normalizer.normalize("홍길동", Normalizer.Form.NFD);
+		signUp(new Body(" hong​", PASSWORD, decomposedName + " ", "﻿서울", "010-1234-5678​",
+				"CUSTOMER", null))
+			.andExpect(status().isCreated());
+
+		Member member = memberRepository.findByLoginId("hong").orElseThrow();
+		assertThat(member).extracting(Member::getName, Member::getAddress, Member::getPhone)
+			.containsExactly("홍길동", "서울", "010-1234-5678");
+		logIn("hong ", PASSWORD).andExpect(status().isOk());
+	}
+
+	@Test
 	void 직원_코드가_맞으면_직원으로_가입한다() throws Exception {
 		signUp(staff("kim", " " + STAFF_CODE + " ")).andExpect(status().isCreated());
 
@@ -169,6 +183,7 @@ class MemberControllerTest {
 				Arguments.of(ok.withPassword(null), "비밀번호를 입력해 주세요."),
 				Arguments.of(ok.withPassword(" "), "비밀번호를 입력해 주세요."),
 				Arguments.of(ok.withName(""), "이름을 입력해 주세요."),
+				Arguments.of(ok.withName(" ​"), "이름을 입력해 주세요."),
 				Arguments.of(ok.withAddress(null), "주소를 입력해 주세요."),
 				Arguments.of(ok.withPhone(" "), "연락처를 입력해 주세요."),
 				Arguments.of(ok.withMemberType(null), "회원 구분을 골라 주세요."),
@@ -183,6 +198,15 @@ class MemberControllerTest {
 		signUp(new Body("a".repeat(50), PASSWORD, "가".repeat(50), "가".repeat(255), "+82 10 - 1234 - 5678", "CUSTOMER",
 				null))
 			.andExpect(status().isCreated());
+	}
+
+	@Test
+	void 자모를_풀어_쓴_이름도_모은_음절로_세어_칸_길이까지_받는다() throws Exception {
+		String decomposed = Normalizer.normalize("가".repeat(50), Normalizer.Form.NFD);   // 자모 100개
+
+		signUp(customer("hong").withName(decomposed)).andExpect(status().isCreated());
+
+		assertThat(memberRepository.findByLoginId("hong").orElseThrow().getName()).isEqualTo("가".repeat(50));
 	}
 
 	@ParameterizedTest
