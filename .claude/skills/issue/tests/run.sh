@@ -1758,9 +1758,9 @@ for want in '`머지했어 <레포 이름> PR #<PR번호> — ' '`/issue <이슈
   if LC_ALL=C grep -Fq "$want" "$SKILL_DIR/references/worktree.md"; then ok; else bad "문서: 새 세션에 적어 주는 문구가 레포 이름을 담는다" "$want"; fi
 done
 
-# 셀프 리뷰 상한은 10회다(be #21 에서 5회를 올렸다). 한 자리만 고쳐 상한을 적은 세 자리(라운드 기록의 n/10, 안전장치의
-# 10회와 "열 번을 넘긴")가 갈리거나 옛 숫자(5회)가 되살아나지 않았는지 본다.
-for want in '센 라운드인지(n/10)와' '  - **10회**(회 = 완결 보고를 낸 라운드 수.' '열 번을 넘긴 라운드는'; do
+# 셀프 리뷰 상한은 10회다(be #21 에서 5회를 올렸다). 한 자리만 고쳐 상한을 적은 네 자리(라운드 기록의 n/10, 안전장치의
+# 10회와 "열 번을 넘긴", 끝 절의 사본 비교)가 갈리거나 옛 숫자(5회)가 되살아나지 않았는지 본다.
+for want in '센 라운드인지(n/10)와' '  - **10회**(회 = 완결 보고를 낸 라운드 수.' '열 번을 넘긴 라운드는' '숫자는 ClimPick 사본과 같은 10회지만'; do
   if LC_ALL=C grep -Fq -- "$want" "$SKILL_DIR/SKILL.md"; then ok; else bad "문서: 셀프 리뷰 상한은 10회다" "$want"; fi
 done
 OUT=$(LC_ALL=C grep -nE 'n/5\)|\*\*5회\*\*|다섯 번을 넘긴' "$SKILL_DIR/SKILL.md")
