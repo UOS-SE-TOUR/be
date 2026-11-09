@@ -99,6 +99,7 @@ public class TourService {
 	 * 상품 행을 잠근 채 더하므로 동시에 들어온 신청이 정원을 넘지 않는다. 거부되면(BusinessException) 그 트랜잭션이 되돌려진다.
 	 * <p>신청(booking 행)을 저장하기 <b>전에</b> 부른다. 신청을 먼저 저장하면 booking.tour_id 외래 키 확인이 상품 행에 공유 잠금을 걸어,
 	 * 같은 상품의 동시 신청 둘이 서로의 공유 잠금을 기다리다 한쪽이 교착(Deadlock, 500)으로 실패한다(be 실측: 먼저 저장하면 3번 중 3번, 먼저 더하면 0번).
+	 * 그래서 NEWLY_CONFIRMED일 때 문자 받을 신청자는 이번 신청을 저장한 뒤에 찾아야 이번 신청자도 든다.
 	 */
 	@Transactional
 	public ConfirmChange addApplicants(Long tourId, int headcount) {
@@ -113,7 +114,9 @@ public class TourService {
 	@Transactional
 	public void updateStatuses(LocalDate today) {
 		List<Tour> departing = tourRepository.findDeparting(today);
-		departing.forEach(Tour::depart);
+		// 상품마다 잠그고 최신 값으로 다시 읽어 출발 처리한다. 자정 직전에 시작한 신청이 그 상품에 인원을 더하는 중이면
+		// 끝날 때까지 기다렸다가 더해진 인원으로 판단하고, 그 인원을 낡은 값으로 덮어쓰지 않는다
+		departing.forEach(tour -> tourRepository.findByIdForUpdate(tour.getId()).ifPresent(Tour::depart));
 		// 위에서 진행 중이 된 상품도 찾도록, 이 조회 앞에서 JPA가 바뀐 상태를 DB에 먼저 쓴다(flush)
 		List<Tour> finished = tourRepository.findFinished(today);
 		finished.forEach(Tour::complete);

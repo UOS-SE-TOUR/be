@@ -4,11 +4,8 @@ import java.time.LocalDate;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-
-import jakarta.persistence.LockModeType;
 
 /**
  * 여행 상품을 저장하고 찾는다(설계산출물 4.4). 다른 모듈은 이 인터페이스 대신 TourService를 쓴다.
@@ -32,10 +29,9 @@ interface TourRepository extends JpaRepository<Tour, Long>, TourRepositoryCustom
 			@Param("departureDate") LocalDate departureDate);
 
 	/**
-	 * 출발일이 오늘이거나 지난 모집 중·확정·마감 상품이다. 찾은 행을 잠가, 자정 직전에 시작한 신청이 신청 인원을 더하는 사이에
-	 * 예약 작업이 낡은 인원으로 취소하거나 그 인원을 덮어쓰지 않게 한다.
+	 * 출발일이 오늘이거나 지난 모집 중·확정·마감 상품이다. 잠그지 않는다 — 이 조건에 맞는 색인이 없어 잠그며 찾으면 상품 표 전체가 잠긴다.
+	 * 출발 처리는 TourService.updateStatuses가 상품마다 잠그고 다시 읽어 한다.
 	 */
-	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 			select t from Tour t
 			where t.status in (com.mwt.tour.TourStatus.RECRUITING, com.mwt.tour.TourStatus.CONFIRMED, com.mwt.tour.TourStatus.FULL)

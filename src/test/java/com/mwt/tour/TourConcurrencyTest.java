@@ -45,9 +45,12 @@ class TourConcurrencyTest {
 	@Autowired
 	TransactionTemplate transactionTemplate;
 
+	private final List<Long> savedTourIds = new ArrayList<>();
+
+	/** 같은 DB를 쓰는 다른 테스트의 행은 두고, 이 테스트가 만든 상품만 지운다. */
 	@AfterEach
 	void deleteTours() {
-		tourRepository.deleteAll();
+		tourRepository.deleteAllById(savedTourIds);
 	}
 
 	@Test
@@ -137,7 +140,9 @@ class TourConcurrencyTest {
 		if (applicants > 0) {
 			tour.addApplicants(applicants);
 		}
-		return tourRepository.save(tour).getId();
+		Long tourId = tourRepository.save(tour).getId();
+		savedTourIds.add(tourId);
+		return tourId;
 	}
 
 	/** 같은 일을 스레드마다 하나씩 한꺼번에 시작하고, 돌려준 값이나 던진 예외를 모은다. */
