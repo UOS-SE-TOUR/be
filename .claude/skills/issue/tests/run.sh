@@ -1767,6 +1767,14 @@ done
 OUT=$(LC_ALL=C grep -nE 'n/5\)|\*\*5회\*\*|다섯 번을 넘긴|이 사본은 5회' "$SKILL_DIR/SKILL.md")
 if [ -z "$OUT" ]; then ok; else bad "문서: 셀프 리뷰 상한의 옛 숫자(5회)가 남지 않았다" "$OUT"; fi
 
+# 완결 보고 기준은 이 사본에서 바꿨다(be #26) — 리뷰가 판정 없이 목록만 내면 세션이 후보마다 판정을 적어 완결로
+# 친다. ClimPick 사본의 옛 문장이 옮겨 와 판정 없는 라운드를 다시 세지 않게 되돌리지 않았는지 본다.
+for want in '세션이 후보마다 코드를 확인해' '최종 목록 없이 끝난 실행'; do
+  if LC_ALL=C grep -Fq -- "$want" "$SKILL_DIR/SKILL.md"; then ok; else bad "문서: 판정 없는 라운드도 세션이 판정하면 완결이다" "$want"; fi
+done
+OUT=$(LC_ALL=C grep -n '미검증 후보가 남은' "$SKILL_DIR/SKILL.md")
+if [ -z "$OUT" ]; then ok; else bad "문서: 옛 완결 기준(미검증 후보가 남은 라운드는 세지 않는다)이 남지 않았다" "$OUT"; fi
+
 # 판정 스크립트가 내는 branch-escaped 줄은 문서에 적혀 있어야 한다 — 안 적히면 그 줄을 받은 모델이 갈래를 모른다.
 if LC_ALL=C grep -Fq 'branch-escaped' "$T/docs.txt"; then ok; else bad "문서: branch-escaped 줄이 적혀 있다" "docs"; fi
 
