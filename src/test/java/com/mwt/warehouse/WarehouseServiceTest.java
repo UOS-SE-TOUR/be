@@ -29,7 +29,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.HttpStatus;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.mwt.TestcontainersConfiguration;
@@ -135,34 +134,30 @@ class WarehouseServiceTest {
 	}
 
 	@Test
-	void 두_직원이_같은_새_물품을_동시에_처음_넣으면_한쪽만_저장되고_다른_쪽은_409로_다시_시도하게_한다() throws Exception {
-		PauseAfterFindByName.BARRIER.set(new CyclicBarrier(2));   // 둘 다 "없다"고 읽은 뒤에 저장한다
+	void 두_직원이_같은_새_물품을_동시에_처음_넣어도_둘_다_더해진다() throws Exception {
+		PauseAfterFindByName.pauseOnce();   // 둘 다 "없다"고 읽은 뒤에 저장한다
 
 		List<Throwable> errors = runConcurrently(List.of(
 				() -> warehouseService.addItem("생수", Theme.GOLF, 3),
 				() -> warehouseService.addItem("생수", Theme.GOLF, 5)));
 
-		assertThat(errors).filteredOn(e -> e == null).hasSize(1);
-		Throwable error = errors.get(0) != null ? errors.get(0) : errors.get(1);
-		assertThat(error).isInstanceOfSatisfying(BusinessException.class, e -> {
-			assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
-			assertThat(e).hasMessage("다른 직원이 같은 물품을 방금 추가했습니다. 다시 시도해 주세요.");
-		});
-		int saved = errors.get(0) == null ? 3 : 5;
-		assertThat(itemRepository.findAll()).extracting(Item::getQuantity).containsExactly(saved);
+		assertThat(errors).containsOnlyNulls();
+		assertThat(itemRepository.findAll()).extracting(Item::getName, Item::getQuantity)
+			.containsExactly(tuple("생수", 8));
 	}
 
 	@Test
 	void 두_직원이_이름이_다른_새_물품을_동시에_넣으면_둘_다_저장된다() throws Exception {
-		PauseAfterFindByName.BARRIER.set(new CyclicBarrier(2));   // 둘 다 "없다"고 읽은 뒤에 저장한다
-
+		PauseAfterFindByName.pauseOnce();   // 둘 다 "없다"고 읽은 뒤에 저장한다
+		// 두 이름 사이에 다른 테스트가 쓰는 이름이 없어야 MySQL이 같은 구간을 잠가 매번 부딪힌다
+		// (지운 행도 정리되기 전까지는 구간을 나눈다)
 		List<Throwable> errors = runConcurrently(List.of(
-				() -> warehouseService.addItem("골프공", Theme.GOLF, 3),
-				() -> warehouseService.addItem("스카프", Theme.TREKKING, 5)));
+				() -> warehouseService.addItem("모자", Theme.GOLF, 3),
+				() -> warehouseService.addItem("물병", Theme.TREKKING, 5)));
 
 		assertThat(errors).containsOnlyNulls();
 		assertThat(itemRepository.findAll()).extracting(Item::getName, Item::getQuantity)
-			.containsExactlyInAnyOrder(tuple("골프공", 3), tuple("스카프", 5));
+			.containsExactlyInAnyOrder(tuple("모자", 3), tuple("물병", 5));
 	}
 
 	/** 일을 스레드마다 하나씩 한꺼번에 시작하고, 일마다 던진 예외를 순서대로 모은다(성공이면 null). */
@@ -197,13 +192,18 @@ class WarehouseServiceTest {
 	}
 
 	/**
-	 * BARRIER를 걸면 ItemRepository.findByName이 끝난 뒤 다른 스레드도 거기까지 올 때까지 기다린다.
+	 * pauseOnce()를 부르면 ItemRepository.findByName이 끝난 뒤 두 번째 스레드가 거기까지 올 때까지 한 번 기다린다.
 	 * 두 요청이 모두 "같은 이름이 없다"고 읽은 다음에 저장하게 만들어, 드물게만 생기는 충돌을 매번 일으킨다.
+	 * 한 번 모이면 풀려서, 되돌려진 쪽이 다시 할 때는 기다리지 않는다.
 	 */
 	@TestConfiguration(proxyBeanMethods = false)
 	static class PauseAfterFindByName {
 
 		static final AtomicReference<CyclicBarrier> BARRIER = new AtomicReference<>();
+
+		static void pauseOnce() {
+			BARRIER.set(new CyclicBarrier(2, () -> BARRIER.set(null)));
+		}
 
 		@Bean
 		static BeanPostProcessor pauseAfterFindByName() {
