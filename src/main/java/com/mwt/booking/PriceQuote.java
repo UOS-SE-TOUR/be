@@ -29,7 +29,10 @@ public record PriceQuote(Summary summary, long totalPrice, long discount, long f
 		return new PriceQuote(summary, totalPrice, discount, totalPrice - discount);
 	}
 
-	/** 고른 내용. options는 바꾼 옵션만 종류 순(호텔, 교통, 식사, 추가)으로 담고, 고르지 않은 종류는 그 등급의 기본 제공이다. */
+	/**
+	 * 고른 내용. options는 요청의 optionIds를 종류 순(호텔, 교통, 식사, 추가)으로 담는다. 그 등급의 기본 제공을 골랐으면 priceDiff가 0이고,
+	 * 고르지 않은 종류는 그 등급의 기본 제공(교통은 기본 교통)이다.
+	 */
 	public record Summary(Long tourId, String title, LocalDate departureDate, int duration, TourLevel level,
 			String levelName, int headcount, List<Option> options) {
 	}
