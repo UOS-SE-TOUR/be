@@ -215,7 +215,7 @@ class TourTest {
 
 		@ParameterizedTest
 		@EnumSource(value = Theme.class, names = {"HONEYMOON", "PARENTS"})
-		void 허니문과_효도_투어에는_3등급_호텔을_넣지_않는다(Theme theme) {
+		void 허니문과_효도_투어에는_클래식의_3등급_호텔과_도시락을_넣지_않는다(Theme theme) {
 			Tour tour = new Tour(theme, DEPARTURE, 5, 10, TODAY);
 
 			tour.addOptions(transports());
@@ -223,6 +223,9 @@ class TourTest {
 			assertThat(tour.getOptions()).filteredOn(option -> option.getCategory() == OptionCategory.HOTEL)
 				.extracting(TourOption::getName)
 				.containsExactly("4등급 호텔", "5등급 호텔");
+			assertThat(tour.getOptions()).filteredOn(option -> option.getCategory() == OptionCategory.MEAL)
+				.extracting(TourOption::getName)
+				.containsExactly("현지식 레스토랑", "고급 레스토랑");
 		}
 
 		@Test

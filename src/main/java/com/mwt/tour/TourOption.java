@@ -79,7 +79,8 @@ public class TourOption {
 
 	/**
 	 * 교통 선택지에 붙이는 호텔 등급·식사·추가 옵션이다. defaultFor는 TourLevel의 기본 제공(hotelGrade, meal, includesChampagne)으로 채운다.
-	 * 테마의 최소 호텔 등급보다 낮은 호텔은 넣지 않는다(허니문·효도 투어에는 3등급 호텔이 없다).
+	 * 테마의 최소 호텔 등급보다 낮은 호텔과, 테마가 고를 수 없는 등급의 기본 식사는 넣지 않는다
+	 * (허니문·효도 투어는 그랜드 이상만 고르므로 3등급 호텔과 도시락이 없다).
 	 */
 	static List<TourOption> standardOptions(Theme theme) {
 		List<TourOption> standard = new ArrayList<>();
@@ -90,7 +91,9 @@ public class TourOption {
 			}
 		}
 		for (TourLevel level : TourLevel.values()) {
-			standard.add(new TourOption(OptionCategory.MEAL, level.getMeal(), MEAL_UNIT_PRICES.get(level), level));
+			if (theme.allows(level)) {
+				standard.add(new TourOption(OptionCategory.MEAL, level.getMeal(), MEAL_UNIT_PRICES.get(level), level));
+			}
 		}
 		TourLevel champagneLevel = Arrays.stream(TourLevel.values())
 			.filter(TourLevel::isIncludesChampagne)

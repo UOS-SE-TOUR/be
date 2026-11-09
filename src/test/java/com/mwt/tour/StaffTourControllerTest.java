@@ -91,7 +91,7 @@ class StaffTourControllerTest {
 				.containsExactlyInAnyOrder(tuple(TourLevel.GRAND, 1_500_000L), tuple(TourLevel.PREMIUM, 2_500_000L));
 			assertThat(tour.getOptions()).extracting(TourOption::getName)
 				.containsExactlyInAnyOrder("비행기 이코노미석", "비행기 비즈니스석", "4등급 호텔", "5등급 호텔",
-						"도시락", "현지식 레스토랑", "고급 레스토랑", "샴페인", "커피");
+						"현지식 레스토랑", "고급 레스토랑", "샴페인", "커피");
 			assertThat(tour.getOptions()).allSatisfy(option -> assertThat(option.getId()).isNotNull());
 		});
 	}
