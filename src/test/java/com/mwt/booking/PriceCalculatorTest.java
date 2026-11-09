@@ -9,6 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.mwt.common.exception.BusinessException;
 import com.mwt.tour.Theme;
 import com.mwt.tour.Tour;
 import com.mwt.tour.TourLevel;
@@ -65,12 +66,22 @@ class PriceCalculatorTest {
 	}
 
 	@Test
-	void 낮은_옵션으로_1인_가격이_0원_미만이_되는_상품은_서버_오류() {
+	void 낮은_옵션으로_1인_가격이_0원_미만이_되면_다른_옵션을_고르라고_거부() {
 		Tour cheap = savedTour(100_000, 100_000, 100_000);
 
 		assertThatThrownBy(() -> calculator.calculate(cheap, TourLevel.PREMIUM, 1,
 				List.of(optionId(cheap, "3등급 호텔"), optionId(cheap, "도시락"))))
-			.isInstanceOf(IllegalStateException.class);
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("고른 옵션으로는 가격을 계산할 수 없습니다. 다른 옵션을 골라 주세요.");
+	}
+
+	@Test
+	void 낮은_옵션을_빼도_1인_가격이_0원이면_계산한다() {
+		Tour cheap = savedTour(100_000, 100_000, 220_000);
+
+		assertThat(calculator.calculate(cheap, TourLevel.PREMIUM, 2,
+				List.of(optionId(cheap, "3등급 호텔"), optionId(cheap, "도시락"))))
+			.isZero();
 	}
 
 	/** DB에 저장한 것처럼 옵션에 ID를 붙인다. */

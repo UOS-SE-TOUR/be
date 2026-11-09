@@ -4,6 +4,7 @@ import java.util.Collection;
 
 import org.springframework.stereotype.Component;
 
+import com.mwt.common.exception.BusinessException;
 import com.mwt.tour.Tour;
 import com.mwt.tour.TourLevel;
 import com.mwt.tour.TourPrice;
@@ -21,8 +22,8 @@ class PriceCalculator {
 			perPerson = Math.addExact(perPerson, tour.optionPriceDiff(level, optionId));
 		}
 		if (perPerson < 0) {
-			// 낮은 호텔·식사를 고르면 빼는데, 등급 가격이 그 차이보다 작게 등록된 상품이다
-			throw new IllegalStateException("상품 " + tour.getId() + "의 1인 가격이 0원 미만이다: " + perPerson);
+			// 낮은 호텔·식사를 고르면 차이만큼 빼는데, 등급 가격이 그 차이보다 작게 등록된 상품이다(등록은 1원 이상만 본다)
+			throw new BusinessException("고른 옵션으로는 가격을 계산할 수 없습니다. 다른 옵션을 골라 주세요.");
 		}
 		return Math.multiplyExact(perPerson, headcount);
 	}
