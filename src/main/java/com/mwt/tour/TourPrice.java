@@ -1,5 +1,7 @@
 package com.mwt.tour;
 
+import com.mwt.common.exception.BusinessException;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -28,5 +30,16 @@ public class TourPrice {
 	private TourLevel level;
 
 	private long price;
+
+	public TourPrice(TourLevel level, long price) {
+		if (level == null) {
+			throw new BusinessException("투어 등급을 골라 주세요.");
+		}
+		if (price < 1) {
+			throw new BusinessException(level.getDisplayName() + " 가격은 1원 이상이어야 합니다.");
+		}
+		this.level = level;
+		this.price = price;
+	}
 
 }

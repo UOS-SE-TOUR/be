@@ -9,15 +9,17 @@ import lombok.Getter;
 @Getter
 public enum TourLevel {
 
-	CLASSIC(3, "도시락", false),
-	GRAND(4, "현지식 레스토랑", false),
-	PREMIUM(5, "고급 레스토랑", true);
+	CLASSIC("클래식", 3, "도시락", false),
+	GRAND("그랜드", 4, "현지식 레스토랑", false),
+	PREMIUM("프리미엄", 5, "고급 레스토랑", true);
 
+	private final String displayName;
 	private final int hotelGrade;
 	private final String meal;
 	private final boolean includesChampagne;
 
-	TourLevel(int hotelGrade, String meal, boolean includesChampagne) {
+	TourLevel(String displayName, int hotelGrade, String meal, boolean includesChampagne) {
+		this.displayName = displayName;
 		this.hotelGrade = hotelGrade;
 		this.meal = meal;
 		this.includesChampagne = includesChampagne;
