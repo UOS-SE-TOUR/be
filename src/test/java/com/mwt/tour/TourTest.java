@@ -425,6 +425,14 @@ class TourTest {
 		}
 
 		@Test
+		void 신청할_수_없는_상태면_자리가_다_찼어도_마감이라고_하지_않는다() {
+			ReflectionTestUtils.setField(golf, "status", TourStatus.CANCELLED);
+			ReflectionTestUtils.setField(golf, "appliedCount", 10);
+
+			assertRejected(() -> golf.checkApplicable(TourLevel.GRAND, 1, List.of(), TODAY), "신청할 수 없는 상품입니다.");
+		}
+
+		@Test
 		void 확정된_상품도_자리가_남으면_신청할_수_있다() {
 			ReflectionTestUtils.setField(golf, "status", TourStatus.CONFIRMED);
 			ReflectionTestUtils.setField(golf, "appliedCount", 3);

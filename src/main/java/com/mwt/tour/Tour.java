@@ -187,11 +187,11 @@ public class Tour {
 		if (!departureDate.isAfter(today)) {
 			throw new BusinessException("출발일이 오늘이거나 지난 상품은 신청할 수 없습니다.");
 		}
+		if (status != TourStatus.RECRUITING && status != TourStatus.CONFIRMED && status != TourStatus.FULL) {
+			throw new BusinessException("신청할 수 없는 상품입니다.");
+		}
 		if (status == TourStatus.FULL || remainingSeats() <= 0) {
 			throw new BusinessException("마감된 상품입니다.");
-		}
-		if (status != TourStatus.RECRUITING && status != TourStatus.CONFIRMED) {
-			throw new BusinessException("신청할 수 없는 상품입니다.");
 		}
 		if (headcount < 1) {
 			throw new BusinessException("인원은 1명 이상이어야 합니다.");
