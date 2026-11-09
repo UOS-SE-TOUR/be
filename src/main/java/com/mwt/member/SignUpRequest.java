@@ -1,5 +1,7 @@
 package com.mwt.member;
 
+import org.springframework.util.StringUtils;
+
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -19,11 +21,11 @@ public record SignUpRequest(
 
 	/** 앞뒤 공백은 뗀다. 비밀번호는 입력한 그대로 둔다. */
 	public SignUpRequest {
-		loginId = Inputs.strip(loginId);
-		name = Inputs.strip(name);
-		address = Inputs.strip(address);
-		phone = Inputs.strip(phone);
-		staffCode = Inputs.strip(staffCode);
+		loginId = StringUtils.trimWhitespace(loginId);
+		name = StringUtils.trimWhitespace(name);
+		address = StringUtils.trimWhitespace(address);
+		phone = StringUtils.trimWhitespace(phone);
+		staffCode = StringUtils.trimWhitespace(staffCode);
 	}
 
 	@Override

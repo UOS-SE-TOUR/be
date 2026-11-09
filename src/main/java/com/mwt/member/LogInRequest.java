@@ -1,5 +1,7 @@
 package com.mwt.member;
 
+import org.springframework.util.StringUtils;
+
 import jakarta.validation.constraints.NotBlank;
 
 /**
@@ -11,7 +13,7 @@ public record LogInRequest(
 
 	/** 아이디는 가입할 때처럼 앞뒤 공백을 뗀다. */
 	public LogInRequest {
-		loginId = Inputs.strip(loginId);
+		loginId = StringUtils.trimWhitespace(loginId);
 	}
 
 	@Override

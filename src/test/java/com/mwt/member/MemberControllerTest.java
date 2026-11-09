@@ -57,7 +57,7 @@ class MemberControllerTest {
 	private static final String LOG_IN = "/api/v1/members/login";
 	private static final String ME = "/api/v1/members/me";
 	private static final String LOG_OUT = "/api/v1/members/logout";
-	private static final String STAFF_CODE = "test-staff-code";
+	private static final String STAFF_CODE = "test-only-staff-code";
 	private static final String PASSWORD = "password1!";
 
 	@Autowired
@@ -118,7 +118,7 @@ class MemberControllerTest {
 
 	@ParameterizedTest
 	@NullAndEmptySource
-	@ValueSource(strings = { "wrong-code", "TEST-STAFF-CODE", "test-staff-code2" })
+	@ValueSource(strings = { "wrong-code", "TEST-ONLY-STAFF-CODE", "test-only-staff-code2", "test-only-staff-cod" })
 	void 직원_코드가_틀리거나_없으면_400이고_저장하지_않는다(String staffCode) throws Exception {
 		signUp(staff("kim", staffCode))
 			.andExpect(badRequest("직원 코드가 맞지 않아 직원으로 가입할 수 없습니다."));

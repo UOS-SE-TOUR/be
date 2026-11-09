@@ -25,6 +25,8 @@ public class MemberService {
 	/** BCrypt는 72바이트를 넘는 비밀번호를 암호화하지 않고 예외를 던진다. */
 	static final int MAX_PASSWORD_BYTES = 72;
 
+	static final int MIN_STAFF_CODE_BYTES = 16;
+
 	static final String LOGIN_ID_TAKEN = "이미 쓰는 아이디입니다.";
 
 	private static final String LOGIN_ID_UNIQUE_KEY = "uk_member_login_id";   // V1__init.sql
@@ -38,9 +40,14 @@ public class MemberService {
 		if (!StringUtils.hasText(staffCode)) {
 			throw new IllegalStateException("환경변수 STAFF_CODE가 비어 있습니다. README 환경변수 절을 보고 넣어 주세요.");
 		}
+		byte[] code = staffCode.strip().getBytes(StandardCharsets.UTF_8);   // .env 값 끝의 공백까지 코드로 치지 않는다
+		if (code.length < MIN_STAFF_CODE_BYTES) {   // 가입 API에 시도 횟수 제한이 없어 짧은 코드는 하나씩 넣어 보면 맞힌다
+			throw new IllegalStateException("STAFF_CODE가 너무 짧습니다(" + code.length + "바이트). " + MIN_STAFF_CODE_BYTES
+					+ "바이트 이상으로 넣어 주세요(예: openssl rand -hex 8).");
+		}
 		this.memberRepository = memberRepository;
 		this.passwordEncoder = passwordEncoder;
-		this.staffCode = staffCode.strip().getBytes(StandardCharsets.UTF_8);   // .env 값 끝의 공백까지 코드로 치지 않는다
+		this.staffCode = code;
 	}
 
 	/** 회원가입(MWT-UC1). 직원은 직원 코드가 맞아야 가입한다. 가입한 회원 ID를 돌려준다. */

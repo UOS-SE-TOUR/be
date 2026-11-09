@@ -7,4 +7,4 @@ jwt:
 
 # 테스트용 직원 코드. 실제 서버는 환경변수 STAFF_CODE를 쓴다
 member:
-  staff-code: test-staff-code
+  staff-code: test-only-staff-code

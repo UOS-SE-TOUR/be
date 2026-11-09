@@ -28,6 +28,19 @@ class MemberServiceTest {
 	}
 
 	@ParameterizedTest
+	@ValueSource(strings = { "1234", "0123456789abcde", " 0123456789abcde ", "가나다라마" })   // 마지막은 15바이트
+	void 직원_코드가_16바이트보다_짧으면_서버가_뜨지_않는다(String staffCode) {
+		assertThatThrownBy(() -> new MemberService(null, new BCryptPasswordEncoder(), staffCode))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("STAFF_CODE가 너무 짧습니다");
+	}
+
+	@Test
+	void 직원_코드가_16바이트면_뜬다() {
+		new MemberService(null, new BCryptPasswordEncoder(), " 0123456789abcdef ");
+	}
+
+	@ParameterizedTest
 	@ValueSource(strings = { "uk_member_login_id", "member.uk_member_login_id", "MEMBER.UK_MEMBER_LOGIN_ID" })
 	void 아이디_유일_키_위반이면_아이디_중복으로_본다(String constraintName) {
 		assertThat(MemberService.isLoginIdTaken(violation(constraintName))).isTrue();
