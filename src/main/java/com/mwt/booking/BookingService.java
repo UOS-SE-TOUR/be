@@ -5,7 +5,6 @@ import java.time.LocalDate;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -20,12 +19,10 @@ import com.mwt.tour.TourService;
 import com.mwt.tour.TourSummary;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * 가격 계산, 신청, 이전 여행 흐름을 처리하는 booking 모듈의 Service다(설계산출물 4.5).
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class BookingService {
@@ -62,10 +59,8 @@ public class BookingService {
 	 * 신청(MWT-UC4, 설계산출물 5.4·5.4.1). quote와 같은 확인과 계산을 한 번 더 하고, 신청 인원을 더한 뒤 신청을 저장한다.
 	 * 신청 인원을 더하기 전에 저장하면 같은 상품의 동시 신청이 교착한다(TourService.addApplicants). 정원을 넘어 거부되면 저장하지 않는다.
 	 * 상품이 확정 상태면 신청이 커밋된 뒤 확정 문자를 보낸다.
-	 * <p>READ COMMITTED로 두는 이유: MySQL 기본(REPEATABLE READ)은 잠그지 않은 읽기에 이 트랜잭션의 첫 읽기 때 값을 준다.
-	 * 그러면 상품 잠금을 기다리는 사이 커밋된 다른 신청이 문자 받을 신청자(findByTourId)에서 빠진다.
 	 */
-	@Transactional(isolation = Isolation.READ_COMMITTED)
+	@Transactional
 	public ApplyTourResponse applyTour(Long memberId, QuoteRequest request) {
 		Tour tour = tourService.getTour(request.tourId());
 		Price price = price(memberId, tour, request);
@@ -81,7 +76,7 @@ public class BookingService {
 			case ALREADY_CONFIRMED -> List.of(member.getPhone());
 		};
 		if (!recipients.isEmpty()) {
-			sendAfterCommit(tour.getId(), recipients, confirmMessage(tour));
+			sendAfterCommit(recipients, confirmMessage(tour));
 		}
 		return new ApplyTourResponse(booking.getId(), tour.getStatus());
 	}
@@ -107,18 +102,14 @@ public class BookingService {
 	}
 
 	/**
-	 * 신청이 커밋된 뒤에 문자를 보낸다. 되돌려지면 보내지 않는다. 신청은 이미 커밋됐으므로 발송 중 오류가 나도 신청 응답은 성공으로 둔다.
+	 * 신청이 커밋된 뒤에 문자를 보낸다. 되돌려지면 보내지 않는다. sendSms는 실패해도 던지지 않고 로그에 남긴다(SmsSender).
 	 * 보내는 동안 신청 응답이 기다린다 — SENS가 느리면 그만큼 늦어진다(SmsSenderConfig의 시간 제한).
 	 */
-	private void sendAfterCommit(Long tourId, List<String> phoneNumbers, String message) {
+	private void sendAfterCommit(List<String> phoneNumbers, String message) {
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				try {
-					smsSender.sendSms(phoneNumbers, message);
-				} catch (RuntimeException e) {
-					log.error("확정 문자를 보내지 못했습니다: 상품 {}", tourId, e);
-				}
+				smsSender.sendSms(phoneNumbers, message);
 			}
 		});
 	}

@@ -156,7 +156,7 @@ class BookingServiceTest {
 
 	/**
 	 * 셋째 신청은 상품을 읽은 뒤 둘째 신청의 잠금을 기다리고, 둘째가 커밋된 뒤 상품을 확정한다.
-	 * 신청 트랜잭션이 REPEATABLE READ면 문자 받을 신청자를 찾는 조회가 기다리기 전의 값을 봐서 둘째가 빠진다.
+	 * 문자 받을 신청자를 잠그지 않고 읽으면(findByTourId) MySQL이 기다리기 전의 값을 줘서 둘째가 빠진다.
 	 */
 	@Test
 	void 상품_잠금을_기다리는_사이_커밋된_신청자도_확정_문자를_받는다() throws Exception {
