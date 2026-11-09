@@ -1001,6 +1001,30 @@ run "$R" "$S/ignored-check.sh" "$IG"
 check "ignored: scratchpad 메모" KEEP
 has "ignored: scratchpad 메모 줄" "keep scratchpad/notes.md"
 rm -rf "$IG/scratchpad"
+# 셈 기록 두 파일(SKILL.md 4단계 "셈 기록")은 PR 이 머지될 때까지 남겨 두는 파일이라 지워도 되는 것으로 친다 — 사람이
+# 보게 하면 머지 정리가 매번 멈춘다(be #37). 이름이 같아도 일반 파일이 아니거나 더 깊은 자리면 사람이 본다.
+mkdir -p "$IG/scratchpad"
+printf '%s\n' "counted=3 cap=10 streak=0" > "$IG/scratchpad/issue-rounds"
+printf '%s\n' "counted=1 cap=10 streak=0" > "$IG/scratchpad/issue-rereview-rounds"
+run "$R" "$S/ignored-check.sh" "$IG"
+check "ignored: scratchpad 의 셈 기록 파일만 있으면" CLEAN
+touch "$IG/scratchpad/notes.md"
+run "$R" "$S/ignored-check.sh" "$IG"
+check "ignored: 셈 기록 옆의 메모" KEEP
+has "ignored: 셈 기록 옆의 메모 줄" "keep scratchpad/notes.md"
+hasnt "ignored: 셈 기록 파일은 keep 줄에 없다" "keep scratchpad/issue-rounds"
+hasnt "ignored: 재리뷰 셈 기록 파일도 keep 줄에 없다" "keep scratchpad/issue-rereview-rounds"
+rm -rf "$IG/scratchpad"
+mkdir -p "$IG/scratchpad/issue-rounds" "$IG/scratchpad/sub"
+touch "$IG/scratchpad/issue-rounds/x"
+printf '%s\n' "counted=3 cap=10 streak=0" > "$IG/scratchpad/sub/issue-rounds"
+ln -s "$IG/scratchpad/sub/issue-rounds" "$IG/scratchpad/issue-rereview-rounds"
+run "$R" "$S/ignored-check.sh" "$IG"
+check "ignored: 셈 기록 이름의 디렉터리·링크·깊은 자리" KEEP
+has "ignored: 셈 기록 이름의 디렉터리" "keep scratchpad/issue-rounds/"
+has "ignored: 셈 기록 이름의 링크" "keep scratchpad/issue-rereview-rounds"
+has "ignored: 더 깊은 자리의 셈 기록 이름" "keep scratchpad/sub/"
+rm -rf "$IG/scratchpad"
 # - 로 시작하는 이름도 빈 디렉터리로 잘못 읽지 않는다(ls 옵션으로 읽히면 출력이 비어 '빈 디렉터리'가 된다).
 mkdir -p "$IG/-results"
 touch "$IG/-results/r.json"
@@ -1337,7 +1361,7 @@ has "find: refs/heads 밖의 ref 는 escaped 로" "branch-escaped refs/remotes/o
 mkdir -p "$T/nolib"
 cp "$S"/*.sh "$T/nolib/"
 rm -f "$T/nolib/lib.sh"
-for s in find residue detached-check orphan-check suffix verify-removed inside same-repo skill-repo isolation-check branch-issue; do
+for s in find residue detached-check orphan-check suffix verify-removed inside same-repo skill-repo isolation-check branch-issue round-count; do
   run "$R" "$T/nolib/$s.sh" x y
   check_rc "lib 없음: $s.sh 가 멈춘다" 3
 done
@@ -1611,6 +1635,130 @@ g worktree prune
 run "$R" "$S/orphan-check.sh" "$C/fix+17-revived"
 check "orphan: prune 뒤에는 EMPTY 판정으로" EMPTY
 
+# ---------------------------------------------------------------- round-count.sh
+# 셀프 리뷰 셈 기록(SKILL.md 4단계 "셈 기록")을 읽는다 — 이슈 워크트리 최상위의 scratchpad/issue-rounds(4단계 루프)와
+# scratchpad/issue-rereview-rounds(6단계 재리뷰 루프). 기록은 SKILL.md 의 명령과 같은 꼴(mkdir -p, printf '%s\n' "<값>" >
+# <파일>)로 쓴다(be #37). 워크트리를 더하므로 공용 레포가 아니라 따로 만든 레포에서 본다. 한글 경로 아래 둔다 — 이 레포
+# 본 체크아웃이 그렇다.
+RQ="$T/rc-$NFC_GUT/repo"
+mkdir -p "$RQ"
+gq() { git -C "$RQ" "$@" >/dev/null 2>&1 || setup_fail "round-count git $*"; }
+gq init -q -b main
+gq commit -q --allow-empty -m init
+QW="$RQ/.claude/worktrees/chore+37-count"
+gq worktree add -q -b chore/37-count "$QW" main
+rc_put() { mkdir -p "$QW/scratchpad" && printf '%s\n' "$2" > "$QW/scratchpad/$1" || setup_fail "셈 기록 $1"; }
+run "$QW" "$S/round-count.sh" review
+check "round-count: 기록이 없으면" NONE
+rc_put issue-rounds "counted=3 cap=10 streak=1"
+run "$QW" "$S/round-count.sh" review
+check "round-count: 기록이 있으면" FOUND
+has "round-count: counted 줄" "counted 3"
+has "round-count: cap 줄" "cap 10"
+has "round-count: streak 줄" "streak 1"
+if [ "$(printf '%s\n' "$OUT" | LC_ALL=C grep -c '')" -eq 4 ]; then ok; else bad "round-count: FOUND 는 네 줄이다" "$OUT"; fi
+# 워크트리 하위 디렉터리에서 불러도 최상위의 기록을 읽는다.
+mkdir -p "$QW/src/deep"
+run "$QW/src/deep" "$S/round-count.sh" review
+has "round-count: 하위 디렉터리에서 불러도 최상위 기록" "counted 3"
+# 끝 줄바꿈이 없어도 읽는다(사람이 편집기로 고친 경우).
+printf '%s' "counted=4 cap=10 streak=0" > "$QW/scratchpad/issue-rounds"
+run "$QW" "$S/round-count.sh" review
+has "round-count: 끝 줄바꿈 없이도 읽는다" "counted 4"
+# 4단계 루프와 6단계 재리뷰 루프는 따로 둔다 — 재리뷰가 4단계 셈을 덮지 않는다.
+run "$QW" "$S/round-count.sh" rereview
+check "round-count: 재리뷰 기록은 따로다" NONE
+rc_put issue-rereview-rounds "counted=2 cap=10 streak=0"
+run "$QW" "$S/round-count.sh" rereview
+check "round-count: 재리뷰 기록" FOUND
+has "round-count: 재리뷰 counted" "counted 2"
+run "$QW" "$S/round-count.sh" review
+has "round-count: 재리뷰 기록이 4단계 기록을 덮지 않는다" "counted 4"
+# 사람이 늘린 상한, 상한에 닿은 셈, 안전장치로 멈춘 셈(streak 3)도 읽는다.
+rc_put issue-rounds "counted=12 cap=12 streak=3"
+run "$QW" "$S/round-count.sh" review
+check "round-count: 늘린 상한에 닿은 셈" FOUND
+has "round-count: 늘린 상한" "cap 12"
+has "round-count: 연속 3회로 멈춘 셈" "streak 3"
+# 꼴이 다르면 BROKEN — 세션이 기록을 잘못 썼거나 사람이 손으로 고친 것이다. 짐작해 읽지 않고 묻게 한다. 줄이 둘이면
+# (>> 로 덧붙였다) 어느 줄이 지금 셈인지 모른다.
+for v in "counted=03 cap=10 streak=0" "counted=1  cap=10 streak=0" "counted=1 cap=10" "counted=1 cap=10 streak=0 x=1" \
+  "cap=10 counted=1 streak=0" "counted=10000 cap=10000 streak=0" "counted=-1 cap=10 streak=0" " counted=1 cap=10 streak=0" \
+  "counted=1 cap=10 streak=0 " "counted=a cap=10 streak=0" "counted=1 cap=10 streak=0"$'\r' "" \
+  "counted=1 cap=10 streak=0"$'\n'"counted=2 cap=10 streak=0"; do
+  rc_put issue-rounds "$v"
+  run "$QW" "$S/round-count.sh" review
+  check "round-count: 꼴이 다르면 BROKEN [$v]" BROKEN
+  has "round-count: 꼴이 다르면 reason format [$v]" "reason format"
+done
+: > "$QW/scratchpad/issue-rounds"
+run "$QW" "$S/round-count.sh" review
+check "round-count: 빈 파일" BROKEN
+has "round-count: 빈 파일은 format" "reason format"
+# 셈이 맞지 않으면 BROKEN range.
+for v in "counted=0 cap=0 streak=0" "counted=11 cap=10 streak=0" "counted=1 cap=10 streak=4"; do
+  rc_put issue-rounds "$v"
+  run "$QW" "$S/round-count.sh" review
+  check "round-count: 셈이 맞지 않으면 BROKEN [$v]" BROKEN
+  has "round-count: 셈이 맞지 않으면 reason range [$v]" "reason range"
+done
+# 일반 파일이 아니면 BROKEN type — 디렉터리, 심볼릭 링크(가리키는 파일이 맞는 꼴이어도), 끊긴 링크.
+rm -f "$QW/scratchpad/issue-rounds"
+mkdir "$QW/scratchpad/issue-rounds"
+run "$QW" "$S/round-count.sh" review
+check "round-count: 디렉터리면" BROKEN
+has "round-count: 디렉터리면 reason type" "reason type"
+rmdir "$QW/scratchpad/issue-rounds"
+printf '%s\n' "counted=1 cap=10 streak=0" > "$T/rc-target"
+ln -s "$T/rc-target" "$QW/scratchpad/issue-rounds"
+run "$QW" "$S/round-count.sh" review
+check "round-count: 심볼릭 링크면" BROKEN
+has "round-count: 심볼릭 링크면 reason type" "reason type"
+rm -f "$QW/scratchpad/issue-rounds"
+ln -s "$T/rc-nowhere" "$QW/scratchpad/issue-rounds"
+run "$QW" "$S/round-count.sh" review
+check "round-count: 끊긴 링크도 없는 기록으로 치지 않는다" BROKEN
+has "round-count: 끊긴 링크는 reason type" "reason type"
+rm -f "$QW/scratchpad/issue-rounds"
+# 읽을 수 없는 기록은 환경 실패다 — 없는 기록으로 읽으면 셈이 처음으로 돌아간다. root 는 000 파일도 읽으므로 root 가
+# 아닐 때만 본다.
+if [ "$(id -u)" -ne 0 ]; then
+  rc_put issue-rounds "counted=1 cap=10 streak=0"
+  chmod 000 "$QW/scratchpad/issue-rounds"
+  run "$QW" "$S/round-count.sh" review
+  check_rc "round-count: 읽을 수 없는 기록은 환경 실패" 3
+  hasnt "round-count: 읽을 수 없는 기록을 NONE 으로 내지 않는다" "NONE"
+  chmod 644 "$QW/scratchpad/issue-rounds"
+fi
+# 워크트리마다 따로다 — 다른 이슈 워크트리의 기록을 읽지 않는다.
+gq worktree add -q -b fix/38-other "$RQ/.claude/worktrees/fix+38-other" main
+run "$RQ/.claude/worktrees/fix+38-other" "$S/round-count.sh" review
+check "round-count: 다른 워크트리의 기록은 읽지 않는다" NONE
+# 본 체크아웃에서 부르면 판정하지 않는다 — 본 체크아웃의 scratchpad/ 는 어느 이슈의 것도 아니다.
+mkdir -p "$RQ/scratchpad"
+printf '%s\n' "counted=1 cap=10 streak=0" > "$RQ/scratchpad/issue-rounds"
+run "$RQ" "$S/round-count.sh" review
+check_rc "round-count: 본 체크아웃은 환경 실패" 3
+hasnt "round-count: 본 체크아웃에서 FOUND 를 내지 않는다" "FOUND"
+# 사용법 오류: 인자 개수, 모르는 루프.
+run "$QW" "$S/round-count.sh"
+check_rc "round-count: 인자 없음은 사용법 오류" 2
+run "$QW" "$S/round-count.sh" review x
+check_rc "round-count: 인자 둘은 사용법 오류" 2
+run "$QW" "$S/round-count.sh" Review
+check_rc "round-count: 모르는 루프는 사용법 오류" 2
+# 레포 밖에서 부르면 NONE 이 아니라 환경 실패다.
+mkdir -p "$T/rc-outside"
+run "$T/rc-outside" "$S/round-count.sh" review
+check_rc "round-count: 레포 밖은 환경 실패" 3
+hasnt "round-count: 레포 밖에서 NONE 을 내지 않는다" "NONE"
+# git 이 "레포가 아니다" 밖의 이유로 실패해도 환경 실패다 — 지워진 등록을 가리키는 .git 파일.
+mkdir -p "$T/rc-stale"
+printf 'gitdir: %s\n' "$RQ/.git/worktrees/rc-gone" > "$T/rc-stale/.git"
+run "$T/rc-stale" "$S/round-count.sh" review
+check_rc "round-count: 깨진 .git 파일은 환경 실패" 3
+has_prefix "round-count: 깨진 .git 파일의 stderr" "실패: git 오류(레포 밖이 아니다)"
+
 # ---------------------------------------------------------------- 문서
 SKILL_DIR=$(cd "$HERE/.." && pwd -P)
 DOCS=("$SKILL_DIR/SKILL.md" "$SKILL_DIR/references/worktree.md" "$SKILL_DIR/references/merge-cleanup.md")
@@ -1780,7 +1928,7 @@ if [ -z "$OUT" ]; then ok; else bad "문서: 옛 완결 기준(미검증 후보�
 # 라운드 기록을 PR 갱신·6단계 재리뷰·멈춤 보고에도 남기는 규칙(be #28). 옛 순서(본문 파일을 PR 확인보다 먼저)가
 # 돌아오면 갱신 갈래가 기존 본문을 받기 전에 파일을 쓴다. 문구는 규칙 머리만 보되, 기존 본문을 받는 명령은 격리
 # 세션에서 실행해 본 그대로라 통째로 본다.
-for want in '어느 단계에서 어떤 이유로 멈추든 그 보고에도 싣는다' '**이어받은 실행의 셈**' '빠진 것을 첫 라운드 전에 묻는다' '셈을 PR 본문 기록에서 스스로 읽어 잇지는 않는다' '**갱신 갈래는 기존 본문에서 시작한다**' 'gh pr view <번호> --json body --jq '"'"'.body | gsub("\r"; "") | sub("\n+$"; "")'"'"' > "<파일>"' '`gh pr view` 가 0 이 아닌 종료 코드로 끝나면 그 파일을 지우고' '**본문을 쓸 때마다 이번 실행의 라운드 가운데 PR 에 아직 없는 것을 모두 싣는다**' '**기존 라운드 기록 칸은 고치지 않고**' '본문이 길다고 거부하면 멈추고 보고한다' '**이 재리뷰도 4단계 루프 그대로다**' '**셈은 반영 지시마다 새로 센다**'; do
+for want in '어느 단계에서 어떤 이유로 멈추든 그 보고에도 싣는다' '**이어받은 실행의 셈**' '셈을 PR 본문 기록에서 읽어 잇지는 않는다' '**갱신 갈래는 기존 본문에서 시작한다**' 'gh pr view <번호> --json body --jq '"'"'.body | gsub("\r"; "") | sub("\n+$"; "")'"'"' > "<파일>"' '`gh pr view` 가 0 이 아닌 종료 코드로 끝나면 그 파일을 지우고' '**본문을 쓸 때마다 이번 실행의 라운드 가운데 PR 에 아직 없는 것을 모두 싣는다**' '**기존 라운드 기록 칸은 고치지 않고**' '본문이 길다고 거부하면 멈추고 보고한다' '**이 재리뷰도 4단계 루프 그대로다**' '**셈은 반영 지시마다 새로 센다**'; do
   if LC_ALL=C grep -Fq -- "$want" "$SKILL_DIR/SKILL.md"; then ok; else bad "문서: 라운드 기록을 이어받기·PR 갱신·재리뷰·멈춤 보고로 잇는다" "$want"; fi
 done
 OUT=$(LC_ALL=C grep -n '갈림길보다 먼저 만든다' "$SKILL_DIR/SKILL.md")
@@ -1788,6 +1936,21 @@ if [ -z "$OUT" ]; then ok; else bad "문서: 본문 파일을 PR 갈림길보다
 PR_AT=$(LC_ALL=C grep -n '이 브랜치의 PR이 이미 있는지 본다' "$SKILL_DIR/SKILL.md" | head -n 1 | cut -d: -f1)
 BODY_AT=$(LC_ALL=C grep -n '^- \*\*본문 파일은 ' "$SKILL_DIR/SKILL.md" | head -n 1 | cut -d: -f1)
 if [ -n "$PR_AT" ] && [ -n "$BODY_AT" ] && [ "$PR_AT" -lt "$BODY_AT" ]; then ok; else bad "문서: 5단계는 PR 이 있는지 본 뒤에 본문 파일을 만든다" "PR 확인 ${PR_AT}줄, 본문 파일 ${BODY_AT}줄"; fi
+
+# 셈 기록(be #37) — 셈은 이슈 워크트리의 scratchpad/ 파일 한 줄에 두고 round-count.sh 로 읽는다. 쓰는 명령은 문서에
+# 있고(스크립트는 판정만 한다), 그 파일 이름은 스크립트가 읽는 이름·ignored-check.sh 가 지워도 되는 것으로 치는 이름과
+# 같아야 한다 — 하나만 바뀌면 셈을 못 잇거나 머지 정리가 매번 멈춘다. 쓰기는 git config 가 아니다 — 격리 세션의 명령
+# 가드가 공유 설정에 쓰는 git config 를 거부한다(be 실측). 사람에게 셈을 알려 달라고 하던 옛 인계 문구가 돌아오면 기록과
+# 사람 말이 둘 다 셈의 출처가 된다.
+for want in '- **셈 기록** — ' 'printf '"'"'%s\n'"'"' "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" > "<워크트리 루트>/scratchpad/issue-rounds"' 'printf '"'"'%s\n'"'"' "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" > "<워크트리 루트>/scratchpad/issue-rereview-rounds"' 'mkdir -p "<워크트리 루트>/scratchpad"' 'printf '"'"'%s\n'"'"' "counted=0 cap=10 streak=0" > "<워크트리 루트>/scratchpad/issue-rounds"' 'bash "<스킬 디렉터리>/scripts/round-count.sh" review' '`bash "<스킬 디렉터리>/scripts/round-count.sh" rereview`' '- `NONE`·`BROKEN` — 기록이 없거나' '사람이 그 요청에서 셈을 밝혔으면 기록보다 그 값을 쓴다' '`counted=0 cap=10 streak=0` 을 쓰고'; do
+  if LC_ALL=C grep -Fq -- "$want" "$SKILL_DIR/SKILL.md"; then ok; else bad "문서: 셈은 워크트리의 셈 기록 파일로 잇는다" "$want"; fi
+done
+for want in '  review) name=issue-rounds ;;' '  rereview) name=issue-rereview-rounds ;;'; do
+  if LC_ALL=C grep -Fqx -- "$want" "$S/round-count.sh"; then ok; else bad "문서: round-count.sh 가 문서의 셈 기록 파일을 읽는다" "$want"; fi
+done
+if LC_ALL=C grep -Fqx -- '    .claude/settings.local.json | scratchpad/issue-rounds | scratchpad/issue-rereview-rounds)' "$S/ignored-check.sh"; then ok; else bad "문서: ignored-check.sh 가 셈 기록 두 파일을 지워도 되는 것으로 친다" "regenerable()"; fi
+OUT=$(LC_ALL=C grep -nE '셈을 함께 알려|4단계 셈 모름|be #37 에서 다룬다|git config --replace-all' "$SKILL_DIR/SKILL.md")
+if [ -z "$OUT" ]; then ok; else bad "문서: 옛 인계 문구와 브랜치 설정 쓰기가 남지 않았다" "$OUT"; fi
 
 # 판정 스크립트가 내는 branch-escaped 줄은 문서에 적혀 있어야 한다 — 안 적히면 그 줄을 받은 모델이 갈래를 모른다.
 if LC_ALL=C grep -Fq 'branch-escaped' "$T/docs.txt"; then ok; else bad "문서: branch-escaped 줄이 적혀 있다" "docs"; fi

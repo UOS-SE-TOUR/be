@@ -556,7 +556,7 @@ bash "<사본>/scripts/ignored-check.sh" "<대상 path>"
 프로세스를 볼 수 없는 것과 같은 한계다).
 
 - `CLEAN` — 무시 대상이 없거나 다시 만들 수 있는 것(최상위의 Gradle·IntelliJ IDEA 산출물, 하네스의
-  `.claude/settings.local.json`, 빈 디렉터리 등 — 스크립트 머리말)뿐이다. 아래
+  `.claude/settings.local.json`, SKILL.md 4단계의 셈 기록 파일, 빈 디렉터리 등 — 스크립트 머리말)뿐이다. 아래
   `remove` 로 간다.
 - `KEEP` — **이 절차는 지우지 않는다.** `keep` 줄을 보여 주고, 사람이 그 파일을 옮기거나 직접 지운 뒤 다시
   부르게 한다. "그냥 지워라"는 답이어도 같다 — 디렉터리 줄(`tools/build/`)은 그 안을 통째로 가리켜서 답한 뒤에
