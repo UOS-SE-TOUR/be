@@ -23,10 +23,14 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.mwt.TestcontainersConfiguration;
+import com.mwt.common.security.JwtTokenProvider;
 import com.mwt.tour.Theme;
+
+import jakarta.servlet.http.Cookie;
 
 /**
  * 창고 물품 API(GET·POST /api/v1/staff/items, 설계산출물 5.9). 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다.
@@ -47,21 +51,49 @@ class WarehouseControllerTest {
 	@Autowired
 	ItemRepository itemRepository;
 
+	@Autowired
+	JwtTokenProvider jwtTokenProvider;
+
 	@AfterEach
 	void deleteItems() {
 		itemRepository.deleteAll();
 	}
 
 	@Test
+	void 고객은_창고_물품을_보거나_추가할_수_없다() throws Exception {
+		Cookie customer = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "CUSTOMER"));
+		mockMvc.perform(get(URL).cookie(customer))
+			.andExpect(status().isForbidden());
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).cookie(customer)
+				.content(body("\"생수\"", "\"GOLF\"", "10")))
+			.andExpect(status().isForbidden());
+
+		assertThat(itemRepository.count()).isZero();
+	}
+
+	/** 직원으로 로그인한 요청. 주소별 권한 규칙은 common.security의 SecurityConfigTest가 따로 본다. */
+	private MockHttpServletRequestBuilder staffPost() {
+		return post(URL).contentType(MediaType.APPLICATION_JSON).cookie(staffCookie());
+	}
+
+	private MockHttpServletRequestBuilder staffGet() {
+		return get(URL).cookie(staffCookie());
+	}
+
+	private Cookie staffCookie() {
+		return new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "STAFF"));
+	}
+
+	@Test
 	void 물품이_없으면_빈_목록() throws Exception {
-		mockMvc.perform(get(URL))
+		mockMvc.perform(staffGet())
 			.andExpect(status().isOk())
 			.andExpect(content().json("[]", JsonCompareMode.STRICT));
 	}
 
 	@Test
 	void 새_물품을_추가하면_200과_추가한_물품을_돌려준다() throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\" 생수 \"", "\"GOLF\"", "10")))
+		mockMvc.perform(staffPost().content(body("\" 생수 \"", "\"GOLF\"", "10")))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.id").isNumber())
 			.andExpect(jsonPath("$.name").value("생수"))
@@ -74,10 +106,10 @@ class WarehouseControllerTest {
 
 	@Test
 	void 같은_이름의_물품을_추가하면_수량만_더한_물품을_돌려준다() throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", "10")))
+		mockMvc.perform(staffPost().content(body("\"생수\"", "\"GOLF\"", "10")))
 			.andExpect(status().isOk());
 
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", "5")))
+		mockMvc.perform(staffPost().content(body("\"생수\"", "\"GOLF\"", "5")))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.name").value("생수"))
 			.andExpect(jsonPath("$.theme").value("GOLF"))
@@ -88,10 +120,10 @@ class WarehouseControllerTest {
 
 	@Test
 	void 같은_이름도_테마가_다르면_따로_추가된다() throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", "10")))
+		mockMvc.perform(staffPost().content(body("\"생수\"", "\"GOLF\"", "10")))
 			.andExpect(status().isOk());
 
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"TREKKING\"", "5")))
+		mockMvc.perform(staffPost().content(body("\"생수\"", "\"TREKKING\"", "5")))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.name").value("생수"))
 			.andExpect(jsonPath("$.theme").value("TREKKING"))
@@ -103,10 +135,10 @@ class WarehouseControllerTest {
 
 	@Test
 	void 테마를_보내지_않으면_있는_물품이어도_400() throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", "10")))
+		mockMvc.perform(staffPost().content(body("\"생수\"", "\"GOLF\"", "10")))
 			.andExpect(status().isOk());
 
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content("""
+		mockMvc.perform(staffPost().content("""
 				{"itemName": "생수", "quantity": 5}"""))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"테마를 골라 주세요.\"}", JsonCompareMode.STRICT));
@@ -116,16 +148,16 @@ class WarehouseControllerTest {
 
 	@Test
 	void 목록은_이름_테마_순으로_이름_테마_현재_수량을_준다() throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"스카프\"", "\"TREKKING\"", "12")))
+		mockMvc.perform(staffPost().content(body("\"스카프\"", "\"TREKKING\"", "12")))
 			.andExpect(status().isOk());
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"골프공\"", "\"TREKKING\"", "2")))
+		mockMvc.perform(staffPost().content(body("\"골프공\"", "\"TREKKING\"", "2")))
 			.andExpect(status().isOk());
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"골프공\"", "\"GOLF\"", "30")))
+		mockMvc.perform(staffPost().content(body("\"골프공\"", "\"GOLF\"", "30")))
 			.andExpect(status().isOk());
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"골프공\"", "\"GOLF\"", "6")))
+		mockMvc.perform(staffPost().content(body("\"골프공\"", "\"GOLF\"", "6")))
 			.andExpect(status().isOk());
 
-		mockMvc.perform(get(URL))
+		mockMvc.perform(staffGet())
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.length()").value(3))
 			.andExpect(jsonPath("$[0].id").isNumber())
@@ -143,7 +175,7 @@ class WarehouseControllerTest {
 	@ParameterizedTest(name = "{1}")
 	@MethodSource("rejectedRequests")
 	void 규칙에_어긋나면_400과_이유를_돌려주고_저장하지_않는다(String requestBody, String message) throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(requestBody))
+		mockMvc.perform(staffPost().content(requestBody))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"" + message + "\"}", JsonCompareMode.STRICT));
 
@@ -163,10 +195,10 @@ class WarehouseControllerTest {
 
 	@Test
 	void 있는_물품에_0을_더하려_하면_400이고_수량은_그대로다() throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", "10")))
+		mockMvc.perform(staffPost().content(body("\"생수\"", "\"GOLF\"", "10")))
 			.andExpect(status().isOk());
 
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", "0")))
+		mockMvc.perform(staffPost().content(body("\"생수\"", "\"GOLF\"", "0")))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"수량은 1개 이상이어야 합니다.\"}", JsonCompareMode.STRICT));
 
@@ -176,7 +208,7 @@ class WarehouseControllerTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"2.5", "1.0", "2147483648", "\"많이\""})
 	void 수량이_정수가_아니면_잘라_받지_않고_400(String quantity) throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", quantity)))
+		mockMvc.perform(staffPost().content(body("\"생수\"", "\"GOLF\"", quantity)))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"" + NOT_READABLE + "\"}", JsonCompareMode.STRICT));
 
@@ -186,7 +218,7 @@ class WarehouseControllerTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"0", "\"2\"", "\"SKIING\""})
 	void 없는_테마나_숫자_테마는_400(String theme) throws Exception {
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", theme, "10")))
+		mockMvc.perform(staffPost().content(body("\"생수\"", theme, "10")))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().json("{\"message\": \"" + NOT_READABLE + "\"}", JsonCompareMode.STRICT));
 
