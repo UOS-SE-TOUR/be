@@ -15,10 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 import com.mwt.common.exception.BusinessException;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 여행 상품 흐름을 처리하는 tour 모듈의 공개 Service다(설계산출물 4.4). 다른 모듈은 여행 상품의 상태를 이 클래스로만 바꾼다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TourService {
@@ -92,6 +94,35 @@ public class TourService {
 		return tourRepository.findByThemeAndDepartureDate(theme, departureDate).stream()
 			.map(TourSummary::from)
 			.toList();
+	}
+
+	/**
+	 * 신청 인원을 더하고 확정 변화를 돌려준다(booking 모듈이 신청을 저장한 뒤 같은 트랜잭션에서 부른다, 설계산출물 5.4.1).
+	 * 상품 행을 잠근 채 더하므로 동시에 들어온 신청이 정원을 넘지 않는다. 거부되면(BusinessException) 부르는 쪽의 신청 저장도 되돌려진다.
+	 */
+	@Transactional
+	public ConfirmChange addApplicants(Long tourId, int headcount) {
+		if (tourId == null) {
+			throw new BusinessException("여행 상품을 골라 주세요.");
+		}
+		Tour tour = tourRepository.findByIdForUpdate(tourId)
+			.orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "여행 상품을 찾을 수 없습니다."));
+		return tour.addApplicants(headcount);
+	}
+
+	/**
+	 * 출발일과 여행 종료일에 따라 상태를 바꾼다(예약 작업 TourScheduler가 매일 부른다, 설계산출물 1.3 (9)·6장).
+	 * 출발일이 오늘이거나 지난 상품은 출발 처리하고(취소·진행 중), 여행 종료일이 지난 진행 중 상품은 완료한다.
+	 * 날짜가 지났는지로 찾으므로 서버가 꺼져 건너뛴 날의 상품도 바뀐다 — 그사이 여행이 끝났으면 한 번에 완료까지 간다.
+	 */
+	@Transactional
+	public void updateStatuses(LocalDate today) {
+		List<Tour> departing = tourRepository.findDeparting(today);
+		departing.forEach(Tour::depart);
+		// 위에서 진행 중이 된 상품도 찾도록, 이 조회 앞에서 JPA가 바뀐 상태를 DB에 먼저 쓴다(flush)
+		List<Tour> finished = tourRepository.findFinished(today);
+		finished.forEach(Tour::complete);
+		log.info("상품 상태를 바꿨다({}): 출발 {}개, 완료 {}개", today, departing.size(), finished.size());
 	}
 
 	/** 여행 상품 기획(MWT-UC8). 상품을 만들고 등급별 가격과 옵션 목록을 넣어 저장한 뒤 상품 ID를 돌려준다. */
