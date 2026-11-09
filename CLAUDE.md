@@ -20,7 +20,7 @@
 - Lombok은 `@Getter`·`@NoArgsConstructor(access = AccessLevel.PROTECTED)`·`@RequiredArgsConstructor`·`@Slf4j`·`@Builder`만 쓴다. `@Builder`는 클래스가 아니라 생성자에 붙인다. 엔티티에 `@Setter`·`@Data` 금지.
 - 요청·응답 DTO는 `record`로 쓴다.
 - DB 스키마는 Flyway(`src/main/resources/db/migration/V<번호>__<설명>.sql`)로만 바꾼다. 머지된 마이그레이션은 고치지 않고 새 번호로 더한다(`ddl-auto: validate`).
-- "오늘"과 현재 시각은 주입한 `Clock`(`ClockConfig`, Asia/Seoul)에서만 얻는다. `LocalDate.now()` 직접 호출 금지, `@Scheduled`에는 `zone = "Asia/Seoul"`.
+- "오늘"과 현재 시각은 주입한 `Clock`(`ClockConfig`, Asia/Seoul)에서만 얻는다. 인자 없는 `now()`(`LocalDate.now()`·`Instant.now()` 등) 직접 호출 금지, `@Scheduled`에는 `zone = "Asia/Seoul"`.
 - 시각 값은 `Instant`, 날짜만이면 `LocalDate`로 두고 `LocalDateTime`으로 시각을 저장하지 않는다.
 - 비밀 값(API 키·JWT 비밀 키·직원 코드)은 환경변수로만 받는다. `.env`·`application-local.*`은 커밋 금지(.gitignore에 있음).
 - 도메인 규칙은 스프링 없는 단위 테스트로, DB가 필요한 테스트는 `@Testcontainers(disabledWithoutDocker = true)`와 `@Import(TestcontainersConfiguration.class)`를 함께 붙인다. CI는 건너뛴 테스트가 있으면 실패하니 `@Disabled`로 끈 테스트를 남기지 않는다.
