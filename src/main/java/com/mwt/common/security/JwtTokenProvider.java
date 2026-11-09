@@ -15,6 +15,7 @@ import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.stereotype.Component;
@@ -49,13 +50,14 @@ public class JwtTokenProvider {
 		JwtTimestampValidator timestampValidator = new JwtTimestampValidator(Duration.ZERO);   // 서버 한 대라 시계 차이를 봐주지 않는다
 		timestampValidator.setClock(clock);
 		timestampValidator.setAllowEmptyExpiryClaim(false);
-		this.decoder.setJwtValidator(timestampValidator);
+		this.decoder.setJwtValidator(JwtValidators.createDefaultWithValidators(timestampValidator));   // 기본 검증(typ 등)은 그대로 두고 시각 검증만 바꾼다
 		this.clock = clock;
 	}
 
+	/** memberType은 MemberType의 이름(CUSTOMER, STAFF)이다. 다른 값이면 권한 규칙에 맞지 않으므로 만들지 않는다. */
 	public String createToken(long memberId, String memberType) {
-		if (!StringUtils.hasText(memberType)) {
-			throw new IllegalArgumentException("회원 구분이 비어 있다");
+		if (!SecurityConfig.isMemberType(memberType)) {
+			throw new IllegalArgumentException("모르는 회원 구분: " + memberType);
 		}
 		Instant now = clock.instant();
 		JwtClaimsSet claims = JwtClaimsSet.builder()
@@ -80,8 +82,8 @@ public class JwtTokenProvider {
 			throw new InvalidTokenException(e.getMessage(), e);
 		}
 		String memberType = jwt.getClaimAsString(MEMBER_TYPE_CLAIM);
-		if (!StringUtils.hasText(memberType)) {
-			throw new InvalidTokenException("토큰에 회원 구분이 없다");
+		if (!SecurityConfig.isMemberType(memberType)) {
+			throw new InvalidTokenException("토큰의 회원 구분을 모른다: " + memberType);
 		}
 		try {
 			return new TokenClaims(Long.parseLong(jwt.getSubject()), memberType);

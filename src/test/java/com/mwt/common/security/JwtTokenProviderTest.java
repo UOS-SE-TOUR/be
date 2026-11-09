@@ -78,21 +78,26 @@ class JwtTokenProviderTest {
 	}
 
 	@Test
-	void 같은_키로_서명했어도_만료_시각이나_회원_구분이나_숫자_회원_ID가_없으면_받지_않는다() {
+	void 같은_키로_서명했어도_만료_시각이나_아는_회원_구분이나_숫자_회원_ID가_없으면_받지_않는다() {
 		JwtClaimsSet noExpiry = JwtClaimsSet.builder().subject("42").claim("memberType", "STAFF").build();
 		JwtClaimsSet noMemberType = JwtClaimsSet.builder().subject("42").expiresAt(NOW.plusSeconds(60)).build();
+		JwtClaimsSet unknownMemberType = JwtClaimsSet.builder()
+			.subject("42").claim("memberType", "ADMIN").expiresAt(NOW.plusSeconds(60)).build();
 		JwtClaimsSet wrongSubject = JwtClaimsSet.builder()
 			.subject("admin").claim("memberType", "STAFF").expiresAt(NOW.plusSeconds(60)).build();
 
 		assertThatThrownBy(() -> provider.parseToken(signWithSameKey(noExpiry))).isInstanceOf(InvalidTokenException.class);
 		assertThatThrownBy(() -> provider.parseToken(signWithSameKey(noMemberType)))
 			.isInstanceOf(InvalidTokenException.class);
+		assertThatThrownBy(() -> provider.parseToken(signWithSameKey(unknownMemberType)))
+			.isInstanceOf(InvalidTokenException.class);
 		assertThatThrownBy(() -> provider.parseToken(signWithSameKey(wrongSubject)))
 			.isInstanceOf(InvalidTokenException.class);
 	}
 
 	@Test
-	void 회원_구분이_비면_토큰을_만들지_않는다() {
+	void 회원_구분이_CUSTOMER_STAFF가_아니면_토큰을_만들지_않는다() {
+		assertThatThrownBy(() -> provider.createToken(42, "Customer")).isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(() -> provider.createToken(42, " ")).isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(() -> provider.createToken(42, null)).isInstanceOf(IllegalArgumentException.class);
 	}

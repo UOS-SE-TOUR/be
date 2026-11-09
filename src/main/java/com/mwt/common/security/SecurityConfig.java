@@ -2,6 +2,7 @@ package com.mwt.common.security;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -19,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import com.mwt.common.exception.ApiErrorController;
 import com.mwt.common.exception.ErrorResponse;
 import com.mwt.common.exception.GlobalExceptionHandler;
 
@@ -29,22 +31,25 @@ import tools.jackson.databind.json.JsonMapper;
  * 서버 API 표(설계산출물 4.9)의 "쓸 수 있는 사람"대로 주소마다 막는다.
  * 표에 없는 주소는 모두 막으므로, 표의 주소 꼴 밖에 API를 새로 만들면 여기에 규칙을 더한다.
  * 로그인하지 않았거나 만료되었으면 401, 권한이 없으면 403을 {"message": "..."}로 돌려준다.
+ * 모듈 패키지의 슬라이스 테스트(@WebMvcTest)에서 이 규칙을 쓰려면
+ * {@code @Import({SecurityConfig.class, JwtTokenProvider.class, ClockConfig.class})}를 붙이도록 public으로 둔다.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableWebSecurity
 @EnableConfigurationProperties(JwtProperties.class)
-class SecurityConfig {
+public class SecurityConfig {
 
 	/** 회원 구분 이름. member 모듈의 MemberType 이름과 같아야 한다(SecurityConfigTest가 확인한다). */
 	static final String CUSTOMER = "CUSTOMER";
 	static final String STAFF = "STAFF";
+	private static final Set<String> MEMBER_TYPES = Set.of(CUSTOMER, STAFF);
 
 	/** hasRole(...)이 권한 이름 앞에 붙여 찾는 말. */
 	static final String ROLE_PREFIX = "ROLE_";
 
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenProvider jwtTokenProvider, JsonMapper jsonMapper,
-			@Value("${spring.web.error.path:${error.path:/error}}") String errorPath) throws Exception {
+			@Value(ApiErrorController.ERROR_PATH) String errorPath) throws Exception {
 		http
 			// 4.10: 쿠키가 SameSite=Lax이고 상태를 바꾸는 GET이 없으므로 CSRF 토큰을 두지 않는다
 			.csrf(AbstractHttpConfigurer::disable)
@@ -69,6 +74,10 @@ class SecurityConfig {
 				.accessDeniedHandler((request, response, e) -> writeError(response, HttpStatus.FORBIDDEN, jsonMapper)))
 			.addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider), UsernamePasswordAuthenticationFilter.class);
 		return http.build();
+	}
+
+	static boolean isMemberType(String value) {
+		return value != null && MEMBER_TYPES.contains(value);   // Set.of(...)는 contains(null)에서 예외를 던진다
 	}
 
 	@Bean

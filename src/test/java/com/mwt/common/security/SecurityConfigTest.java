@@ -1,6 +1,7 @@
 package com.mwt.common.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -146,6 +147,14 @@ class SecurityConfigTest {
 		assertThat(encoded).startsWith("$2");
 		assertThat(passwordEncoder.matches("password1!", encoded)).isTrue();
 		assertThat(passwordEncoder.matches("password2!", encoded)).isFalse();
+	}
+
+	/** 회원가입 요청 검증에서 막지 않으면 이 예외가 500이 된다(#9에서 비밀번호 길이 규칙으로 막는다). */
+	@Test
+	void BCrypt는_72바이트를_넘는_비밀번호를_암호화하지_않는다() {
+		passwordEncoder.encode("a".repeat(72));
+		assertThatThrownBy(() -> passwordEncoder.encode("가".repeat(25)))   // 한글은 한 글자 3바이트
+			.isInstanceOf(IllegalArgumentException.class);
 	}
 
 	@Test
