@@ -410,6 +410,29 @@ class TourTest {
 		}
 
 		@Test
+		void 마감_상태면_자리가_남아_보여도_거부() {
+			ReflectionTestUtils.setField(golf, "status", TourStatus.FULL);
+
+			assertRejected(() -> golf.checkApplicable(TourLevel.GRAND, 1, List.of(), TODAY), "마감된 상품입니다.");
+		}
+
+		@ParameterizedTest
+		@EnumSource(value = TourStatus.class, names = {"CANCELLED", "IN_PROGRESS", "COMPLETED"})
+		void 모집_중이나_확정이_아니면_거부(TourStatus status) {
+			ReflectionTestUtils.setField(golf, "status", status);
+
+			assertRejected(() -> golf.checkApplicable(TourLevel.GRAND, 1, List.of(), TODAY), "신청할 수 없는 상품입니다.");
+		}
+
+		@Test
+		void 확정된_상품도_자리가_남으면_신청할_수_있다() {
+			ReflectionTestUtils.setField(golf, "status", TourStatus.CONFIRMED);
+			ReflectionTestUtils.setField(golf, "appliedCount", 3);
+
+			assertThatCode(() -> golf.checkApplicable(TourLevel.GRAND, 2, List.of(), TODAY)).doesNotThrowAnyException();
+		}
+
+		@Test
 		void 등급이_비면_거부() {
 			assertRejected(() -> golf.checkApplicable(null, 1, List.of(), TODAY), "투어 등급을 골라 주세요.");
 		}
