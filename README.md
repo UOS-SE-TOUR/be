@@ -26,8 +26,14 @@ docker compose up -d --wait
 | `DB_URL` | `jdbc:mysql://localhost:3306/mwt` | MySQL 주소 |
 | `DB_USERNAME` | `mwt` | MySQL 계정 |
 | `DB_PASSWORD` | `mwt` | MySQL 비밀번호 |
+| `SENS_ACCESS_KEY` | (없음) | NCP API 인증키의 Access Key ID(문자 발송) |
+| `SENS_SECRET_KEY` | (없음) | 위 Access Key의 Secret Key |
+| `SENS_SERVICE_ID` | (없음) | SENS SMS 프로젝트의 서비스 ID(`ncp:sms:kr:…` 꼴) |
+| `SENS_SENDER_NUMBER` | (없음) | SENS 콘솔에 등록한 발신 번호(하이픈은 있어도 됩니다) |
 
-모듈을 만들면서 직원 코드(member), JWT 비밀 키(common.security), OpenAI API 키(voice), NCP SENS 키(notification)를 더합니다. 이런 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
+`SENS_`로 시작하는 네 값이 모두 비어 있으면 문자를 보내지 않고 보낼 내용을 서버 로그에만 남깁니다(가짜 발송기, 테스트·시연 연습용). 일부만 넣으면 서버가 뜨지 않습니다.
+
+모듈을 만들면서 직원 코드(member), JWT 비밀 키(common.security), OpenAI API 키(voice)를 더합니다. 이런 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
 
 내 컴퓨터에서 값을 바꿀 때는 둘 중 하나를 씁니다. 둘 다 `.gitignore`에 들어 있어 커밋되지 않습니다.
 

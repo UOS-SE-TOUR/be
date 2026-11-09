@@ -17,3 +17,10 @@ springdoc:
   swagger-ui:
     path: /api/swagger-ui.html
   paths-to-match: /api/v1/**
+
+# NCP SENS 문자 발송(notification). 네 값이 모두 비어 있으면 문자를 보내지 않고 로그로만 남긴다
+sens:
+  access-key: ${SENS_ACCESS_KEY:}
+  secret-key: ${SENS_SECRET_KEY:}
+  service-id: ${SENS_SERVICE_ID:}
+  sender-number: ${SENS_SENDER_NUMBER:}
