@@ -12,14 +12,17 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 창고 물품 엔티티다(설계산출물 4.8). 물품은 이름으로 찾으므로 name은 유일하다.
+ * 창고 물품 엔티티다(설계산출물 4.8). 물품은 이름과 테마로 찾으므로 (이름, 테마)는 유일하다 — 같은 이름도 테마마다 따로 있다.
  */
 @Entity
+@Table(uniqueConstraints = @UniqueConstraint(name = "uk_item_name_theme", columnNames = {"name", "theme"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Item {
@@ -30,7 +33,7 @@ public class Item {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	@Column(nullable = false, unique = true, length = NAME_MAX_LENGTH)
+	@Column(nullable = false, length = NAME_MAX_LENGTH)
 	private String name;
 
 	@Enumerated(EnumType.STRING)
@@ -40,9 +43,7 @@ public class Item {
 	private int quantity;
 
 	Item(String name, Theme theme, int quantity) {
-		if (theme == null) {
-			throw new BusinessException("테마를 골라 주세요.");
-		}
+		checkTheme(theme);
 		checkQuantity(quantity);
 		this.name = normalizeName(name);
 		this.theme = theme;
@@ -57,14 +58,7 @@ public class Item {
 		this.quantity += quantity;
 	}
 
-	/** 테마는 처음 만들 때 정한다. 있는 물품에 더하면서 다른 테마를 보내면 잘못 고른 것으로 보고 거부한다(보내지 않으면 통과). */
-	void checkTheme(Theme theme) {
-		if (theme != null && theme != this.theme) {
-			throw new BusinessException("같은 이름의 물품이 이미 " + this.theme.getDisplayName() + " 테마로 있습니다. 테마를 확인해 주세요.");
-		}
-	}
-
-	/** 같은 물품인지는 이 값으로 찾는다. 자모를 풀어 쓴 한글(NFD, macOS에서 붙여 넣은 글 등)도 NFC로 모아 같은 이름이 되게 한다. */
+	/** 같은 물품인지는 이 값과 테마로 찾는다. 자모를 풀어 쓴 한글(NFD, macOS에서 붙여 넣은 글 등)도 NFC로 모아 같은 이름이 되게 한다. */
 	static String normalizeName(String name) {
 		String trimmed = name == null ? "" : Normalizer.normalize(name, Normalizer.Form.NFC).strip();
 		if (trimmed.isEmpty()) {
@@ -74,6 +68,12 @@ public class Item {
 			throw new BusinessException("물품 이름은 " + NAME_MAX_LENGTH + "자까지 쓸 수 있습니다.");
 		}
 		return trimmed;
+	}
+
+	static void checkTheme(Theme theme) {
+		if (theme == null) {
+			throw new BusinessException("테마를 골라 주세요.");
+		}
 	}
 
 	private static void checkQuantity(int quantity) {

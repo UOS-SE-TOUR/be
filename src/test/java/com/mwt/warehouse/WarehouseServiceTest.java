@@ -85,34 +85,26 @@ class WarehouseServiceTest {
 	}
 
 	@Test
-	void 있는_물품에_다른_테마를_보내면_거부하고_수량은_그대로다() {
-		warehouseService.addItem("생수", Theme.GOLF, 10);
+	void 같은_이름도_테마가_다르면_따로_물품이고_수량도_따로_센다() {
+		Item golf = warehouseService.addItem("생수", Theme.GOLF, 10);
 
-		assertThatThrownBy(() -> warehouseService.addItem("생수", Theme.TREKKING, 5))
-			.isInstanceOf(BusinessException.class)
-			.hasMessage("같은 이름의 물품이 이미 골프 챌린지 투어 테마로 있습니다. 테마를 확인해 주세요.");
+		Item trekking = warehouseService.addItem("생수", Theme.TREKKING, 5);
+		warehouseService.addItem("생수", Theme.GOLF, 1);
 
-		assertThat(itemRepository.findAll()).extracting(Item::getTheme, Item::getQuantity)
-			.containsExactly(tuple(Theme.GOLF, 10));
+		assertThat(trekking.getId()).isNotEqualTo(golf.getId());
+		assertThat(itemRepository.findAll()).extracting(Item::getName, Item::getTheme, Item::getQuantity)
+			.containsExactlyInAnyOrder(tuple("생수", Theme.GOLF, 11), tuple("생수", Theme.TREKKING, 5));
 	}
 
 	@Test
-	void 있는_물품에는_테마_없이_수량을_더할_수_있다() {
+	void 테마가_없으면_있는_물품이어도_거부한다() {
 		warehouseService.addItem("생수", Theme.GOLF, 10);
 
-		Item added = warehouseService.addItem("생수", null, 5);
-
-		assertThat(added.getTheme()).isEqualTo(Theme.GOLF);
-		assertThat(added.getQuantity()).isEqualTo(15);
-	}
-
-	@Test
-	void 새_물품인데_테마가_없으면_만들지_않는다() {
 		assertThatThrownBy(() -> warehouseService.addItem("생수", null, 5))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage("테마를 골라 주세요.");
 
-		assertThat(itemRepository.count()).isZero();
+		assertThat(itemRepository.findAll()).extracting(Item::getQuantity).containsExactly(10);
 	}
 
 	@Test
@@ -169,13 +161,15 @@ class WarehouseServiceTest {
 	}
 
 	@Test
-	void 물품_목록은_이름_순이다() {
+	void 물품_목록은_이름_순이고_같은_이름은_테마_순이다() {
 		warehouseService.addItem("커플 기념티", Theme.HONEYMOON, 4);
+		warehouseService.addItem("생수", Theme.TREKKING, 20);
 		warehouseService.addItem("골프공", Theme.GOLF, 30);
-		warehouseService.addItem("스카프", Theme.TREKKING, 12);
+		warehouseService.addItem("생수", Theme.GOLF, 10);
 
-		assertThat(warehouseService.getItems()).extracting(Item::getName)
-			.containsExactly("골프공", "스카프", "커플 기념티");
+		assertThat(warehouseService.getItems()).extracting(Item::getName, Item::getTheme)
+			.containsExactly(tuple("골프공", Theme.GOLF), tuple("생수", Theme.GOLF), tuple("생수", Theme.TREKKING),
+					tuple("커플 기념티", Theme.HONEYMOON));
 	}
 
 	@Test
@@ -215,6 +209,19 @@ class WarehouseServiceTest {
 		assertThat(itemRepository.findAll()).extracting(Item::getName).containsExactlyInAnyOrderElementsOf(names);
 	}
 
+	@Test
+	void 같은_새_이름을_테마만_달리해_동시에_넣으면_테마마다_저장된다() throws Exception {
+		PauseAfterNameCheck.pauseOnce(2);   // 둘 다 "없다"고 본 뒤에 저장한다
+
+		List<Throwable> errors = runConcurrently(List.of(
+				() -> warehouseService.addItem("생수", Theme.GOLF, 3),
+				() -> warehouseService.addItem("생수", Theme.TREKKING, 5)));
+
+		assertThat(errors).containsOnlyNulls();
+		assertThat(itemRepository.findAll()).extracting(Item::getTheme, Item::getQuantity)
+			.containsExactlyInAnyOrder(tuple(Theme.GOLF, 3), tuple(Theme.TREKKING, 5));
+	}
+
 	/** 일을 스레드마다 하나씩 한꺼번에 시작하고, 일마다 던진 예외를 순서대로 모은다(성공이면 null). */
 	private static List<Throwable> runConcurrently(List<Runnable> tasks) throws InterruptedException {
 		CountDownLatch start = new CountDownLatch(1);
@@ -247,7 +254,7 @@ class WarehouseServiceTest {
 	}
 
 	/**
-	 * pauseOnce(n)을 부르면 ItemRepository.existsByName이 끝난 뒤 n개 스레드가 모두 거기까지 올 때까지 한 번 기다린다.
+	 * pauseOnce(n)을 부르면 ItemRepository.existsByNameAndTheme이 끝난 뒤 n개 스레드가 모두 거기까지 올 때까지 한 번 기다린다.
 	 * 요청들이 모두 "같은 이름이 없다"고 본 다음에 저장하게 만들어, 드물게만 생기는 겹침을 매번 일으킨다.
 	 * 한 번 모이면 풀려서, 되돌려진 쪽이 다시 할 때는 기다리지 않는다.
 	 */
@@ -277,7 +284,7 @@ class WarehouseServiceTest {
 									throw e.getCause();
 								}
 								CyclicBarrier barrier = BARRIER.get();
-								if (barrier != null && method.getName().equals("existsByName")) {
+								if (barrier != null && method.getName().equals("existsByNameAndTheme")) {
 									barrier.await(10, TimeUnit.SECONDS);
 								}
 								return result;
