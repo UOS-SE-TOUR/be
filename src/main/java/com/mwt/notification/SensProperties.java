@@ -11,6 +11,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("sens")
 record SensProperties(String accessKey, String secretKey, String serviceId, String senderNumber) {
 
+	/** .env 값 끝에 붙은 공백이 키에 섞이면 서명이 틀려 발송마다 401이 나므로 앞뒤 공백을 뗀다. */
+	SensProperties {
+		accessKey = strip(accessKey);
+		secretKey = strip(secretKey);
+		serviceId = strip(serviceId);
+		senderNumber = strip(senderNumber);
+	}
+
 	boolean isEmpty() {
 		return isBlank(accessKey) && isBlank(secretKey) && isBlank(serviceId) && isBlank(senderNumber);
 	}
@@ -27,7 +35,7 @@ record SensProperties(String accessKey, String secretKey, String serviceId, Stri
 		if (isBlank(serviceId)) {
 			missing.add("SENS_SERVICE_ID");
 		}
-		if (isBlank(senderNumber) || !senderNumber.matches(".*[0-9].*")) {   // 보낼 때 숫자만 남긴다
+		if (isBlank(senderNumber) || PhoneNumbers.digitsOnly(senderNumber).isEmpty()) {   // 보낼 때 숫자만 남긴다
 			missing.add("SENS_SENDER_NUMBER");
 		}
 		return missing;
@@ -35,6 +43,10 @@ record SensProperties(String accessKey, String secretKey, String serviceId, Stri
 
 	private static boolean isBlank(String value) {
 		return value == null || value.isBlank();
+	}
+
+	private static String strip(String value) {
+		return value == null ? null : value.strip();
 	}
 
 	@Override

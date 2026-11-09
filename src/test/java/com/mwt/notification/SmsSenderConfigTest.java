@@ -40,6 +40,14 @@ class SmsSenderConfigTest {
 	}
 
 	@Test
+	void 설정_값의_앞뒤_공백은_뗀다() {
+		assertThat(new SensProperties(" access ", "secret\t", " id", "02-1234-5678 "))
+				.extracting(SensProperties::accessKey, SensProperties::secretKey, SensProperties::serviceId,
+						SensProperties::senderNumber)
+				.containsExactly("access", "secret", "id", "02-1234-5678");
+	}
+
+	@Test
 	void 발신_번호에_숫자가_없으면_서버가_뜨지_않는다() {
 		runner.withPropertyValues("sens.access-key=access", "sens.secret-key=secret",
 				"sens.service-id=ncp:sms:kr:123456789012:mwt", "sens.sender-number=미정")

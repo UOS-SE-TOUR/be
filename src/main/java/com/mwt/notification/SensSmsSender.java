@@ -7,12 +7,9 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -46,32 +43,26 @@ class SensSmsSender implements SmsSender {
 
 	private static final Charset EUC_KR = Charset.forName("EUC-KR");
 
-	/** 하이픈 등을 뗀 휴대폰 번호(010·011·016·017·018·019로 시작하는 10·11자리). */
-	private static final Pattern MOBILE_NUMBER = Pattern.compile("01[016789][0-9]{7,8}");
-
 	private final RestClient restClient;
 	private final SensProperties properties;
 	private final Clock clock;
+	private final Duration retryDelay;
 
-	SensSmsSender(RestClient restClient, SensProperties properties, Clock clock) {
+	SensSmsSender(RestClient restClient, SensProperties properties, Clock clock, Duration retryDelay) {
 		this.restClient = restClient;
 		this.properties = properties;
 		this.clock = clock;
+		this.retryDelay = retryDelay;
 	}
 
 	@Override
 	public void sendSms(List<String> phoneNumbers, String message) {
 		try {
-			// 잘못된 번호 하나가 같은 요청의 다른 사람까지 실패(400)시키지 않게 휴대폰 번호 꼴만 보낸다
-			Map<Boolean, List<String>> numbers = phoneNumbers.stream()
-					.filter(Objects::nonNull)
-					.map(SensSmsSender::digitsOnly)
-					.distinct()
-					.collect(Collectors.partitioningBy(number -> MOBILE_NUMBER.matcher(number).matches()));
-			List<String> recipients = numbers.get(true);
-			if (!numbers.get(false).isEmpty()) {
-				log.warn("휴대폰 번호 꼴이 아닌 번호는 빼고 보냅니다: {}", numbers.get(false));
+			PhoneNumbers.Recipients numbers = PhoneNumbers.classify(phoneNumbers);
+			if (!numbers.rejected().isEmpty()) {
+				log.warn("휴대폰 번호 꼴이 아닌 번호는 빼고 보냅니다: {}", numbers.rejected());
 			}
+			List<String> recipients = numbers.mobile();
 			if (recipients.isEmpty() || message == null || message.isBlank()) {
 				log.warn("받는 번호나 문자 내용이 없어 문자를 보내지 않았습니다: phoneNumbers={}", phoneNumbers);
 				return;
@@ -95,7 +86,9 @@ class SensSmsSender implements SmsSender {
 			catch (RuntimeException e) {
 				if (attempt <= RETRY_COUNT && isRetryable(e)) {
 					log.warn("문자 발송에 실패해 한 번 더 보냅니다: {}", e.toString());
-					continue;
+					if (waitBeforeRetry()) {
+						continue;
+					}
 				}
 				log.error("문자를 보내지 못했습니다(시도 {}번): phoneNumbers={}, message={}", attempt, recipients, message, e);
 				return;
@@ -104,15 +97,14 @@ class SensSmsSender implements SmsSender {
 	}
 
 	/**
-	 * SENS에 닿지 못했거나(연결 실패) 처리하지 못했다고 답했을 때(429, 502·504 밖의 5xx)만 다시 보낸다.
-	 * 응답을 못 받은 경우(읽기 시간 초과, 게이트웨이가 SENS 응답을 못 받은 502·504)는 SENS가 이미 받았을 수 있어
-	 * 같은 문자가 두 번 가지 않게 다시 보내지 않고, 다른 4xx(키·번호 오류)는 다시 보내도 실패한다.
+	 * SENS가 받지 않은 게 분명할 때만 다시 보낸다 — 연결 실패, 429(요청 과다), 503(서비스 불가).
+	 * 그 밖의 5xx와 읽기 시간 초과는 SENS가 이미 받았을 수 있어 같은 문자가 두 번 가지 않게 다시 보내지 않고,
+	 * 다른 4xx(키·번호 오류)는 다시 보내도 실패한다.
 	 */
 	private static boolean isRetryable(RuntimeException e) {
 		if (e instanceof RestClientResponseException response) {
 			HttpStatusCode status = response.getStatusCode();
-			return status.isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS) || (status.is5xxServerError()
-					&& !status.isSameCodeAs(HttpStatus.BAD_GATEWAY) && !status.isSameCodeAs(HttpStatus.GATEWAY_TIMEOUT));
+			return status.isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS) || status.isSameCodeAs(HttpStatus.SERVICE_UNAVAILABLE);
 		}
 		if (e instanceof ResourceAccessException) {
 			Throwable cause = e.getCause();
@@ -121,11 +113,23 @@ class SensSmsSender implements SmsSender {
 		return false;
 	}
 
+	/** 요청 과다(429)·일시 장애가 풀리도록 잠깐 기다린다. 기다리는 중 인터럽트되면 다시 보내지 않는다. */
+	private boolean waitBeforeRetry() {
+		try {
+			Thread.sleep(retryDelay);
+			return true;
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			return false;
+		}
+	}
+
 	private void send(List<String> recipients, String message) {
 		String path = "/sms/v2/services/" + properties.serviceId() + "/messages";
 		String timestamp = String.valueOf(clock.millis());
-		SendRequest request = new SendRequest(typeOf(message), digitsOnly(properties.senderNumber()), message,
-				recipients.stream().map(Recipient::new).toList());
+		SendRequest request = new SendRequest(typeOf(message), PhoneNumbers.digitsOnly(properties.senderNumber()),
+				message, recipients.stream().map(Recipient::new).toList());
 		// URI로 넘겨 경로를 다시 인코딩하지 않는다 — 서명한 경로와 보내는 경로가 같아야 한다(서비스 ID에 ':'가 든다)
 		// 응답 본문은 읽지 않는다 — 2xx면 SENS가 받은 것이고, 본문 해석이 실패했다고 다시 보내면 문자가 두 번 간다
 		restClient.post()
@@ -155,10 +159,6 @@ class SensSmsSender implements SmsSender {
 	private static String typeOf(String message) {
 		boolean fitsSms = EUC_KR.newEncoder().canEncode(message) && message.getBytes(EUC_KR).length <= SMS_MAX_BYTES;
 		return fitsSms ? "SMS" : "LMS";
-	}
-
-	private static String digitsOnly(String phoneNumber) {
-		return phoneNumber.replaceAll("[^0-9]", "");
 	}
 
 	record SendRequest(String type, String from, String content, List<Recipient> messages) {

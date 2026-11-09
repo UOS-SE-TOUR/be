@@ -26,6 +26,8 @@ class SmsSenderConfig {
 	private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
 	private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
 
+	private static final Duration RETRY_DELAY = Duration.ofSeconds(1);
+
 	@Bean
 	SmsSender smsSender(SensProperties properties, Clock clock) {
 		if (properties.isEmpty()) {
@@ -37,7 +39,7 @@ class SmsSenderConfig {
 			throw new IllegalStateException("NCP SENS 설정이 일부만 있습니다. 비어 있는 환경변수: " + String.join(", ", missing)
 					+ " (네 개를 모두 넣거나 모두 비우세요)");
 		}
-		return new SensSmsSender(sensRestClient(), properties, clock);
+		return new SensSmsSender(sensRestClient(), properties, clock, RETRY_DELAY);
 	}
 
 	private static RestClient sensRestClient() {

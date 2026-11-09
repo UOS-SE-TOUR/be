@@ -15,6 +15,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import java.net.ConnectException;
 import java.net.http.HttpTimeoutException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
@@ -55,7 +56,7 @@ class SensSmsSenderTest {
 	void setUp() {
 		RestClient.Builder builder = RestClient.builder();
 		server = MockRestServiceServer.bindTo(builder).build();
-		sender = new SensSmsSender(builder.build(), properties, clock);
+		sender = new SensSmsSender(builder.build(), properties, clock, Duration.ZERO);
 	}
 
 	@Test
@@ -69,12 +70,14 @@ class SensSmsSenderTest {
 				.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 				.andExpect(content().json("""
 						{"type": "SMS", "from": "0212345678", "content": "여행 상품이 확정되었습니다",
-						 "messages": [{"to": "01012345678"}, {"to": "01087654321"}]}""", JsonCompareMode.STRICT))
+						 "messages": [{"to": "01012345678"}, {"to": "01087654321"}, {"to": "01011112222"}]}""",
+						JsonCompareMode.STRICT))
 				.andRespond(accepted());
 
-		// 하이픈·공백은 떼고, 같은 번호는 한 번만, 휴대폰 번호 꼴이 아닌 번호(국가 번호, 유선 전화)는 빼고 보낸다
-		sender.sendSms(List.of("010-1234-5678", "01087654321", "010 1234 5678", "+82 10-1111-2222", "02-123-4567"),
-				"여행 상품이 확정되었습니다");
+		// 하이픈·공백은 떼고, +82는 국내 번호로 바꾸고, 같은 번호는 한 번만, 휴대폰 번호 꼴이 아닌 번호(유선 전화,
+		// 한 자리 빠진 010 번호)는 빼고 보낸다
+		sender.sendSms(List.of("010-1234-5678", "01087654321", "010 1234 5678", "+82 10-1111-2222", "02-123-4567",
+				"010-123-4567"), "여행 상품이 확정되었습니다");
 
 		server.verify();
 	}
@@ -105,7 +108,7 @@ class SensSmsSenderTest {
 
 	@Test
 	void 첫_시도가_실패하면_한_번_더_보낸다(CapturedOutput output) {
-		expectRequest().andRespond(withServerError());
+		expectRequest().andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
 		expectRequest().andRespond(accepted());
 
 		sender.sendSms(List.of("01012345678"), "확정");
@@ -129,7 +132,7 @@ class SensSmsSenderTest {
 
 	@Test
 	void 두_번_다_실패하면_예외_없이_로그만_남긴다(CapturedOutput output) {
-		server.expect(ExpectedCount.twice(), requestTo(URL)).andRespond(withServerError());
+		server.expect(ExpectedCount.twice(), requestTo(URL)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
 
 		assertThatCode(() -> sender.sendSms(List.of("01012345678"), "확정")).doesNotThrowAnyException();
 
@@ -139,16 +142,17 @@ class SensSmsSenderTest {
 
 	@Test
 	void SENS가_받았을_수_있거나_다시_보내도_안_되는_실패는_다시_보내지_않는다(CapturedOutput output) {
-		// 응답을 못 받으면(읽기 시간 초과, 게이트웨이 504) SENS가 이미 받았을 수 있다(다시 보내면 문자가 두 번 간다).
+		// 응답을 못 받았거나(읽기 시간 초과) 503 밖의 5xx면 SENS가 이미 받았을 수 있다(다시 보내면 문자가 두 번 간다).
 		// 4xx는 키·번호 오류라 다시 보내도 실패한다
 		expectRequest().andRespond(withException(new HttpTimeoutException("request timed out")));
+		expectRequest().andRespond(withServerError());
 		expectRequest().andRespond(withStatus(HttpStatus.GATEWAY_TIMEOUT));
 		expectRequest().andRespond(withBadRequest());
 
 		assertThatCode(() -> {
-			sender.sendSms(List.of("01012345678"), "확정");
-			sender.sendSms(List.of("01012345678"), "확정");
-			sender.sendSms(List.of("01012345678"), "확정");
+			for (int i = 0; i < 4; i++) {
+				sender.sendSms(List.of("01012345678"), "확정");
+			}
 		}).doesNotThrowAnyException();
 
 		server.verify();
