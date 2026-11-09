@@ -36,6 +36,7 @@ grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 
 | `SENS_SECRET_KEY` | (없음) | 위 Access Key의 Secret Key |
 | `SENS_SERVICE_ID` | (없음) | SENS SMS 프로젝트의 서비스 ID(`ncp:sms:kr:…` 꼴) |
 | `SENS_SENDER_NUMBER` | (없음) | SENS 콘솔에 등록한 발신 번호(하이픈은 있어도 됩니다) |
+| `OPENAI_API_KEY` | (없음) | 음성으로 고르기(`POST /api/v1/voice/parse`)가 부르는 OpenAI API 키. OpenAI 대시보드의 API keys에서 만듭니다 |
 
 `SENS_`로 시작하는 네 값이 모두 비어 있으면 문자를 보내지 않고 보낼 내용을 서버 로그에만 남깁니다(가짜 발송기, 테스트·시연 연습용). 일부만 넣으면 서버가 뜨지 않습니다.
 
@@ -43,7 +44,9 @@ grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 
 
 `STAFF_CODE`를 바꿔도 이미 가입한 직원은 그대로입니다. 테스트는 테스트용 직원 코드(위 테스트 설정 파일)를 씁니다.
 
-OpenAI API 키(voice)는 그 모듈을 만들면서 더합니다. 이런 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
+`OPENAI_API_KEY`가 비어 있어도 서버는 뜹니다. 그때는 음성으로 고르기만 503을 돌려주고, 화면에서 직접 고르는 흐름은 그대로 씁니다. 테스트는 OpenAI를 부르지 않습니다 — 셸에 이 값이 있어도 테스트 설정 파일이 비워 둡니다.
+
+API 키·서명 키·직원 코드 같은 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
 
 내 컴퓨터에서 값을 바꿀 때는 둘 중 하나를 씁니다. 둘 다 `.gitignore`에 들어 있어 커밋되지 않습니다.
 
