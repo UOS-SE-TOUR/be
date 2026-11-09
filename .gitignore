@@ -44,3 +44,8 @@ application-local.*
 
 ### macOS ###
 .DS_Store
+
+### Claude Code: /issue 스킬의 워크트리·개인 설정·임시 파일(scratchpad) (.claude/ 통째로 무시하면 .claude/skills 커밋까지 막혀서 경로별로 나눈다) ###
+.claude/worktrees/
+.claude/settings.local.json
+/scratchpad/
