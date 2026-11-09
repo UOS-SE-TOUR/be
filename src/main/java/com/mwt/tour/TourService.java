@@ -6,6 +6,8 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
@@ -75,11 +77,7 @@ public class TourService {
 	 */
 	@Transactional(readOnly = true)
 	public Tour getTour(Long tourId) {
-		if (tourId == null) {
-			throw new BusinessException("여행 상품을 골라 주세요.");
-		}
-		return tourRepository.findById(tourId)
-			.orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "여행 상품을 찾을 수 없습니다."));
+		return findTour(tourId, tourRepository::findById);
 	}
 
 	/**
@@ -97,17 +95,14 @@ public class TourService {
 	}
 
 	/**
-	 * 신청 인원을 더하고 확정 변화를 돌려준다(booking 모듈이 신청을 저장한 뒤 같은 트랜잭션에서 부른다, 설계산출물 5.4.1).
-	 * 상품 행을 잠근 채 더하므로 동시에 들어온 신청이 정원을 넘지 않는다. 거부되면(BusinessException) 부르는 쪽의 신청 저장도 되돌려진다.
+	 * 신청 인원을 더하고 확정 변화를 돌려준다(booking 모듈이 신청할 때 같은 트랜잭션에서 부른다, 설계산출물 5.4.1).
+	 * 상품 행을 잠근 채 더하므로 동시에 들어온 신청이 정원을 넘지 않는다. 거부되면(BusinessException) 그 트랜잭션이 되돌려진다.
+	 * <p>신청(booking 행)을 저장하기 <b>전에</b> 부른다. 신청을 먼저 저장하면 booking.tour_id 외래 키 확인이 상품 행에 공유 잠금을 걸어,
+	 * 같은 상품의 동시 신청 둘이 서로의 공유 잠금을 기다리다 한쪽이 교착(Deadlock, 500)으로 실패한다(be 실측: 먼저 저장하면 3번 중 3번, 먼저 더하면 0번).
 	 */
 	@Transactional
 	public ConfirmChange addApplicants(Long tourId, int headcount) {
-		if (tourId == null) {
-			throw new BusinessException("여행 상품을 골라 주세요.");
-		}
-		Tour tour = tourRepository.findByIdForUpdate(tourId)
-			.orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "여행 상품을 찾을 수 없습니다."));
-		return tour.addApplicants(headcount);
+		return findTour(tourId, tourRepository::findByIdForUpdate).addApplicants(headcount);
 	}
 
 	/**
@@ -137,6 +132,15 @@ public class TourService {
 			.map(transport -> TourOption.transport(transport.name(), transport.unitPrice()))
 			.toList());
 		return tourRepository.save(tour).getId();
+	}
+
+	/** 상품 ID가 비었으면 400, 없는 상품이면 404다. */
+	private static Tour findTour(Long tourId, Function<Long, Optional<Tour>> finder) {
+		if (tourId == null) {
+			throw new BusinessException("여행 상품을 골라 주세요.");
+		}
+		return finder.apply(tourId)
+			.orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "여행 상품을 찾을 수 없습니다."));
 	}
 
 }

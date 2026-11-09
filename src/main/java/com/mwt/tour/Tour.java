@@ -197,9 +197,10 @@ public class Tour {
 
 	/**
 	 * 신청 인원을 더하고 상태를 바꾼다(설계산출물 6장 전이표): 합계가 정원과 같으면 마감, 3명 이상이면 확정, 아니면 모집 중 그대로다.
-	 * 모집 중·확정 상품이 아니거나 남은 자리보다 많은 인원은 거부한다. 동시에 들어온 신청은 TourService가 상품을 잠가 차례로 더한다.
+	 * 모집 중·확정 상품이 아니거나 남은 자리보다 많은 인원은 거부한다. 상품을 잠그고 더해야 동시 신청이 정원을 넘지 않으므로,
+	 * 상태를 바꾸는 이 메소드와 depart·complete는 tour 패키지 안(TourService)에서만 부른다.
 	 */
-	public ConfirmChange addApplicants(int headcount) {
+	ConfirmChange addApplicants(int headcount) {
 		checkSeats(headcount);
 		theme.checkHeadcount(headcount);
 		boolean wasConfirmed = status == TourStatus.CONFIRMED;
@@ -216,7 +217,7 @@ public class Tour {
 	}
 
 	/** 출발일에 상태를 바꾼다(설계산출물 6장): 모집 중(3명 미만)이면 취소, 확정·마감이면 진행 중. */
-	public void depart() {
+	void depart() {
 		status = switch (status) {
 			case RECRUITING -> TourStatus.CANCELLED;
 			case CONFIRMED, FULL -> TourStatus.IN_PROGRESS;
@@ -225,7 +226,7 @@ public class Tour {
 	}
 
 	/** 여행 종료일이 지나면 진행 중을 완료로 바꾼다(설계산출물 6장). 완료 상품의 신청이 이전 여행이 된다. */
-	public void complete() {
+	void complete() {
 		if (status != TourStatus.IN_PROGRESS) {
 			throw new IllegalStateException("상품 " + id + "은 " + status + "라 완료 처리할 수 없다.");
 		}
