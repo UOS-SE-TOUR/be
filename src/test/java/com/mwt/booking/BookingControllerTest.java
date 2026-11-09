@@ -1,0 +1,281 @@
+package com.mwt.booking;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.sql.PreparedStatement;
+import java.sql.Statement;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.test.context.bean.override.convention.TestBean;
+import org.springframework.test.json.JsonCompareMode;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import com.mwt.TestcontainersConfiguration;
+import com.mwt.common.security.JwtTokenProvider;
+import com.mwt.tour.RegisterTourRequest;
+import com.mwt.tour.RegisterTourRequest.PriceInput;
+import com.mwt.tour.RegisterTourRequest.TransportInput;
+import com.mwt.tour.Theme;
+import com.mwt.tour.TourLevel;
+import com.mwt.tour.TourService;
+
+import jakarta.servlet.http.Cookie;
+
+/**
+ * 가격 계산(POST /api/v1/bookings/quote)과 이전 여행 조회(GET /api/v1/bookings/previous) API(설계산출물 4.9 서버 API 표,
+ * 5.3·5.4·5.6·5.7). 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다. "오늘"은 2026-11-10(서울)로 고정한다.
+ * Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
+ */
+@Testcontainers(disabledWithoutDocker = true)
+@Import(TestcontainersConfiguration.class)
+@SpringBootTest
+@AutoConfigureMockMvc
+class BookingControllerTest {
+
+	private static final String QUOTE = "/api/v1/bookings/quote";
+	private static final String PREVIOUS = "/api/v1/bookings/previous";
+
+	@TestBean
+	Clock clock;
+
+	@Autowired
+	MockMvc mockMvc;
+
+	@Autowired
+	TourService tourService;
+
+	@Autowired
+	JdbcTemplate jdbcTemplate;
+
+	@Autowired
+	JwtTokenProvider jwtTokenProvider;
+
+	static Clock clock() {
+		return Clock.fixed(Instant.parse("2026-11-10T00:00:00Z"), ZoneId.of("Asia/Seoul"));
+	}
+
+	@AfterEach
+	void deleteAll() {
+		jdbcTemplate.update("delete from booking_option");
+		jdbcTemplate.update("delete from booking");
+		jdbcTemplate.update("delete from tour_price");
+		jdbcTemplate.update("delete from tour_option");
+		jdbcTemplate.update("delete from tour");
+		jdbcTemplate.update("delete from member");
+	}
+
+	@Test
+	void 단골이_아니면_할인_없이_고른_내용과_할인_전_총_가격을_돌려준다() throws Exception {
+		long me = member("me");
+		long tourId = register(Theme.GOLF);
+		long hotel = optionId(tourId, "5등급 호텔");
+		long champagne = optionId(tourId, "샴페인");
+
+		mockMvc.perform(quote(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d, %d]}""".formatted(tourId, champagne, hotel)))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					{"summary": {"tourId": %d, "title": "골프 챌린지 투어 12/1 출발 5일", "departureDate": "2026-12-01",
+					             "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2,
+					             "options": [{"optionId": %d, "category": "HOTEL", "name": "5등급 호텔", "priceDiff": 100000},
+					                         {"optionId": %d, "category": "EXTRA", "name": "샴페인", "priceDiff": 50000}]},
+					 "totalPrice": 3300000, "discount": 0, "finalPrice": 3300000}""".formatted(tourId, hotel, champagne),
+					JsonCompareMode.STRICT));
+	}
+
+	@Test
+	void 옵션을_보내지_않으면_그_등급의_기본_제공으로_계산한다() throws Exception {
+		long me = member("me");
+		long tourId = register(Theme.GOLF);
+
+		mockMvc.perform(quote(me, """
+				{"tourId": %d, "level": "PREMIUM", "headcount": 3}""".formatted(tourId)))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					{"summary": {"level": "PREMIUM", "headcount": 3, "options": []},
+					 "totalPrice": 7500000, "discount": 0, "finalPrice": 7500000}"""));
+	}
+
+	@Test
+	void 완료된_이전_여행이_2건_이상이면_10퍼센트_할인한다() throws Exception {
+		long me = member("me");
+		long tourId = register(Theme.GOLF);
+		String request = """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": []}""".formatted(tourId);
+		booking(me, completedTour("2026-09-01"), 3_000_000, 0);
+		booking(me, register(Theme.GOLF), 3_000_000, 0);   // 출발 전 상품의 신청은 이전 여행이 아니다
+		booking(member("other"), completedTour("2026-10-01"), 3_000_000, 0);
+
+		mockMvc.perform(quote(me, request))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					{"totalPrice": 3000000, "discount": 0, "finalPrice": 3000000}"""));
+
+		booking(me, completedTour("2026-10-01"), 3_000_000, 0);
+
+		mockMvc.perform(quote(me, request))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					{"totalPrice": 3000000, "discount": 300000, "finalPrice": 2700000}"""));
+	}
+
+	@Test
+	void 규칙에_맞지_않으면_400과_이유() throws Exception {
+		long me = member("me");
+		long golf = register(Theme.GOLF);
+		long honeymoon = register(Theme.HONEYMOON);
+
+		expectRejected(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 3}""".formatted(honeymoon), "허니문 낭만 투어는 2명만 신청할 수 있습니다.");
+		expectRejected(me, """
+				{"tourId": %d, "level": "CLASSIC", "headcount": 2}""".formatted(honeymoon),
+				"허니문 낭만 투어는 그랜드와 프리미엄만 고를 수 있습니다.");
+		expectRejected(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 0}""".formatted(golf), "인원은 1명 이상이어야 합니다.");
+		expectRejected(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 11}""".formatted(golf), "남은 자리보다 인원이 많습니다.");
+		expectRejected(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d]}""".formatted(golf,
+				optionId(honeymoon, "샴페인")), "이 상품에 없는 옵션입니다.");
+		expectRejected(me, """
+				{"tourId": %d, "headcount": 2}""".formatted(golf), "투어 등급을 골라 주세요.");
+		expectRejected(me, """
+				{"tourId": %d, "level": "GRAND"}""".formatted(golf), "인원을 입력해 주세요.");
+		expectRejected(me, """
+				{"level": "GRAND", "headcount": 2}""", "여행 상품을 골라 주세요.");
+	}
+
+	@Test
+	void 없는_상품이면_404() throws Exception {
+		mockMvc.perform(quote(member("me"), """
+				{"tourId": 999999, "level": "GRAND", "headcount": 2}"""))
+			.andExpect(status().isNotFound())
+			.andExpect(content().json("{\"message\": \"여행 상품을 찾을 수 없습니다.\"}", JsonCompareMode.STRICT));
+	}
+
+	@Test
+	void 이전_여행은_그_회원의_완료된_여행을_출발일이_최근인_순서로_할인_뒤_가격과_함께_돌려준다() throws Exception {
+		long me = member("me");
+		long older = booking(me, completedTour("2026-09-01"), 3_000_000, 0);
+		long newer = booking(me, completedTour("2026-10-20"), 3_300_000, 330_000);
+		booking(me, register(Theme.GOLF), 3_000_000, 0);
+		booking(member("other"), completedTour("2026-10-01"), 3_000_000, 0);
+
+		mockMvc.perform(customer(get(PREVIOUS), me))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					[{"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 10/20 출발 5일", "departureDate": "2026-10-20",
+					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "finalPrice": 2970000},
+					 {"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 9/1 출발 5일", "departureDate": "2026-09-01",
+					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "finalPrice": 3000000}]"""
+				.formatted(newer, tourOf(newer), older, tourOf(older)), JsonCompareMode.STRICT));
+	}
+
+	@Test
+	void 이전_여행이_없으면_빈_목록() throws Exception {
+		mockMvc.perform(customer(get(PREVIOUS), member("me")))
+			.andExpect(status().isOk())
+			.andExpect(content().json("[]", JsonCompareMode.STRICT));
+	}
+
+	@Test
+	void 직원은_쓸_수_없고_로그인하지_않으면_401() throws Exception {
+		long tourId = register(Theme.GOLF);
+		String request = """
+				{"tourId": %d, "level": "GRAND", "headcount": 2}""".formatted(tourId);
+		Cookie staff = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "STAFF"));
+
+		mockMvc.perform(post(QUOTE).contentType(MediaType.APPLICATION_JSON).content(request).cookie(staff))
+			.andExpect(status().isForbidden());
+		mockMvc.perform(get(PREVIOUS).cookie(staff))
+			.andExpect(status().isForbidden());
+		mockMvc.perform(post(QUOTE).contentType(MediaType.APPLICATION_JSON).content(request))
+			.andExpect(status().isUnauthorized());
+	}
+
+	private void expectRejected(long memberId, String request, String message) throws Exception {
+		mockMvc.perform(quote(memberId, request))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().json("{\"message\": \"" + message + "\"}", JsonCompareMode.STRICT));
+	}
+
+	private MockHttpServletRequestBuilder quote(long memberId, String body) {
+		return customer(post(QUOTE).contentType(MediaType.APPLICATION_JSON).content(body), memberId);
+	}
+
+	private MockHttpServletRequestBuilder customer(MockHttpServletRequestBuilder request, long memberId) {
+		return request.cookie(new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(memberId, "CUSTOMER")));
+	}
+
+	/** 2026-12-01 출발 5일, 정원 10명. 등급별 1인 가격은 클래식 900,000원, 그랜드 1,500,000원, 프리미엄 2,500,000원이다. */
+	private long register(Theme theme) {
+		List<PriceInput> prices = theme == Theme.HONEYMOON || theme == Theme.PARENTS
+				? List.of(new PriceInput(TourLevel.GRAND, 1_500_000L), new PriceInput(TourLevel.PREMIUM, 2_500_000L))
+				: List.of(new PriceInput(TourLevel.CLASSIC, 900_000L), new PriceInput(TourLevel.GRAND, 1_500_000L),
+						new PriceInput(TourLevel.PREMIUM, 2_500_000L));
+		return tourService.registerTour(new RegisterTourRequest(theme, LocalDate.of(2026, 12, 1), 5, 10, prices,
+				List.of(new TransportInput("비행기 이코노미석", 0L), new TransportInput("비행기 비즈니스석", 300_000L))));
+	}
+
+	/** 출발해 여행 종료일이 지난 골프 상품(5일). 상태 전이(#12)가 아직 없어 행을 직접 넣는다. */
+	private long completedTour(String departureDate) {
+		return insert("""
+				insert into tour (theme, departure_date, duration, capacity, applied_count, status)
+				values ('GOLF', ?, 5, 10, 2, 'COMPLETED')""", departureDate);
+	}
+
+	/** 회원 저장(member 모듈의 #9)이 아직 없어 행을 직접 넣는다. */
+	private long member(String loginId) {
+		return insert("""
+				insert into member (login_id, password, name, address, phone, member_type)
+				values (?, 'encoded', '고객', '서울', '01012345678', 'CUSTOMER')""", loginId);
+	}
+
+	/** 그랜드 2명 신청. 신청 저장(#17)이 아직 없어 행을 직접 넣는다. */
+	private long booking(long memberId, long tourId, long totalPrice, long discount) {
+		return insert("""
+				insert into booking (member_id, tour_id, level, headcount, total_price, discount, applied_at)
+				values (?, ?, 'GRAND', 2, ?, ?, '2026-08-01 00:00:00')""", memberId, tourId, totalPrice, discount);
+	}
+
+	private long optionId(long tourId, String name) {
+		return jdbcTemplate.queryForObject("select id from tour_option where tour_id = ? and name = ?", Long.class, tourId,
+				name);
+	}
+
+	private long tourOf(long bookingId) {
+		return jdbcTemplate.queryForObject("select tour_id from booking where id = ?", Long.class, bookingId);
+	}
+
+	private long insert(String sql, Object... args) {
+		KeyHolder keyHolder = new GeneratedKeyHolder();
+		jdbcTemplate.update(connection -> {
+			PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+			for (int i = 0; i < args.length; i++) {
+				statement.setObject(i + 1, args[i]);
+			}
+			return statement;
+		}, keyHolder);
+		return keyHolder.getKey().longValue();
+	}
+
+}

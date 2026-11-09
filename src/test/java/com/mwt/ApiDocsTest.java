@@ -55,6 +55,16 @@ class ApiDocsTest {
 	}
 
 	@Test
+	void 로그인한_회원_ID는_API_문서의_요청_값에_나오지_않는다() throws Exception {
+		mockMvc.perform(get("/api/docs"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.paths['/api/v1/bookings/previous'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/v1/bookings/previous'].get.parameters").doesNotExist())
+			.andExpect(jsonPath("$.paths['/api/v1/bookings/quote'].post.requestBody").exists())
+			.andExpect(jsonPath("$.paths['/api/v1/bookings/quote'].post.parameters").doesNotExist());
+	}
+
+	@Test
 	void 권한_규칙을_통과한_없는_API_주소는_404와_문구() throws Exception {
 		Cookie customer = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "CUSTOMER"));
 		mockMvc.perform(get("/api/v1/tours/nothing/here").cookie(customer))
