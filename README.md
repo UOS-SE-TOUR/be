@@ -31,7 +31,7 @@ grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 
 | `DB_USERNAME` | `mwt` | MySQL 계정 |
 | `DB_PASSWORD` | `mwt` | MySQL 비밀번호 |
 | `JWT_SECRET` | (없음, 꼭 넣어야 함) | 로그인 토큰(JWT) 서명 키. 32바이트(영문·숫자 32자) 이상으로, `openssl rand -hex 32`로 만듭니다. 비어 있거나 짧으면 서버가 뜨지 않습니다. 서버(로컬·운영 등)마다 다른 값을 씁니다 — 같으면 한 서버에서 받은 토큰이 다른 서버에서도 통합니다 |
-| `STAFF_CODE` | (없음, 꼭 넣어야 함) | 직원으로 가입할 때 입력하는 직원 코드. 회사가 직원에게만 알려 주는 값이라 16바이트(영문·숫자 16자) 이상 무작위 값으로, `openssl rand -hex 8`로 만듭니다 — 가입 API에 시도 횟수 제한이 없습니다. 비어 있거나 짧으면 서버가 뜨지 않습니다. 앞뒤 공백은 떼고 비교합니다 |
+| `STAFF_CODE` | (없음, 꼭 넣어야 함) | 직원으로 가입할 때 입력하는 직원 코드. 회사가 직원에게만 알려 주는 값이라 짐작할 수 없는 무작위 값(영문·숫자 16자 이상)으로, `openssl rand -hex 8`로 만듭니다 — 가입 API에 시도 횟수 제한이 없습니다. 비어 있거나 16바이트보다 짧으면 서버가 뜨지 않습니다(단어를 이어 붙인 값처럼 길이만 채운 것은 막지 못합니다). 앞뒤 공백은 떼고 비교합니다 |
 | `SENS_ACCESS_KEY` | (없음) | NCP API 인증키의 Access Key ID(문자 발송) |
 | `SENS_SECRET_KEY` | (없음) | 위 Access Key의 Secret Key |
 | `SENS_SERVICE_ID` | (없음) | SENS SMS 프로젝트의 서비스 ID(`ncp:sms:kr:…` 꼴) |

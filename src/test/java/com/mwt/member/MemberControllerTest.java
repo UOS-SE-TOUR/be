@@ -134,12 +134,13 @@ class MemberControllerTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "hong", "HONG", " Hong" })
+	@ValueSource(strings = { "hong", "HONG", " Hong", "hóng", "ｈｏｎｇ" })
 	void 이미_있는_아이디로_가입하면_400(String loginId) throws Exception {
 		signUp(customer("hong")).andExpect(status().isCreated());
 
-		signUp(customer(loginId)).andExpect(badRequest(MemberService.LOGIN_ID_TAKEN));   // DB 정렬 규칙이 대소문자를 가리지 않는다
+		signUp(customer(loginId)).andExpect(badRequest(MemberService.LOGIN_ID_TAKEN));   // MemberRepository의 정렬 규칙 설명
 		assertThat(memberRepository.count()).isOne();
+		logIn(loginId, PASSWORD).andExpect(status().isOk());
 	}
 
 	@Test
