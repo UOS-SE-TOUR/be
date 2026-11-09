@@ -49,7 +49,7 @@ public class MemberService {
 		if (request.memberType() == MemberType.STAFF && !isStaffCode(request.staffCode())) {
 			throw new BusinessException("직원 코드가 맞지 않아 직원으로 가입할 수 없습니다.");
 		}
-		if (request.password().getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
+		if (isTooLong(request.password())) {
 			throw new BusinessException("비밀번호가 너무 깁니다. 영문·숫자는 72자, 한글은 24자까지 쓸 수 있습니다.");
 		}
 		if (memberRepository.existsByLoginId(request.loginId())) {
@@ -67,11 +67,14 @@ public class MemberService {
 		}
 	}
 
-	/** 로그인(MWT-UC2). 아이디와 비밀번호가 맞으면 회원을 돌려준다. 토큰은 MemberController가 만든다. */
+	/**
+	 * 로그인(MWT-UC2). 아이디와 비밀번호가 맞으면 회원을 돌려준다. 토큰은 MemberController가 만든다.
+	 * BCrypt 비교는 72바이트 뒤를 보지 않아 72바이트 비밀번호 뒤에 아무 글자나 붙여도 맞다고 하므로, 그런 입력은 먼저 틀렸다고 한다.
+	 */
 	@Transactional(readOnly = true)
 	public Member logIn(String loginId, String password) {
 		return memberRepository.findByLoginId(loginId)
-			.filter(member -> passwordEncoder.matches(password, member.getPassword()))
+			.filter(member -> !isTooLong(password) && passwordEncoder.matches(password, member.getPassword()))
 			.orElseThrow(() -> new BusinessException("아이디 또는 비밀번호가 맞지 않습니다."));
 	}
 
@@ -84,6 +87,10 @@ public class MemberService {
 		return memberRepository.findById(memberId)
 			.orElseThrow(() -> new BusinessException(HttpStatus.UNAUTHORIZED,
 					GlobalExceptionHandler.messageFor(HttpStatus.UNAUTHORIZED)));
+	}
+
+	private static boolean isTooLong(String password) {
+		return password.getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES;
 	}
 
 	/** 길이가 같으면 걸리는 시간이 같게 비교한다. */

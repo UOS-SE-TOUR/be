@@ -205,6 +205,18 @@ class MemberControllerTest {
 		logIn("hong", password).andExpect(status().isOk());
 	}
 
+	/** BCrypt 비교는 72바이트 뒤를 보지 않는다(SecurityConfigTest). 서버가 막지 않으면 이 로그인이 성공한다. */
+	@ParameterizedTest
+	@ValueSource(strings = { "a", "가", "password1!" })
+	void 비밀번호_72바이트_뒤에_글자를_붙이면_로그인하지_않는다(String extra) throws Exception {
+		String password = "가".repeat(24);
+		signUp(customer("hong").withPassword(password)).andExpect(status().isCreated());
+
+		logIn("hong", password + extra)
+			.andExpect(badRequest("아이디 또는 비밀번호가 맞지 않습니다."))
+			.andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+	}
+
 	@Test
 	void 로그인하면_accessToken_쿠키를_내려_주고_회원_구분과_이름을_돌려준다() throws Exception {
 		signUp(customer("hong")).andExpect(status().isCreated());
