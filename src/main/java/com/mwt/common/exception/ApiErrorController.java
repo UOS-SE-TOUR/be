@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -29,13 +30,13 @@ public class ApiErrorController implements ErrorController {
 		return ResponseEntity.status(status).body(new ErrorResponse(GlobalExceptionHandler.messageFor(status)));
 	}
 
+	/** 서블릿 컨테이너가 씌운 ServletException만 벗긴다. 다른 예외가 일부러 감싼 것은 그 예외의 뜻(대개 500)을 따른다. */
 	private static @Nullable BusinessException findBusinessException(@Nullable Object error) {
-		for (Throwable t = error instanceof Throwable e ? e : null; t != null; t = t.getCause()) {
-			if (t instanceof BusinessException business) {
-				return business;
-			}
+		Object unwrapped = error;
+		while (unwrapped instanceof ServletException e && e.getCause() != null) {
+			unwrapped = e.getCause();
 		}
-		return null;
+		return unwrapped instanceof BusinessException business ? business : null;
 	}
 
 	private static HttpStatusCode statusOf(HttpServletRequest request) {

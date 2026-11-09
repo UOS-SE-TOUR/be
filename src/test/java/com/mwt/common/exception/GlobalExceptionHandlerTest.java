@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.ConstraintViolationException;
@@ -109,10 +111,30 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
-	void Validated_방식의_검증_실패도_400과_검증_문구() throws Exception {
-		mockMvc.perform(get("/test/constraint"))
+	void 요청_값_검증_오류가_여럿이면_파라미터_이름_순_첫_문구() throws Exception {
+		mockMvc.perform(get("/test/two-params").param("count", "0").param("price", "0"))
 			.andExpect(status().isBadRequest())
-			.andExpect(onlyMessage("아이디를 입력해 주세요."));
+			.andExpect(onlyMessage("인원은 1 이상이어야 합니다."));
+	}
+
+	@Test
+	void Controller에_Validated를_붙인_검증_실패도_400과_검증_문구() throws Exception {
+		mockMvc.perform(get("/test/controller-constraint"))
+			.andExpect(status().isBadRequest())
+			.andExpect(onlyMessage("인원은 1 이상이어야 합니다."));
+	}
+
+	@Test
+	void 엔티티_검증_실패는_서버_잘못이라_500과_일반_문구() throws Exception {
+		mockMvc.perform(get("/test/entity-constraint"))
+			.andExpect(status().isInternalServerError())
+			.andExpect(onlyMessage("서버에 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요."));
+	}
+
+	@Test
+	void ResponseStatus가_붙은_예외는_그_상태로() throws Exception {
+		mockMvc.perform(get("/test/response-status"))
+			.andExpect(status().isNotFound());
 	}
 
 	@Test
@@ -179,11 +201,32 @@ class GlobalExceptionHandlerTest {
 		void search(SearchRequest request) {
 		}
 
-		@GetMapping("/constraint")
-		void constraint() {
+		@GetMapping("/two-params")
+		void twoParams(@RequestParam @Min(value = 1, message = "인원은 1 이상이어야 합니다.") int count,
+				@RequestParam @Min(value = 1, message = "가격은 1 이상이어야 합니다.") int price) {
+		}
+
+		/** Controller에 @Validated를 붙였을 때 AOP가 던지는 예외를 흉내 낸다(검증 대상이 이 Controller다). */
+		@GetMapping("/controller-constraint")
+		void controllerConstraint() throws NoSuchMethodException {
+			Method param = TestController.class.getDeclaredMethod("param", int.class);
+			try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+				throw new ConstraintViolationException(
+						factory.getValidator().forExecutables().validateParameters(this, param, new Object[] {0}));
+			}
+		}
+
+		/** 엔티티를 저장할 때 Hibernate가 던지는 검증 예외를 흉내 낸다(검증 대상이 Controller가 아니다). */
+		@GetMapping("/entity-constraint")
+		void entityConstraint() {
 			try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
 				throw new ConstraintViolationException(factory.getValidator().validate(new TestRequest("", "비밀번호")));
 			}
+		}
+
+		@GetMapping("/response-status")
+		void responseStatus() {
+			throw new TestNotFoundException();
 		}
 
 		@GetMapping("/conversion")
@@ -194,6 +237,10 @@ class GlobalExceptionHandlerTest {
 	}
 
 	record SearchRequest(int page) {
+	}
+
+	@ResponseStatus(HttpStatus.NOT_FOUND)
+	static class TestNotFoundException extends RuntimeException {
 	}
 
 	record TestRequest(

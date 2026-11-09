@@ -2,27 +2,32 @@ package com.mwt.common.exception;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.context.MessageSourceResolvable;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.stereotype.Controller;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 
@@ -42,16 +47,33 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return toResponse(ex);
 	}
 
-	/** 클래스에 @Validated를 붙여 메소드 인자를 검증했을 때의 실패. */
+	/**
+	 * Controller 클래스에 @Validated를 붙여 인자를 검증했을 때의 실패는 400이다.
+	 * 같은 예외가 엔티티 저장이나 Service 검증에서 나면 서버 잘못이므로 500으로 돌리고 로그에 남긴다.
+	 */
 	@ExceptionHandler(ConstraintViolationException.class)
-	ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex) {
-		return ResponseEntity.badRequest().body(firstError(ex.getConstraintViolations().stream()
+	ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex,
+			HttpServletRequest request) throws Exception {
+		Set<ConstraintViolation<?>> violations = ex.getConstraintViolations();
+		boolean controllerArguments = violations != null && !violations.isEmpty() && violations.stream()
+			.allMatch(v -> AnnotatedElementUtils.hasAnnotation(v.getRootBeanClass(), Controller.class));
+		if (!controllerArguments) {
+			return handleUnexpectedException(ex, request);
+		}
+		return ResponseEntity.badRequest().body(firstError(violations.stream()
 			.map(v -> new ValidationError(v.getPropertyPath().toString(), v.getMessage()))));
 	}
 
-	/** 예상하지 못한 오류. 자세한 내용은 서버 로그에만 남기고 화면에는 일반 문구만 보낸다. */
+	/**
+	 * 예상하지 못한 오류. 자세한 내용은 서버 로그에만 남기고 화면에는 일반 문구만 보낸다.
+	 * 자기 상태 코드를 가진 예외는 여기서 삼키지 않고 다시 던진다 — @ResponseStatus 예외는 스프링이 그 상태로 돌려주고
+	 * (본문은 ApiErrorController), 로그인·권한 예외(Spring Security)도 이 처리기에 잡히면 500이 되므로 같은 방법으로 넘긴다.
+	 */
 	@ExceptionHandler(Exception.class)
-	ResponseEntity<ErrorResponse> handleUnexpectedException(Exception ex, HttpServletRequest request) {
+	ResponseEntity<ErrorResponse> handleUnexpectedException(Exception ex, HttpServletRequest request) throws Exception {
+		if (AnnotatedElementUtils.hasAnnotation(ex.getClass(), ResponseStatus.class)) {
+			throw ex;
+		}
 		log.error("처리하지 못한 오류: {} {}", request.getMethod(), request.getRequestURI(), ex);
 		return ResponseEntity.internalServerError().body(new ErrorResponse(messageFor(HttpStatus.INTERNAL_SERVER_ERROR)));
 	}
@@ -60,14 +82,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	@Override
 	protected @Nullable ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-		return handleExceptionInternal(ex, firstError(ex.getBindingResult().getAllErrors()), headers, status, request);
+		Stream<ValidationError> errors = ex.getBindingResult().getAllErrors().stream()
+			.map(e -> validationError(e, null));
+		return handleExceptionInternal(ex, firstError(errors), headers, status, request);
 	}
 
-	/** 요청 파라미터·경로 값에 붙인 검증 애너테이션(@Min 등) 실패. */
+	/** 요청 파라미터·경로 값에 붙인 검증 애너테이션(@Min 등) 실패. 필드 이름 대신 파라미터 이름으로 정렬한다. */
 	@Override
 	protected @Nullable ResponseEntity<Object> handleHandlerMethodValidationException(
 			HandlerMethodValidationException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-		return handleExceptionInternal(ex, firstError(ex.getAllErrors()), headers, status, request);
+		Stream<ValidationError> parameterErrors = ex.getParameterValidationResults().stream()
+			.flatMap(result -> result.getResolvableErrors().stream()
+				.map(e -> validationError(e, result.getMethodParameter().getParameterName())));
+		Stream<ValidationError> crossParameterErrors = ex.getCrossParameterValidationResults().stream()
+			.map(e -> validationError(e, null));
+		return handleExceptionInternal(ex, firstError(Stream.concat(parameterErrors, crossParameterErrors)), headers,
+				status, request);
 	}
 
 	/** 상위 클래스가 처리한 모든 오류가 여기를 지난다. 본문을 ErrorResponse로 바꾸고, 5xx는 일반 문구만 보낸다. */
@@ -115,31 +145,30 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return messageFor(status);
 	}
 
-	private static ErrorResponse firstError(List<? extends MessageSourceResolvable> errors) {
-		return firstError(errors.stream().map(e -> {
-			if (e instanceof FieldError f) {
-				// 바인딩 실패(숫자 자리에 글자 등)의 기본 문구는 스프링의 영어 설명이라 화면용 문구로 바꾼다
-				return new ValidationError(f.getField(), f.isBindingFailure() ? TYPE_MISMATCH + f.getField()
-						: f.getDefaultMessage());
-			}
-			return new ValidationError(null, e.getDefaultMessage());
-		}));
+	/** 필드 오류는 그 필드 이름으로, 아니면 받은 이름(파라미터 이름, 없으면 null)으로 정렬 기준을 잡는다. */
+	private static ValidationError validationError(MessageSourceResolvable error, @Nullable String name) {
+		if (error instanceof FieldError f) {
+			// 바인딩 실패(숫자 자리에 글자 등)의 기본 문구는 스프링의 영어 설명이라 화면용 문구로 바꾼다
+			return new ValidationError(f.getField(), f.isBindingFailure() ? TYPE_MISMATCH + f.getField()
+					: f.getDefaultMessage());
+		}
+		return new ValidationError(name, error.getDefaultMessage());
 	}
 
 	/**
-	 * 검증 오류가 여럿이면 문구 하나만 보낸다. 필드 이름 순이고, 필드에 붙지 않은 오류(클래스 단위 검증)는 뒤에 둔다.
-	 * 검증기가 내는 순서는 매번 달라 같은 필드 안에서는 문구로 정렬한다.
+	 * 검증 오류가 여럿이면 문구 하나만 보낸다. 필드(파라미터) 이름 순이고, 이름이 없는 오류(클래스 단위 검증)는 뒤에 둔다.
+	 * 검증기가 내는 순서는 매번 달라 같은 이름 안에서는 문구로 정렬한다.
 	 */
 	private static ErrorResponse firstError(Stream<ValidationError> errors) {
 		return errors.filter(e -> StringUtils.hasText(e.message()))
-			.sorted(Comparator.comparing(ValidationError::field, Comparator.nullsLast(Comparator.<String>naturalOrder()))
+			.sorted(Comparator.comparing(ValidationError::name, Comparator.nullsLast(Comparator.<String>naturalOrder()))
 				.thenComparing(ValidationError::message))
 			.findFirst()
 			.map(e -> new ErrorResponse(e.message()))
 			.orElseGet(() -> new ErrorResponse(messageFor(HttpStatus.BAD_REQUEST)));
 	}
 
-	private record ValidationError(@Nullable String field, @Nullable String message) {
+	private record ValidationError(@Nullable String name, @Nullable String message) {
 	}
 
 }
