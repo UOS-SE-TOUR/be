@@ -643,6 +643,14 @@ class TourTest {
 		}
 
 		@ParameterizedTest
+		@EnumSource(TourStatus.class)
+		void 출발_처리할_상태는_모집_중_확정_마감뿐이다(TourStatus status) {
+			boolean expected = status == TourStatus.RECRUITING || status == TourStatus.CONFIRMED || status == TourStatus.FULL;
+
+			assertThat(tourIn(status).canDepart()).isEqualTo(expected);
+		}
+
+		@ParameterizedTest
 		@EnumSource(value = TourStatus.class, names = {"CANCELLED", "IN_PROGRESS", "COMPLETED"})
 		void 이미_출발했거나_끝난_상품은_출발_처리하지_않는다(TourStatus status) {
 			Tour tour = tourIn(status);

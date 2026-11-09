@@ -144,6 +144,35 @@ class TourConcurrencyTest {
 		assertThat(tour.getStatus()).isEqualTo(TourStatus.IN_PROGRESS);
 	}
 
+	@Test
+	void 예약_작업이_겹쳐_돌면_뒤_실행은_먼저_출발_처리된_상품을_건너뛴다() throws Exception {
+		Long tourId = save(MIDNIGHT_TODAY.toString(), 10, 3);
+		CountDownLatch departed = new CountDownLatch(1);
+		CountDownLatch commit = new CountDownLatch(1);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> first = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+				tourService.updateStatuses(MIDNIGHT_TODAY);   // 상품을 잠그고 진행 중으로 바꾼 채 커밋을 미룬다
+				departed.countDown();
+				await(commit);
+			}));
+			assertThat(departed.await(30, TimeUnit.SECONDS)).isTrue();
+
+			Future<?> second = executor.submit(() -> tourService.updateStatuses(MIDNIGHT_TODAY));
+			Thread.sleep(500);
+			assertThat(second.isDone()).as("뒤 실행은 앞 실행이 잠근 상품을 기다린다").isFalse();
+
+			commit.countDown();
+			first.get(30, TimeUnit.SECONDS);
+			second.get(30, TimeUnit.SECONDS);   // 잠근 뒤 다시 읽으면 이미 진행 중이라 depart를 부르지 않는다
+		} finally {
+			commit.countDown();
+			executor.shutdownNow();
+		}
+
+		assertThat(tourRepository.findById(tourId).orElseThrow().getStatus()).isEqualTo(TourStatus.IN_PROGRESS);
+	}
+
 	/** 골프 상품을 만들고 신청 인원을 더해 저장한다. 출발일 하루 전을 "오늘"로 넣어 오늘인 출발일도 저장할 수 있다. */
 	private Long save(String departureDate, int capacity, int applicants) {
 		LocalDate date = LocalDate.parse(departureDate);

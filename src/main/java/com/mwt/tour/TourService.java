@@ -115,15 +115,19 @@ public class TourService {
 	 */
 	@Transactional
 	public void updateStatuses(LocalDate today) {
-		List<Tour> departing = tourRepository.findDeparting(today);
 		// 상품마다 잠그고 최신 값으로 다시 읽어 출발 처리한다. 자정 직전에 시작한 신청이 그 상품에 인원을 더하는 중이면
-		// 끝날 때까지 기다렸다가 더해진 인원으로 판단하고, 그 인원을 낡은 값으로 덮어쓰지 않는다
-		departing.forEach(tour -> tourRepository.findByIdForUpdate(tour.getId()).ifPresent(Tour::depart));
+		// 끝날 때까지 기다렸다가 더해진 인원으로 판단하고, 그 인원을 낡은 값으로 덮어쓰지 않는다.
+		// 기다리는 사이 다른 실행이 먼저 출발 처리했으면 건너뛴다
+		List<Tour> departing = tourRepository.findDeparting(today).stream()
+			.flatMap(found -> tourRepository.findByIdForUpdate(found.getId()).stream())
+			.filter(Tour::canDepart)
+			.toList();
+		departing.forEach(Tour::depart);
 		// 위에서 진행 중이 된 상품도 찾도록, 이 조회 앞에서 JPA가 바뀐 상태를 DB에 먼저 쓴다(flush)
 		List<Tour> finished = tourRepository.findFinished(today);
 		finished.forEach(Tour::complete);
 		long cancelled = departing.stream().filter(tour -> tour.getStatus() == TourStatus.CANCELLED).count();
-		log.info("상품 상태를 바꿨다({}): 출발 처리 {}개 중 취소 {}개, 완료 {}개", today, departing.size(), cancelled, finished.size());
+		log.info("상품 상태를 바꿨다({}): 출발 {}개(그중 취소 {}개), 완료 {}개", today, departing.size(), cancelled, finished.size());
 	}
 
 	/** 여행 상품 기획(MWT-UC8). 상품을 만들고 등급별 가격과 옵션 목록을 넣어 저장한 뒤 상품 ID를 돌려준다. */
