@@ -9,6 +9,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.http.HttpStatus;
+
 import com.mwt.common.exception.BusinessException;
 
 import jakarta.persistence.CascadeType;
@@ -183,10 +185,12 @@ public class Tour {
 	/**
 	 * 신청할 수 있는지 확인한다: 출발일이 오늘보다 뒤인지, 모집 중·확정 상태인지, 인원이 1 이상이고 남은 자리 안인지,
 	 * 테마 규칙에 맞는지, 고른 옵션이 이 상품의 것인지. 호텔·교통·식사는 종류마다 하나만 고를 수 있다.
+	 * <p>이 상품을 더는 신청할 수 없으면(출발일이 오늘이거나 지남, 마감, 출발했거나 끝남) 409, 고른 내용만 고치면 되면 400이다.
+	 * 화면은 409면 상품 목록으로 돌아가고 400이면 투어 등급과 인원을 다시 받는다(설계산출물 5.4 부 흐름).
 	 */
 	public void checkApplicable(TourLevel level, int headcount, Collection<Long> optionIds, LocalDate today) {
 		if (!departureDate.isAfter(today)) {
-			throw new BusinessException("출발일이 오늘이거나 지난 상품은 신청할 수 없습니다.");
+			throw new BusinessException(HttpStatus.CONFLICT, "출발일이 오늘이거나 지난 상품은 신청할 수 없습니다.");
 		}
 		checkSeats(headcount);
 		checkLevel(level);
@@ -241,12 +245,13 @@ public class Tour {
 		return capacity - appliedCount;
 	}
 
+	/** 더는 신청할 수 없는 상품이면 409(checkApplicable), 인원만 고치면 되면 400이다. */
 	private void checkSeats(int headcount) {
 		if (status != TourStatus.RECRUITING && status != TourStatus.CONFIRMED && status != TourStatus.FULL) {
-			throw new BusinessException("신청할 수 없는 상품입니다.");
+			throw new BusinessException(HttpStatus.CONFLICT, "신청할 수 없는 상품입니다.");
 		}
 		if (status == TourStatus.FULL || remainingSeats() <= 0) {
-			throw new BusinessException("마감된 상품입니다.");
+			throw new BusinessException(HttpStatus.CONFLICT, "마감된 상품입니다.");
 		}
 		if (headcount < 1) {
 			throw new BusinessException("인원은 1명 이상이어야 합니다.");

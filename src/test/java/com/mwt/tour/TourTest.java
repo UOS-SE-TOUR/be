@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.mwt.common.exception.BusinessException;
@@ -508,6 +509,21 @@ class TourTest {
 					"호텔·교통·식사는 종류마다 하나만 고를 수 있습니다.");
 		}
 
+		/** 화면은 409면 상품 목록으로 돌아가고 400이면 투어 등급과 인원을 다시 받는다(설계산출물 5.4 부 흐름). */
+		@Test
+		void 더는_신청할_수_없는_상품이면_409이고_고른_내용만_고치면_되면_400() {
+			assertStatus(() -> golf.checkApplicable(TourLevel.GRAND, 1, List.of(), DEPARTURE), HttpStatus.CONFLICT);
+			assertStatus(() -> golf.checkApplicable(TourLevel.GRAND, 11, List.of(), TODAY), HttpStatus.BAD_REQUEST);
+			assertStatus(() -> golf.checkApplicable(TourLevel.GRAND, 0, List.of(), TODAY), HttpStatus.BAD_REQUEST);
+			assertStatus(() -> golf.checkApplicable(TourLevel.GRAND, 1, List.of(999L), TODAY), HttpStatus.BAD_REQUEST);
+
+			ReflectionTestUtils.setField(golf, "appliedCount", 10);
+			assertStatus(() -> golf.checkApplicable(TourLevel.GRAND, 1, List.of(), TODAY), HttpStatus.CONFLICT);
+
+			ReflectionTestUtils.setField(golf, "status", TourStatus.IN_PROGRESS);
+			assertStatus(() -> golf.checkApplicable(TourLevel.GRAND, 1, List.of(), TODAY), HttpStatus.CONFLICT);
+		}
+
 	}
 
 	/** 6장 전이표의 addApplicants 전이 다섯 개와 거부. */
@@ -686,6 +702,11 @@ class TourTest {
 
 	private static void assertRejected(ThrowingCallable call, String message) {
 		assertThatThrownBy(call).isInstanceOf(BusinessException.class).hasMessage(message);
+	}
+
+	private static void assertStatus(ThrowingCallable call, HttpStatus status) {
+		assertThatThrownBy(call).isInstanceOfSatisfying(BusinessException.class,
+				e -> assertThat(e.getStatus()).isEqualTo(status));
 	}
 
 	private static TourPrice price(TourLevel level) {
