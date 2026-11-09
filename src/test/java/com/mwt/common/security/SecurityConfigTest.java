@@ -55,6 +55,9 @@ class SecurityConfigTest {
 	@Autowired
 	PasswordEncoder passwordEncoder;
 
+	@Autowired
+	Clock clock;
+
 	@Value("${jwt.secret-key}")
 	String secretKey;
 
@@ -153,10 +156,9 @@ class SecurityConfigTest {
 		mockMvc.perform(get("/api/v1/tours/access-denied").cookie(customer())).andExpect(forbidden());
 	}
 
-	/** 본문 {"message"}는 /error로 넘어가 ApiErrorController가 쓴다(MockMvc는 /error로 넘기지 않아 상태만 본다). */
 	@Test
 	void Controller_안에서_토큰을_못_읽으면_500이_아니라_401() throws Exception {
-		mockMvc.perform(get("/api/v1/tours/invalid-token").cookie(customer())).andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/v1/tours/invalid-token").cookie(customer())).andExpect(unauthorized());
 	}
 
 	@Test
@@ -196,7 +198,7 @@ class SecurityConfigTest {
 
 	/** 25시간 전에 만든 고객 토큰. */
 	private Cookie expiredCustomer() {
-		Clock past = Clock.offset(Clock.systemUTC(), Duration.ofHours(-25));
+		Clock past = Clock.offset(clock, Duration.ofHours(-25));
 		return token(new JwtTokenProvider(new JwtProperties(secretKey), past).createToken(CUSTOMER_ID, "CUSTOMER"));
 	}
 
