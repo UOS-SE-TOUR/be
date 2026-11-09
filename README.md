@@ -32,13 +32,12 @@ grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 
 | `DB_PASSWORD` | `mwt` | MySQL 비밀번호 |
 | `JWT_SECRET` | (없음, 꼭 넣어야 함) | 로그인 토큰(JWT) 서명 키. 32바이트(영문·숫자 32자) 이상으로, `openssl rand -hex 32`로 만듭니다. 비어 있거나 짧으면 서버가 뜨지 않습니다. 서버(로컬·운영 등)마다 다른 값을 씁니다 — 같으면 한 서버에서 받은 토큰이 다른 서버에서도 통합니다 |
 | `STAFF_CODE` | (없음, 꼭 넣어야 함) | 직원으로 가입할 때 입력하는 직원 코드. 회사가 직원에게만 알려 주는 값이라 짐작할 수 없는 무작위 값(영문·숫자 16자 이상)으로, `openssl rand -hex 8`로 만듭니다 — 가입 API에 시도 횟수 제한이 없습니다. 비어 있거나 16바이트보다 짧으면 서버가 뜨지 않습니다(단어를 이어 붙인 값처럼 길이만 채운 것은 막지 못합니다). 앞뒤 공백은 떼고 비교합니다 |
-| `SENS_ACCESS_KEY` | (없음) | NCP API 인증키의 Access Key ID(문자 발송) |
-| `SENS_SECRET_KEY` | (없음) | 위 Access Key의 Secret Key |
-| `SENS_SERVICE_ID` | (없음) | SENS SMS 프로젝트의 서비스 ID(`ncp:sms:kr:…` 꼴) |
-| `SENS_SENDER_NUMBER` | (없음) | SENS 콘솔에 등록한 발신 번호(하이픈은 있어도 됩니다) |
+| `SOLAPI_API_KEY` | (없음) | 솔라피 API Key(문자 발송). 솔라피 콘솔의 API Key 관리에서 만듭니다 |
+| `SOLAPI_API_SECRET` | (없음) | 위 API Key의 API Secret |
+| `SOLAPI_SENDER_NUMBER` | (없음) | 솔라피 콘솔에 등록한 발신 번호(하이픈은 있어도 됩니다) |
 | `OPENAI_API_KEY` | (없음) | 음성으로 고르기(`POST /api/v1/voice/parse`)가 부르는 OpenAI API 키. OpenAI 대시보드의 API keys에서 만듭니다 |
 
-`SENS_`로 시작하는 네 값이 모두 비어 있으면 문자를 보내지 않고 보낼 내용을 서버 로그에만 남깁니다(가짜 발송기, 테스트·시연 연습용). 일부만 넣으면 서버가 뜨지 않습니다.
+`SOLAPI_`로 시작하는 세 값이 모두 비어 있으면 문자를 보내지 않고 보낼 내용을 서버 로그에만 남깁니다(가짜 발송기, 테스트·시연 연습용). 일부만 넣으면 서버가 뜨지 않습니다. 솔라피가 접수하지 못한 번호(발신 번호 미등록 등)는 이유와 함께 서버 로그(ERROR)에 남습니다. 접수된 뒤 통신사 단계에서 실패한 문자(예: 번호도용문자 차단)는 서버 로그에 남지 않으니 솔라피 콘솔의 발송 결과에서 확인합니다.
 
 `JWT_SECRET`을 바꾸면 그 전에 받은 로그인 토큰이 모두 무효가 되어 다시 로그인해야 합니다. 테스트는 이 값 대신 `src/test/resources/config/application.yml`의 테스트용 키를 씁니다.
 

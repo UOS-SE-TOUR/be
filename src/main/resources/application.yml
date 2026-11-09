@@ -27,12 +27,11 @@ springdoc:
     path: /api/swagger-ui.html
   paths-to-match: /api/v1/**
 
-# NCP SENS 문자 발송(notification). 네 값이 모두 비어 있으면 문자를 보내지 않고 로그로만 남긴다
-sens:
-  access-key: ${SENS_ACCESS_KEY:}
-  secret-key: ${SENS_SECRET_KEY:}
-  service-id: ${SENS_SERVICE_ID:}
-  sender-number: ${SENS_SENDER_NUMBER:}
+# 솔라피 문자 발송(notification). 세 값이 모두 비어 있으면 문자를 보내지 않고 로그로만 남긴다
+solapi:
+  api-key: ${SOLAPI_API_KEY:}
+  api-secret: ${SOLAPI_API_SECRET:}
+  sender-number: ${SOLAPI_SENDER_NUMBER:}
 
 # 로그인 토큰(JWT) 서명 키(common.security). 비어 있거나 32바이트보다 짧으면 서버가 뜨지 않는다.
 # 이름을 jwt.secret으로 두지 않는다 — 그러면 셸에 export한 JWT_SECRET을 스프링이 바로 그 이름에 넣어 테스트용 키까지 덮는다
