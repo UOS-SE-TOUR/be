@@ -8,8 +8,8 @@ import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.mwt.tour.Theme;
@@ -23,12 +23,11 @@ public class WarehouseService {
 	static final int MAX_ATTEMPTS = 3;
 
 	private final ItemRepository itemRepository;
-	private final TransactionTemplate newTransaction;
+	private final TransactionTemplate transactionTemplate;
 
 	public WarehouseService(ItemRepository itemRepository, PlatformTransactionManager transactionManager) {
 		this.itemRepository = itemRepository;
-		this.newTransaction = new TransactionTemplate(transactionManager);
-		this.newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
 	@Transactional(readOnly = true)
@@ -41,16 +40,17 @@ public class WarehouseService {
 	 * 보냈는데 그 물품의 테마와 다르면 거부한다.
 	 * 같은 이름인지는 DB 정렬 규칙(utf8mb4_0900_ai_ci)으로 가려 대소문자·악센트만 다른 이름도 같은 물품이다.
 	 *
-	 * <p>새 물품을 넣을 때 다른 요청과 겹치면 MySQL이 이쪽을 되돌린다 — 같은 이름을 먼저 넣었으면 유일 제약 위반,
-	 * 없는 이름을 잠그며 찾은 구간이 엇갈렸으면 교착이다. 그때는 새 트랜잭션에서 처음부터 다시 한다
-	 * (시도마다 바깥 트랜잭션과 떨어진 새 트랜잭션이라, 되돌려진 시도가 부른 쪽의 트랜잭션을 깨뜨리지 않는다).
-	 * 다시 하면 물품이 이미 있어 수량만 더하거나, 엇갈린 상대가 끝나 그대로 넣는다.
+	 * <p>같은 새 이름을 다른 요청이 먼저 넣었으면 유일 제약 위반으로 되돌려진다. 그때는 처음부터 다시 해 그 물품에 수량을 더한다.
+	 * 다시 하려면 시도마다 자기 트랜잭션이 있어야 하므로, 트랜잭션 밖(Controller)에서만 부른다.
 	 */
 	public Item addItem(String itemName, Theme theme, int quantity) {
+		if (TransactionSynchronizationManager.isActualTransactionActive()) {
+			throw new IllegalStateException("addItem은 트랜잭션 밖에서 불러야 한다(겹치면 새 트랜잭션에서 다시 한다)");
+		}
 		String name = Item.normalizeName(itemName);
 		for (int attempt = 1; ; attempt++) {
 			try {
-				return newTransaction.execute(status -> addOrCreate(name, theme, quantity));
+				return transactionTemplate.execute(status -> addOrCreate(name, theme, quantity));
 			} catch (DataIntegrityViolationException | PessimisticLockingFailureException e) {
 				if (attempt == MAX_ATTEMPTS) {
 					throw e;
@@ -59,8 +59,9 @@ public class WarehouseService {
 		}
 	}
 
+	/** 있는지는 잠그지 않고 먼저 본다(ItemRepository.existsByName). 있을 때만 그 행을 잠그며 읽는다. */
 	private Item addOrCreate(String name, Theme theme, int quantity) {
-		Optional<Item> found = itemRepository.findByName(name);
+		Optional<Item> found = itemRepository.existsByName(name) ? itemRepository.findByName(name) : Optional.empty();
 		if (found.isPresent()) {
 			Item item = found.get();
 			item.checkTheme(theme);

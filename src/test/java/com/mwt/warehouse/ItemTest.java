@@ -3,6 +3,8 @@ package com.mwt.warehouse;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.text.Normalizer;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -50,13 +52,22 @@ class ItemTest {
 	}
 
 	@Test
-	void 이름은_100자까지_쓸_수_있고_글자_수는_화면에_보이는_글자로_센다() {
+	void 이름은_100자까지이고_글자_수는_DB처럼_유니코드_코드포인트로_센다() {
 		assertThat(Item.normalizeName("가".repeat(100))).hasSize(100);
-		assertThat(Item.normalizeName("😀".repeat(100))).hasSize(200);   // Java 길이로는 200이지만 100자다
+		assertThat(Item.normalizeName("😀".repeat(100))).hasSize(200);   // Java 길이로는 200이지만 코드포인트로는 100자다
 
 		assertThatThrownBy(() -> Item.normalizeName("가".repeat(101)))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage("물품 이름은 100자까지 쓸 수 있습니다.");
+	}
+
+	@Test
+	void 자모를_풀어_쓴_한글_이름은_NFC로_모아_같은_이름이_되고_음절로_센다() {
+		String decomposed = Normalizer.normalize("생수", Normalizer.Form.NFD);   // ㅅㅐㅇㅅㅜ 다섯 코드포인트
+		assertThat(decomposed).hasSize(5);
+
+		assertThat(Item.normalizeName(decomposed)).isEqualTo("생수");
+		assertThat(Item.normalizeName(Normalizer.normalize("가".repeat(100), Normalizer.Form.NFD))).hasSize(100);
 	}
 
 	@Test

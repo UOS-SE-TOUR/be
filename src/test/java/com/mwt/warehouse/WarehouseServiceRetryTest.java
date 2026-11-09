@@ -30,7 +30,7 @@ class WarehouseServiceRetryTest {
 	void 세_번_모두_겹치면_마지막_예외를_그대로_던진다() {
 		DataIntegrityViolationException duplicate = new DataIntegrityViolationException("Duplicate entry");
 		CannotAcquireLockException deadlock = new CannotAcquireLockException("Deadlock found");
-		given(itemRepository.findByName("생수")).willReturn(Optional.empty());
+		given(itemRepository.existsByName("생수")).willReturn(false);
 		given(itemRepository.save(any(Item.class))).willThrow(deadlock, duplicate, deadlock);
 
 		assertThatThrownBy(() -> warehouseService.addItem("생수", Theme.GOLF, 1)).isSameAs(deadlock);
@@ -39,6 +39,7 @@ class WarehouseServiceRetryTest {
 
 	@Test
 	void 수량_규칙_위반은_다시_하지_않는다() {
+		given(itemRepository.existsByName("생수")).willReturn(true);
 		given(itemRepository.findByName("생수")).willReturn(Optional.of(new Item("생수", Theme.GOLF, 10)));
 
 		assertThatThrownBy(() -> warehouseService.addItem("생수", Theme.GOLF, 0))

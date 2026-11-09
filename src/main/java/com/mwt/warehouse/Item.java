@@ -1,5 +1,7 @@
 package com.mwt.warehouse;
 
+import java.text.Normalizer;
+
 import com.mwt.common.exception.BusinessException;
 import com.mwt.tour.Theme;
 
@@ -62,9 +64,9 @@ public class Item {
 		}
 	}
 
-	/** 같은 물품인지는 이 값(앞뒤 공백을 뗀 이름)으로 찾는다. */
+	/** 같은 물품인지는 이 값으로 찾는다. 자모를 풀어 쓴 한글(NFD, macOS에서 붙여 넣은 글 등)도 NFC로 모아 같은 이름이 되게 한다. */
 	static String normalizeName(String name) {
-		String trimmed = name == null ? "" : name.strip();
+		String trimmed = name == null ? "" : Normalizer.normalize(name, Normalizer.Form.NFC).strip();
 		if (trimmed.isEmpty()) {
 			throw new BusinessException("물품 이름을 입력해 주세요.");
 		}

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.tuple;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -41,7 +42,7 @@ import com.mwt.tour.Theme;
  * Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
 @Testcontainers(disabledWithoutDocker = true)
-@Import({TestcontainersConfiguration.class, WarehouseServiceTest.PauseAfterFindByName.class})
+@Import({TestcontainersConfiguration.class, WarehouseServiceTest.PauseAfterNameCheck.class})
 @SpringBootTest
 class WarehouseServiceTest {
 
@@ -56,7 +57,7 @@ class WarehouseServiceTest {
 
 	@AfterEach
 	void deleteItems() {
-		PauseAfterFindByName.BARRIER.set(null);
+		PauseAfterNameCheck.BARRIER.set(null);
 		itemRepository.deleteAll();
 	}
 
@@ -115,13 +116,23 @@ class WarehouseServiceTest {
 	}
 
 	@Test
-	void 바깥_트랜잭션이_되돌려져도_추가한_물품은_남는다() {
-		transactionTemplate.executeWithoutResult(status -> {
-			warehouseService.addItem("생수", Theme.GOLF, 10);
-			status.setRollbackOnly();
-		});
+	void 트랜잭션_안에서_부르면_거부한다() {
+		assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(
+				status -> warehouseService.addItem("생수", Theme.GOLF, 10)))
+			.isInstanceOf(IllegalStateException.class);
 
-		assertThat(itemRepository.findAll()).extracting(Item::getQuantity).containsExactly(10);
+		assertThat(itemRepository.count()).isZero();
+	}
+
+	@Test
+	void 자모를_풀어_쓴_한글_이름도_같은_물품에_더한다() {
+		warehouseService.addItem("생수", Theme.GOLF, 10);
+
+		Item added = warehouseService.addItem(Normalizer.normalize("생수", Normalizer.Form.NFD), Theme.GOLF, 5);
+
+		assertThat(added.getName()).isEqualTo("생수");
+		assertThat(added.getQuantity()).isEqualTo(15);
+		assertThat(itemRepository.count()).isEqualTo(1);
 	}
 
 	@Test
@@ -180,7 +191,7 @@ class WarehouseServiceTest {
 
 	@Test
 	void 두_직원이_같은_새_물품을_동시에_처음_넣어도_둘_다_더해진다() throws Exception {
-		PauseAfterFindByName.pauseOnce();   // 둘 다 "없다"고 읽은 뒤에 저장한다
+		PauseAfterNameCheck.pauseOnce(2);   // 둘 다 "없다"고 본 뒤에 저장한다
 
 		List<Throwable> errors = runConcurrently(List.of(
 				() -> warehouseService.addItem("생수", Theme.GOLF, 3),
@@ -192,17 +203,16 @@ class WarehouseServiceTest {
 	}
 
 	@Test
-	void 두_직원이_이름이_다른_새_물품을_동시에_넣으면_둘_다_저장된다() throws Exception {
-		PauseAfterFindByName.pauseOnce();   // 둘 다 "없다"고 읽은 뒤에 저장한다
-		// 두 이름 사이에 다른 테스트가 쓰는 이름이 없어야 MySQL이 같은 구간을 잠가 매번 부딪힌다
-		// (지운 행도 정리되기 전까지는 구간을 나눈다)
-		List<Throwable> errors = runConcurrently(List.of(
-				() -> warehouseService.addItem("모자", Theme.GOLF, 3),
-				() -> warehouseService.addItem("물병", Theme.TREKKING, 5)));
+	void 여러_직원이_이름이_다른_새_물품을_동시에_넣어도_모두_저장된다() throws Exception {
+		List<String> names = List.of("모자", "물병", "목도리", "물티슈", "머리끈");
+		PauseAfterNameCheck.pauseOnce(names.size());   // 모두 "없다"고 본 뒤에 저장한다
+
+		List<Throwable> errors = runConcurrently(names.stream()
+			.<Runnable>map(name -> () -> warehouseService.addItem(name, Theme.TREKKING, 1))
+			.toList());
 
 		assertThat(errors).containsOnlyNulls();
-		assertThat(itemRepository.findAll()).extracting(Item::getName, Item::getQuantity)
-			.containsExactlyInAnyOrder(tuple("모자", 3), tuple("물병", 5));
+		assertThat(itemRepository.findAll()).extracting(Item::getName).containsExactlyInAnyOrderElementsOf(names);
 	}
 
 	/** 일을 스레드마다 하나씩 한꺼번에 시작하고, 일마다 던진 예외를 순서대로 모은다(성공이면 null). */
@@ -237,21 +247,21 @@ class WarehouseServiceTest {
 	}
 
 	/**
-	 * pauseOnce()를 부르면 ItemRepository.findByName이 끝난 뒤 두 번째 스레드가 거기까지 올 때까지 한 번 기다린다.
-	 * 두 요청이 모두 "같은 이름이 없다"고 읽은 다음에 저장하게 만들어, 드물게만 생기는 충돌을 매번 일으킨다.
+	 * pauseOnce(n)을 부르면 ItemRepository.existsByName이 끝난 뒤 n개 스레드가 모두 거기까지 올 때까지 한 번 기다린다.
+	 * 요청들이 모두 "같은 이름이 없다"고 본 다음에 저장하게 만들어, 드물게만 생기는 겹침을 매번 일으킨다.
 	 * 한 번 모이면 풀려서, 되돌려진 쪽이 다시 할 때는 기다리지 않는다.
 	 */
 	@TestConfiguration(proxyBeanMethods = false)
-	static class PauseAfterFindByName {
+	static class PauseAfterNameCheck {
 
 		static final AtomicReference<CyclicBarrier> BARRIER = new AtomicReference<>();
 
-		static void pauseOnce() {
-			BARRIER.set(new CyclicBarrier(2, () -> BARRIER.set(null)));
+		static void pauseOnce(int threads) {
+			BARRIER.set(new CyclicBarrier(threads, () -> BARRIER.set(null)));
 		}
 
 		@Bean
-		static BeanPostProcessor pauseAfterFindByName() {
+		static BeanPostProcessor pauseAfterNameCheck() {
 			return new BeanPostProcessor() {
 				@Override
 				public Object postProcessAfterInitialization(Object bean, String beanName) {
@@ -267,7 +277,7 @@ class WarehouseServiceTest {
 									throw e.getCause();
 								}
 								CyclicBarrier barrier = BARRIER.get();
-								if (barrier != null && method.getName().equals("findByName")) {
+								if (barrier != null && method.getName().equals("existsByName")) {
 									barrier.await(10, TimeUnit.SECONDS);
 								}
 								return result;
