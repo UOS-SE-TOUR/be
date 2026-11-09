@@ -3,4 +3,4 @@
 
 # 테스트용 로그인 토큰 서명 키. 실제 서버는 환경변수 JWT_SECRET을 쓴다(README 환경변수 절)
 jwt:
-  secret: test-only-jwt-secret-not-for-real-servers
+  secret-key: test-only-jwt-secret-not-for-real-servers

@@ -43,7 +43,7 @@ public class JwtTokenProvider {
 	private final Clock clock;
 
 	JwtTokenProvider(JwtProperties properties, Clock clock) {
-		SecretKey secretKey = secretKey(properties.secret());
+		SecretKey secretKey = secretKey(properties.secretKey());
 		this.encoder = NimbusJwtEncoder.withSecretKey(secretKey).algorithm(ALGORITHM).build();
 		this.decoder = NimbusJwtDecoder.withSecretKey(secretKey).macAlgorithm(ALGORITHM).build();
 		JwtTimestampValidator timestampValidator = new JwtTimestampValidator(Duration.ZERO);   // 서버 한 대라 시계 차이를 봐주지 않는다

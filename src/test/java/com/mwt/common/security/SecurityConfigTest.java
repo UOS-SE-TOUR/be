@@ -50,8 +50,8 @@ class SecurityConfigTest {
 	@Autowired
 	PasswordEncoder passwordEncoder;
 
-	@Value("${jwt.secret}")
-	String secret;
+	@Value("${jwt.secret-key}")
+	String secretKey;
 
 	@Test
 	void 누구나_주소는_쿠키_없이_통과() throws Exception {
@@ -165,7 +165,7 @@ class SecurityConfigTest {
 	/** 25시간 전에 만든 고객 토큰. */
 	private Cookie expiredCustomer() {
 		Clock past = Clock.offset(Clock.systemUTC(), Duration.ofHours(-25));
-		return token(new JwtTokenProvider(new JwtProperties(secret), past).createToken(CUSTOMER_ID, "CUSTOMER"));
+		return token(new JwtTokenProvider(new JwtProperties(secretKey), past).createToken(CUSTOMER_ID, "CUSTOMER"));
 	}
 
 	private static Cookie token(String value) {

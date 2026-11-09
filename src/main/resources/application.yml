@@ -28,6 +28,7 @@ sens:
   service-id: ${SENS_SERVICE_ID:}
   sender-number: ${SENS_SENDER_NUMBER:}
 
-# 로그인 토큰(JWT) 서명 키(common.security). 비어 있거나 32바이트보다 짧으면 서버가 뜨지 않는다
+# 로그인 토큰(JWT) 서명 키(common.security). 비어 있거나 32바이트보다 짧으면 서버가 뜨지 않는다.
+# 이름을 jwt.secret으로 두지 않는다 — 그러면 셸에 export한 JWT_SECRET을 스프링이 바로 그 이름에 넣어 테스트용 키까지 덮는다
 jwt:
-  secret: ${JWT_SECRET:}
+  secret-key: ${JWT_SECRET:}

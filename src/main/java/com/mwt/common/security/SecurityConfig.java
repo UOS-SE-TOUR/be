@@ -59,7 +59,8 @@ class SecurityConfig {
 				.requestMatchers("/api/v1/tours/**", "/api/v1/bookings/**", "/api/v1/voice/**").hasRole(CUSTOMER)
 				.requestMatchers("/api/v1/staff/**").hasRole(STAFF)
 				// API 문서(Swagger)와, 필터·서블릿 컨테이너 오류를 {"message"}로 바꾸는 주소(ApiErrorController)
-				.requestMatchers("/api/swagger-ui.html", "/api/swagger-ui/**", "/api/docs", "/api/docs/**", errorPath)
+				.requestMatchers("/api/swagger-ui.html", "/api/swagger-ui/**", "/api/docs", "/api/docs.yaml", "/api/docs/**",
+						errorPath)
 				.permitAll()
 				.anyRequest().denyAll())
 			.exceptionHandling(exceptions -> exceptions

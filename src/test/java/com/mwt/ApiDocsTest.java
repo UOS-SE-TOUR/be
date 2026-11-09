@@ -50,6 +50,8 @@ class ApiDocsTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.info.title").value("MWT Tour Server API"))
 			.andExpect(jsonPath("$.servers[0].url").value("/"));
+		mockMvc.perform(get("/api/docs.yaml"))
+			.andExpect(status().isOk());
 	}
 
 	@Test
