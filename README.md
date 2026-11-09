@@ -32,10 +32,10 @@ docker compose up -d --wait
 내 컴퓨터에서 값을 바꿀 때는 둘 중 하나를 씁니다. 둘 다 `.gitignore`에 들어 있어 커밋되지 않습니다.
 
 - **`.env`:** 레포 맨 위에 `DB_PASSWORD=secret`처럼 위 표의 이름을 한 줄에 하나씩 적으면 `./gradlew bootRun` 할 때 읽습니다(테스트에는 쓰이지 않습니다).
-  - 위 표처럼 `application.yml`이 쓰는 이름만 효과가 있습니다. `SPRING_PROFILES_ACTIVE` 같은 Spring 설정 이름은 `.env`가 아니라 명령 앞에 환경변수로 줍니다.
+  - `.env`는 Java properties 파일로 읽습니다. 위 표의 이름과 `server.port=9090`처럼 점으로 쓴 Spring 설정 이름은 적용되고, `SERVER_PORT`·`SPRING_PROFILES_ACTIVE`처럼 환경변수 꼴(대문자·밑줄)로 쓴 Spring 설정 이름은 적용되지 않습니다. 그런 값은 명령 앞에 환경변수로 줍니다.
   - 따옴표나 `export` 없이 `이름=값`으로만 쓰고, 값을 비워 두지 않으며, 값에는 공백·`#`·`\`·`$`를 쓰지 않습니다. 서버(Java properties 문법)와 `docker compose`가 같은 파일을 읽는데, 이런 문자는 둘이 다르게 해석합니다.
-  - `DB_USERNAME`·`DB_PASSWORD`는 `docker compose`도 읽어 MySQL 계정을 만듭니다. `DB_USERNAME`에 `root`는 쓸 수 없습니다(MySQL 이미지가 거부). MySQL은 데이터 볼륨을 처음 만들 때만 이 값을 쓰므로, 바꾼 뒤에는 `docker compose down -v`로 볼륨을 지우고 다시 띄웁니다.
-- **`application-local.yml`:** 레포 맨 위에 두고 `SPRING_PROFILES_ACTIVE=local ./gradlew bootRun`처럼 local 프로필을 켜야 읽습니다. `src/main/resources/`에 두면 비밀 값이 실행 파일(jar)에 들어가지 않도록 빌드에서 빠지므로 읽히지 않습니다. `.yaml`·`.properties`로 만들어도 커밋되지 않습니다.
+  - `DB_USERNAME`·`DB_PASSWORD`는 `docker compose`도 읽어 MySQL 계정을 만듭니다. `DB_USERNAME`에 `root`는 쓸 수 없습니다(MySQL 이미지가 거부). MySQL은 데이터 볼륨을 처음 만들 때만 이 값을 쓰므로, 바꾼 뒤에는 `docker compose down -v`로 볼륨을 지우고 다시 띄웁니다. DB 이름(`mwt`)과 포트(3306)는 `compose.yaml`에 고정이라, `DB_URL`을 바꾸면 `compose.yaml`도 함께 고칩니다.
+- **`application-local.yml`:** 레포 맨 위에 두고 `SPRING_PROFILES_ACTIVE=local ./gradlew bootRun`처럼 local 프로필을 켜야 읽습니다. `src/main/resources/` 아래(하위 폴더 포함)에 두면 비밀 값이 실행 파일(jar)에 들어가지 않도록 빌드에서 빠지므로 읽히지 않습니다. `.yaml`·`.properties`로 만들어도 커밋되지 않습니다.
 
 ## 화면과 연결
 
