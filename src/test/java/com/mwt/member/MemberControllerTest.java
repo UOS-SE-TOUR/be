@@ -113,14 +113,14 @@ class MemberControllerTest {
 	@Test
 	void 보이지_않는_앞뒤_공백과_자모를_풀어_쓴_한글도_다듬어_저장한다() throws Exception {
 		String decomposedName = Normalizer.normalize("홍길동", Normalizer.Form.NFD);
-		signUp(new Body(" hong​", PASSWORD, decomposedName + " ", "﻿서울", "010-1234-5678​",
+		signUp(new Body("\u00A0hong\u200B", PASSWORD, decomposedName + "\u00A0", "\uFEFF서울", "010-1234-5678\u200B",
 				"CUSTOMER", null))
 			.andExpect(status().isCreated());
 
 		Member member = memberRepository.findByLoginId("hong").orElseThrow();
 		assertThat(member).extracting(Member::getName, Member::getAddress, Member::getPhone)
 			.containsExactly("홍길동", "서울", "010-1234-5678");
-		logIn("hong ", PASSWORD).andExpect(status().isOk());
+		logIn("hong\u00A0", PASSWORD).andExpect(status().isOk());
 	}
 
 	@Test
@@ -183,7 +183,7 @@ class MemberControllerTest {
 				Arguments.of(ok.withPassword(null), "비밀번호를 입력해 주세요."),
 				Arguments.of(ok.withPassword(" "), "비밀번호를 입력해 주세요."),
 				Arguments.of(ok.withName(""), "이름을 입력해 주세요."),
-				Arguments.of(ok.withName(" ​"), "이름을 입력해 주세요."),
+				Arguments.of(ok.withName("\u00A0\u200B"), "이름을 입력해 주세요."),
 				Arguments.of(ok.withAddress(null), "주소를 입력해 주세요."),
 				Arguments.of(ok.withPhone(" "), "연락처를 입력해 주세요."),
 				Arguments.of(ok.withMemberType(null), "회원 구분을 골라 주세요."),

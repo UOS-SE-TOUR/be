@@ -271,7 +271,7 @@ class TourTest {
 					TourOption.transport(Normalizer.normalize(name, Normalizer.Form.NFD), 100_000))),
 					"같은 이름의 교통 선택지가 두 개 있습니다: " + name);
 			assertRejected(() -> tour.addOptions(List.of(TourOption.transport(name, 0),
-					TourOption.transport(" " + name + "​", 100_000))),
+					TourOption.transport("\u00A0" + name + "\u200B", 100_000))),
 					"같은 이름의 교통 선택지가 두 개 있습니다: " + name);
 		}
 
