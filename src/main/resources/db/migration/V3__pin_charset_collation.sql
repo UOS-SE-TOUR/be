@@ -6,7 +6,7 @@
 -- 이 DB의 기본값. 뒤에 더하는 테이블은 CREATE TABLE에 규칙을 적지 않아도 이 값을 물려받는다
 ALTER DATABASE CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 
--- V1·V2가 만든 테이블. 테이블 기본값과 문자열 칸을 함께 바꾼다
+-- V1·V2가 만든 테이블
 ALTER TABLE member CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 ALTER TABLE tour CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 ALTER TABLE tour_price CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;

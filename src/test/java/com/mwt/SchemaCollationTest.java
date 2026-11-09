@@ -10,8 +10,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * 문자셋·정렬 규칙은 MySQL 서버 설정이 아니라 마이그레이션(V3)이 정한다(be #32). 테스트 MySQL은 서버 기본값을 일부러 다르게
- * 띄우므로(TestcontainersConfiguration), 여기서 맞으면 서버 설정과 상관없이 맞다. Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
+ * V3 마이그레이션이 정한 문자셋·정렬 규칙이 서버 기본값(테스트는 utf8mb4_bin — TestcontainersConfiguration)을 덮어썼는지 본다.
+ * Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
 @Testcontainers(disabledWithoutDocker = true)
 @Import(TestcontainersConfiguration.class)
