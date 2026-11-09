@@ -77,6 +77,9 @@ class TourTest {
 					"여행은 9999년 12월 31일 안에 끝나야 합니다.");
 			assertRejected(() -> new Tour(Theme.GOLF, DEPARTURE, Integer.MAX_VALUE, 10, TODAY),
 					"여행은 9999년 12월 31일 안에 끝나야 합니다.");
+			// 출발일이 LocalDate.MAX면 종료일 계산(plusDays)이 예외를 내므로 출발일부터 본다
+			assertRejected(() -> new Tour(Theme.GOLF, LocalDate.MAX, 2, 10, TODAY),
+					"여행은 9999년 12월 31일 안에 끝나야 합니다.");
 			assertThatCode(() -> new Tour(Theme.GOLF, LocalDate.of(9999, 12, 30), 2, 10, TODAY))
 				.doesNotThrowAnyException();
 		}
