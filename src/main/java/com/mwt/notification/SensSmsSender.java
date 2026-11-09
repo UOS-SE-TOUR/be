@@ -25,14 +25,14 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * NCP SENS 문자 발송 API(POST /sms/v2/services/{serviceId}/messages)로 문자를 보낸다.
- * 실패하면 한 번 더 보내고, 그래도 실패하면 서버 로그에 남긴다(설계산출물 v0.4 1.3 (8)). 다시 보내는 경우는 isRetryable에 있다.
+ * 실패하면 한 번 더 보내고, 그래도 실패하면 서버 로그에 남긴다(설계산출물 v0.5 1.3 (8)). 다시 보내는 경우는 isRetryable에 있다.
  */
 @Slf4j
 class SensSmsSender implements SmsSender {
 
 	static final String API_HOST = "https://sens.apigw.ntruss.com";
 
-	/** 처음 보낸 뒤 실패하면 더 보내는 횟수(설계산출물 v0.4 4.6 retryCount = 1). */
+	/** 처음 보낸 뒤 실패하면 더 보내는 횟수(설계산출물 v0.5 4.6 retryCount = 1). */
 	private static final int RETRY_COUNT = 1;
 
 	/** 한 요청에 넣을 수 있는 받는 사람 수(SENS messages 최대 100건). */
