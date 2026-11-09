@@ -89,7 +89,7 @@ class BookingRepositoryTest {
 		return lastInsertId();
 	}
 
-	/** 출발일 하루 전을 "오늘"로 넣어 만들고, 상태 전이(#12)가 아직 없어 상태는 직접 고친다. */
+	/** 출발일 하루 전을 "오늘"로 넣어 만들고, 상태는 직접 고친다(상태 전이 메소드는 tour 패키지 안에서만 부를 수 있다). */
 	private long tour(String departureDate, TourStatus status) {
 		LocalDate date = LocalDate.parse(departureDate);
 		Tour tour = new Tour(Theme.GOLF, date, 5, 10, date.minusDays(1));
