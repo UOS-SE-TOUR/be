@@ -31,10 +31,14 @@ public class MemberService {
 
 	static final int MIN_STAFF_CODE_BYTES = 16;
 
-	/** 연락처에 쓸 수 있는 글자. 숫자 사이의 하이픈·공백과 국가 번호의 +만 받는다. */
-	private static final Pattern PHONE_CHARACTERS = Pattern.compile("\\+?[0-9 -]+");
+	/** 연락처의 꼴. 숫자와, 숫자 사이의 하이픈·공백과, 맨 앞의 +만 받는다. */
+	private static final Pattern PHONE_CHARACTERS = Pattern.compile("\\+?[0-9]+(?:[ -]+[0-9]+)*");
 
 	static final String LOGIN_ID_TAKEN = "이미 쓰는 아이디입니다.";
+
+	static final String LOG_IN_FAILED = "아이디 또는 비밀번호가 맞지 않습니다.";
+
+	static final String NOT_MOBILE_NUMBER = "연락처는 휴대폰 번호로 입력해 주세요(예: 010-1234-5678).";
 
 	private static final String LOGIN_ID_UNIQUE_KEY = "uk_member_login_id";   // V1__init.sql
 
@@ -75,7 +79,7 @@ public class MemberService {
 		}
 		// 확정 문자를 받을 수 있는 번호만 받는다. 휴대폰 번호 꼴이 아니면 문자가 조용히 빠지므로(notification) 가입 때 알린다
 		if (!PHONE_CHARACTERS.matcher(request.phone()).matches() || !SmsSender.isMobileNumber(request.phone())) {
-			throw new BusinessException("연락처는 휴대폰 번호로 입력해 주세요(예: 010-1234-5678).");
+			throw new BusinessException(NOT_MOBILE_NUMBER);
 		}
 		if (memberRepository.existsByLoginId(request.loginId())) {
 			throw new BusinessException(LOGIN_ID_TAKEN);
@@ -98,9 +102,12 @@ public class MemberService {
 	 */
 	@Transactional(readOnly = true)
 	public Member logIn(String loginId, String password) {
+		if (isTooLong(password)) {
+			throw new BusinessException(LOG_IN_FAILED);
+		}
 		return memberRepository.findByLoginId(loginId)
-			.filter(member -> !isTooLong(password) && passwordEncoder.matches(password, member.getPassword()))
-			.orElseThrow(() -> new BusinessException("아이디 또는 비밀번호가 맞지 않습니다."));
+			.filter(member -> passwordEncoder.matches(password, member.getPassword()))
+			.orElseThrow(() -> new BusinessException(LOG_IN_FAILED));
 	}
 
 	/**

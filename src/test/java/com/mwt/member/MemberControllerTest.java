@@ -195,17 +195,16 @@ class MemberControllerTest {
 
 	@ParameterizedTest
 	@ValueSource(strings = { "02-123-4567", "abc", "010-1234-567", "010-1234-56789", "010.1234.5678", "010-abcd-1234-5678",
-			"(010) 1234-5678", "010-1234-5678+" })
+			"(010) 1234-5678", "010-1234-5678+", "-010-1234-5678", "010-1234-5678-", "+ 010 1234 5678" })
 	void 연락처가_휴대폰_번호가_아니면_400이고_저장하지_않는다(String phone) throws Exception {
-		signUp(customer("hong").withPhone(phone)).andExpect(badRequest("연락처는 휴대폰 번호로 입력해 주세요(예: 010-1234-5678)."));
+		signUp(customer("hong").withPhone(phone)).andExpect(badRequest(MemberService.NOT_MOBILE_NUMBER));
 
 		assertThat(memberRepository.count()).isZero();
 	}
 
 	@Test
 	void 직원도_연락처는_휴대폰_번호여야_한다() throws Exception {
-		signUp(staff("kim", STAFF_CODE).withPhone("02-123-4567"))
-			.andExpect(badRequest("연락처는 휴대폰 번호로 입력해 주세요(예: 010-1234-5678)."));
+		signUp(staff("kim", STAFF_CODE).withPhone("02-123-4567")).andExpect(badRequest(MemberService.NOT_MOBILE_NUMBER));
 	}
 
 	@ParameterizedTest
