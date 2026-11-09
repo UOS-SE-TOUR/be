@@ -10,7 +10,7 @@
 
 - 모듈 = 패키지: `member` · `common.security` · `tour` · `booking` · `notification` · `voice` · `warehouse` (설계 4.1).
 - 모듈 안은 Controller → Service → Repository, 업무 규칙은 엔티티(도메인 객체)에 둔다.
-- 서버 API 주소는 설계 4.9 서버 API 표대로 모두 `/api/...`로 시작한다(앞단 프록시들은 `/api`를 떼지 않는다).
+- 서버 API 주소는 설계 4.9 서버 API 표대로 모두 `/api/v1/...`로 시작한다(앞단 프록시들은 `/api`로 시작하는 경로를 떼지 않는다).
 - 다른 모듈의 기능은 그 모듈이 공개한 Service·인터페이스로만 부른다. 다른 모듈의 Repository는 직접 부르지 않는다.
 - 다른 모듈 엔티티의 상태 변경은 그 모듈의 Service를 거친다. 상태를 바꾸지 않는 확인·계산 메소드와 열거형은 직접 써도 된다.
 
