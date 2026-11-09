@@ -1725,6 +1725,22 @@ run "$QW" "$S/round-count.sh" review
 check "round-count: 끊긴 링크도 없는 기록으로 치지 않는다" BROKEN
 has "round-count: 끊긴 링크는 reason type" "reason type"
 rm -f "$QW/scratchpad/issue-rounds"
+# scratchpad/ 자체가 링크이거나 파일이면 기록 파일이 있든 없든 type — 링크면 다른 워크트리의 기록을 읽고 덮어쓴다.
+rm -rf "$QW/scratchpad"
+mkdir -p "$T/rc-shared"
+printf '%s\n' "counted=1 cap=10 streak=0" > "$T/rc-shared/issue-rounds"
+ln -s "$T/rc-shared" "$QW/scratchpad"
+run "$QW" "$S/round-count.sh" review
+check "round-count: 링크인 scratchpad" BROKEN
+has "round-count: 링크인 scratchpad 는 reason type" "reason type"
+run "$QW" "$S/round-count.sh" rereview
+check "round-count: 링크인 scratchpad 는 기록이 없어도 type" BROKEN
+rm -f "$QW/scratchpad"
+: > "$QW/scratchpad"
+run "$QW" "$S/round-count.sh" review
+check "round-count: 파일인 scratchpad" BROKEN
+has "round-count: 파일인 scratchpad 는 reason type" "reason type"
+rm -f "$QW/scratchpad"
 # 읽을 수 없는 기록은 환경 실패다 — 없는 기록으로 읽으면 셈이 처음으로 돌아간다. root 는 000 파일도 읽으므로 root 가
 # 아닐 때만 본다.
 if [ "$(id -u)" -ne 0 ]; then
@@ -1947,7 +1963,7 @@ if [ -n "$PR_AT" ] && [ -n "$BODY_AT" ] && [ "$PR_AT" -lt "$BODY_AT" ]; then ok;
 # 같아야 한다 — 하나만 바뀌면 셈을 못 잇거나 머지 정리가 매번 멈춘다. 쓰기는 git config 가 아니다 — 격리 세션의 명령
 # 가드가 공유 설정에 쓰는 git config 를 거부한다(be 실측). 사람에게 셈을 알려 달라고 하던 옛 인계 문구가 돌아오면 기록과
 # 사람 말이 둘 다 셈의 출처가 된다.
-for want in '- **셈 기록** — ' 'printf '"'"'%s\n'"'"' "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" > "<워크트리 루트>/scratchpad/issue-rounds"' 'printf '"'"'%s\n'"'"' "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" > "<워크트리 루트>/scratchpad/issue-rereview-rounds"' 'mkdir -p "<워크트리 루트>/scratchpad"' 'printf '"'"'%s\n'"'"' "counted=0 cap=10 streak=0" > "<워크트리 루트>/scratchpad/issue-rounds"' 'bash "<스킬 디렉터리>/scripts/round-count.sh" review' '`bash "<스킬 디렉터리>/scripts/round-count.sh" rereview`' '- `NONE`·`BROKEN` — 기록이 없거나' '사람이 그 요청에서 셈을 밝혔으면 밝힌 것은 기록보다 그 값을 쓴다' '일부만 밝혔으면 나머지는 `FOUND` 면 기록에서 잇고' '`counted=0 cap=10 streak=0` 을 쓰고'; do
+for want in '- **셈 기록** — ' 'printf '"'"'%s\n'"'"' "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" > "<워크트리 루트>/scratchpad/issue-rounds"' 'printf '"'"'%s\n'"'"' "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" > "<워크트리 루트>/scratchpad/issue-rereview-rounds"' 'mkdir -p "<워크트리 루트>/scratchpad"' 'printf '"'"'%s\n'"'"' "counted=0 cap=10 streak=0" > "<워크트리 루트>/scratchpad/issue-rounds"' 'bash "<스킬 디렉터리>/scripts/round-count.sh" review' '`bash "<스킬 디렉터리>/scripts/round-count.sh" rereview`' '- `NONE`·`BROKEN` — 기록이 없거나' '사람이 그 요청에서 셈을 밝혔으면 밝힌 것은 기록보다 그 값을 쓴다' '일부만 밝혔으면 나머지는 `FOUND` 면 기록에서 잇고' '`streak` 가 3 이면 앞 실행이 연속 3회로 멈춘 것이니' '`counted=0 cap=10 streak=0` 을 쓰고'; do
   if LC_ALL=C grep -Fq -- "$want" "$SKILL_DIR/SKILL.md"; then ok; else bad "문서: 셈은 워크트리의 셈 기록 파일로 잇는다" "$want"; fi
 done
 for want in '  review) name=issue-rounds ;;' '  rereview) name=issue-rereview-rounds ;;'; do

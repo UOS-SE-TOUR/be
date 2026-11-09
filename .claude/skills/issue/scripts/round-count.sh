@@ -18,7 +18,8 @@
 # stdout 첫 줄
 #   FOUND   기록이 있고 읽을 수 있다. 다음 줄들이 counted <n>, cap <c>, streak <s>
 #   NONE    기록 파일이 없다
-#   BROKEN  기록 파일이 있지만 읽을 수 없다. 다음 줄이 reason <까닭> — type(일반 파일이 아니다 — 디렉터리·심볼릭 링크 등) ·
+#   BROKEN  기록을 읽을 수 없다. 다음 줄이 reason <까닭> — type(기록 파일이 일반 파일이 아니다 — 디렉터리·심볼릭 링크 등,
+#           또는 scratchpad/ 가 심볼릭 링크이거나 디렉터리가 아니다) ·
 #           format(꼴이 다르다 — 줄이 둘 이상이거나 빈 파일이거나 NUL 이 들었거나, 숫자가 0 으로 시작하거나 네 자리를
 #           넘는다) ·
 #           range(cap 이 0 이거나, counted 가 cap 을 넘거나, streak 가 3 을 넘는다)
@@ -59,18 +60,23 @@ if [ "$git_dir" -ef "$common" ]; then
   die_env "본 체크아웃에서 불렀다 — 이슈 워크트리 안에서 부른다"
 fi
 
-f=$top/scratchpad/$name
-if [ ! -e "$f" ] && [ ! -L "$f" ]; then
-  echo NONE
-  exit 0
-fi
-
 broken() {
   echo BROKEN
   echo "reason $1"
   exit 0
 }
 
+# scratchpad/ 자체가 링크이거나 디렉터리가 아니면 기록 파일이 없어도 type 이다 — 링크면 읽기도 쓰기(리다이렉트)도 그
+# 너머로 가고, 파일이면 쓰기가 실패한다.
+d=$top/scratchpad
+if [ -L "$d" ] || { [ -e "$d" ] && [ ! -d "$d" ]; }; then
+  broken type
+fi
+f=$d/$name
+if [ ! -e "$f" ] && [ ! -L "$f" ]; then
+  echo NONE
+  exit 0
+fi
 if [ -L "$f" ] || [ ! -f "$f" ]; then
   broken type
 fi
