@@ -51,9 +51,11 @@ class SolapiSmsSender implements SmsSender {
 	 */
 	static final int MAX_RECIPIENTS = 100;
 
-	private static final String SALT_CHARACTERS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	/** salt 바이트 수. 16진수로 32자가 된다(솔라피는 12~64자를 받는다). */
+	private static final int SALT_BYTES = 16;
 
-	private static final int SALT_LENGTH = 32;
+	/** 읽지 못한 응답 본문을 로그에 남길 때의 최대 글자 수. */
+	private static final int BODY_PREVIEW_LENGTH = 300;
 
 	private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -109,7 +111,7 @@ class SolapiSmsSender implements SmsSender {
 
 	private void sendWithRetry(List<String> recipients, String message) {
 		for (int attempt = 1;; attempt++) {
-			String responseBody;
+			byte[] responseBody;
 			try {
 				responseBody = send(recipients, message);
 			} catch (RuntimeException e) {
@@ -128,11 +130,12 @@ class SolapiSmsSender implements SmsSender {
 	}
 
 	/**
-	 * 솔라피는 요청을 받으면 200을 돌려주고, 그중 접수하지 못한 메시지(발신 번호 미등록, 잔액 부족 등)를 failedMessageList로 알린다.
-	 * 그래서 200이어도 실패한 번호가 있으면 이유와 함께 ERROR로 남긴다. 본문을 읽지 못하면 접수됐는지 알 수 없으니 그것도 ERROR로
-	 * 남기고, 솔라피가 이미 받았을 수 있어 다시 보내지는 않는다(다시 보내면 문자가 두 번 간다).
+	 * 솔라피는 요청을 받으면 200을 돌려주고, 그중 접수하지 못한 메시지(발신 번호 미등록 등)를 failedMessageList로 알린다.
+	 * 그래서 200이어도 실패한 번호가 있으면 이유와 함께 ERROR로 남긴다. 접수한 뒤 통신사 단계에서 실패한 문자는 여기서 알 수 없고
+	 * 솔라피 콘솔의 발송 결과에서 본다. 본문을 읽지 못하면 접수됐는지 알 수 없으니 그것도 ERROR로 남기고, 솔라피가 이미 받았을 수
+	 * 있어 다시 보내지는 않는다(다시 보내면 문자가 두 번 간다).
 	 */
-	private void logResult(List<String> recipients, String responseBody) {
+	private void logResult(List<String> recipients, byte[] responseBody) {
 		SendResponse response;
 		try {
 			response = responseBody == null ? null : jsonMapper.readValue(responseBody, SendResponse.class);
@@ -141,7 +144,7 @@ class SolapiSmsSender implements SmsSender {
 		}
 		if (response == null) {
 			log.error("문자 발송은 요청했지만 응답을 읽지 못해 접수됐는지 알 수 없습니다: phoneNumbers={}, 응답={}", recipients,
-					responseBody);
+					preview(responseBody));
 			return;
 		}
 		List<FailedMessage> failed = response.failedMessageList() == null ? List.of() : response.failedMessageList();
@@ -149,6 +152,16 @@ class SolapiSmsSender implements SmsSender {
 			log.error("솔라피가 접수하지 않은 문자가 있습니다({}건): {}", failed.size(), failed);
 		}
 		log.info("문자 발송을 요청했습니다: 받는 사람 {}명, 접수 실패 {}명", recipients.size(), failed.size());
+	}
+
+	/** 프록시 오류 페이지처럼 긴 본문이 로그를 채우지 않게 앞부분만 남긴다. */
+	private static String preview(byte[] body) {
+		if (body == null) {
+			return "null";
+		}
+		String text = new String(body, StandardCharsets.UTF_8);
+		return text.length() <= BODY_PREVIEW_LENGTH ? text
+				: text.substring(0, BODY_PREVIEW_LENGTH) + "…(" + text.length() + "자)";
 	}
 
 	/**
@@ -179,8 +192,11 @@ class SolapiSmsSender implements SmsSender {
 		}
 	}
 
-	/** 응답 본문은 문자열로 받아 logResult가 읽는다 — 여기서 나는 예외는 요청·응답 단계의 것만 남게 한다. */
-	private String send(List<String> recipients, String message) {
+	/**
+	 * 응답 본문은 바이트로 받아 logResult가 읽는다 — 여기서 나는 예외는 요청·응답 단계의 것만 남게 하고, 응답의 문자셋 표시와
+	 * 상관없이 Jackson이 UTF-8로 읽게 한다.
+	 */
+	private byte[] send(List<String> recipients, String message) {
 		SendRequest request = new SendRequest(recipients.stream().map(to -> new Message(to, senderNumber, message)).toList());
 		return restClient.post()
 				.uri(URI.create(SEND_URL))
@@ -188,7 +204,7 @@ class SolapiSmsSender implements SmsSender {
 				.header(HttpHeaders.AUTHORIZATION, authorization())
 				.body(request)
 				.retrieve()
-				.body(String.class);
+				.body(byte[].class);
 	}
 
 	/**
@@ -212,13 +228,11 @@ class SolapiSmsSender implements SmsSender {
 		}
 	}
 
-	/** 요청마다 새로 만드는 영문·숫자 32자. */
+	/** 요청마다 새로 만드는 16진수 32자. */
 	static String randomSalt() {
-		StringBuilder salt = new StringBuilder(SALT_LENGTH);
-		for (int i = 0; i < SALT_LENGTH; i++) {
-			salt.append(SALT_CHARACTERS.charAt(RANDOM.nextInt(SALT_CHARACTERS.length())));
-		}
-		return salt.toString();
+		byte[] salt = new byte[SALT_BYTES];
+		RANDOM.nextBytes(salt);
+		return HexFormat.of().formatHex(salt);
 	}
 
 	record SendRequest(List<Message> messages) {
@@ -231,7 +245,7 @@ class SolapiSmsSender implements SmsSender {
 	record SendResponse(List<FailedMessage> failedMessageList) {
 	}
 
-	/** 접수하지 못한 메시지 하나. statusCode·statusMessage가 이유다(예: 3059 변작된 발신번호). */
+	/** 접수하지 못한 메시지 하나. statusCode·statusMessage가 이유다. */
 	@JsonIgnoreProperties(ignoreUnknown = true)
 	record FailedMessage(String to, String statusCode, String statusMessage) {
 	}

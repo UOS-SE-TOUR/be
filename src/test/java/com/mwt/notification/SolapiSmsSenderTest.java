@@ -15,6 +15,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import java.net.ConnectException;
 import java.net.http.HttpTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -52,6 +53,12 @@ class SolapiSmsSenderTest {
 
 	private static final String ACCEPTED_BODY = """
 			{"failedMessageList": [], "groupInfo": {"groupId": "G4V1", "count": {"total": 1, "registeredFailed": 0}}}""";
+
+	private static final String FAILED_BODY = """
+			{"failedMessageList": [{"to": "01012345678", "from": "01099998888", "type": "SMS",
+			                        "statusCode": "1000", "statusMessage": "발신번호 미등록", "country": "82",
+			                        "messageId": "M4V1", "accountId": "A1"}],
+			 "groupInfo": {"count": {"total": 2, "registeredFailed": 1}}}""";
 
 	private final SolapiProperties properties = new SolapiProperties("test-api-key", "test-api-secret", "010-9999-8888");
 
@@ -117,19 +124,37 @@ class SolapiSmsSenderTest {
 
 	@Test
 	void 솔라피가_접수하지_않은_번호는_이유와_함께_ERROR로_남기고_다시_보내지_않는다(CapturedOutput output) {
-		expectRequest().andRespond(withSuccess("""
-				{"failedMessageList": [{"to": "01012345678", "from": "01099998888", "type": "SMS",
-				                        "statusCode": "3059", "statusMessage": "변작된 발신번호", "country": "82",
-				                        "messageId": "M4V1", "accountId": "A1"}],
-				 "groupInfo": {"count": {"total": 2, "registeredFailed": 1}}}""", MediaType.APPLICATION_JSON));
+		// 응답 모양과 로그만 본다(코드 값은 예시다)
+		expectRequest().andRespond(withSuccess(FAILED_BODY, MediaType.APPLICATION_JSON));
 
 		sender.sendSms(List.of("01012345678", "01087654321"), "확정");
 
 		server.verify();
 		assertThat(output).contains("솔라피가 접수하지 않은 문자가 있습니다(1건)")
-				.contains("to=01012345678, statusCode=3059, statusMessage=변작된 발신번호")
+				.contains("to=01012345678, statusCode=1000, statusMessage=발신번호 미등록")
 				.contains("받는 사람 2명, 접수 실패 1명")
 				.doesNotContain("한 번 더 보냅니다");
+	}
+
+	@Test
+	void 응답에_문자셋_표시가_없어도_한글_이유를_UTF_8로_읽는다(CapturedOutput output) {
+		expectRequest().andRespond(withSuccess(FAILED_BODY.getBytes(StandardCharsets.UTF_8), MediaType.TEXT_PLAIN));
+
+		sender.sendSms(List.of("01012345678", "01087654321"), "확정");
+
+		server.verify();
+		assertThat(output).contains("statusMessage=발신번호 미등록");
+	}
+
+	@Test
+	void 읽지_못한_응답_본문은_앞부분만_로그에_남긴다(CapturedOutput output) {
+		String page = "<html>" + "x".repeat(1_000) + "</html>";
+		expectRequest().andRespond(withSuccess(page, MediaType.TEXT_HTML));
+
+		sender.sendSms(List.of("01012345678"), "확정");
+
+		server.verify();
+		assertThat(output).contains("응답=<html>xxx").contains("…(1013자)").doesNotContain("</html>");
 	}
 
 	@Test
@@ -243,7 +268,7 @@ class SolapiSmsSenderTest {
 		RestClient.Builder builder = RestClient.builder();
 		MockRestServiceServer otherServer = MockRestServiceServer.bindTo(builder).build();
 		String authorization = "HMAC-SHA256 apiKey=test-api-key, date=2023-11-15T07:13:20\\+09:00, "
-				+ "salt=[0-9a-zA-Z]{32}, signature=[0-9a-f]{64}";
+				+ "salt=[0-9a-f]{32}, signature=[0-9a-f]{64}";
 		List<String> authorizations = new ArrayList<>();
 		otherServer.expect(ExpectedCount.twice(), requestTo(URL))
 				.andExpect(header(HttpHeaders.AUTHORIZATION, Matchers.matchesPattern(authorization)))
