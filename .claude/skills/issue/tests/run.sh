@@ -1695,6 +1695,11 @@ done
 run "$QW" "$S/round-count.sh" review
 check "round-count: 빈 파일" BROKEN
 has "round-count: 빈 파일은 format" "reason format"
+# NUL 이 든 파일 — 명령 치환이 NUL 을 버리면 꼴에 맞는 값이 남는다.
+printf 'counted=1\000 cap=10 streak=0\n' > "$QW/scratchpad/issue-rounds"
+run "$QW" "$S/round-count.sh" review
+check "round-count: NUL 이 든 파일" BROKEN
+has "round-count: NUL 이 든 파일은 format" "reason format"
 # 셈이 맞지 않으면 BROKEN range.
 for v in "counted=0 cap=0 streak=0" "counted=11 cap=10 streak=0" "counted=1 cap=10 streak=4"; do
   rc_put issue-rounds "$v"
@@ -1942,7 +1947,7 @@ if [ -n "$PR_AT" ] && [ -n "$BODY_AT" ] && [ "$PR_AT" -lt "$BODY_AT" ]; then ok;
 # 같아야 한다 — 하나만 바뀌면 셈을 못 잇거나 머지 정리가 매번 멈춘다. 쓰기는 git config 가 아니다 — 격리 세션의 명령
 # 가드가 공유 설정에 쓰는 git config 를 거부한다(be 실측). 사람에게 셈을 알려 달라고 하던 옛 인계 문구가 돌아오면 기록과
 # 사람 말이 둘 다 셈의 출처가 된다.
-for want in '- **셈 기록** — ' 'printf '"'"'%s\n'"'"' "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" > "<워크트리 루트>/scratchpad/issue-rounds"' 'printf '"'"'%s\n'"'"' "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" > "<워크트리 루트>/scratchpad/issue-rereview-rounds"' 'mkdir -p "<워크트리 루트>/scratchpad"' 'printf '"'"'%s\n'"'"' "counted=0 cap=10 streak=0" > "<워크트리 루트>/scratchpad/issue-rounds"' 'bash "<스킬 디렉터리>/scripts/round-count.sh" review' '`bash "<스킬 디렉터리>/scripts/round-count.sh" rereview`' '- `NONE`·`BROKEN` — 기록이 없거나' '사람이 그 요청에서 셈을 밝혔으면 기록보다 그 값을 쓴다' '`counted=0 cap=10 streak=0` 을 쓰고'; do
+for want in '- **셈 기록** — ' 'printf '"'"'%s\n'"'"' "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" > "<워크트리 루트>/scratchpad/issue-rounds"' 'printf '"'"'%s\n'"'"' "counted=<센 라운드 수> cap=<상한> streak=<연속 3회 셈>" > "<워크트리 루트>/scratchpad/issue-rereview-rounds"' 'mkdir -p "<워크트리 루트>/scratchpad"' 'printf '"'"'%s\n'"'"' "counted=0 cap=10 streak=0" > "<워크트리 루트>/scratchpad/issue-rounds"' 'bash "<스킬 디렉터리>/scripts/round-count.sh" review' '`bash "<스킬 디렉터리>/scripts/round-count.sh" rereview`' '- `NONE`·`BROKEN` — 기록이 없거나' '사람이 그 요청에서 셈을 밝혔으면 밝힌 것은 기록보다 그 값을 쓴다' '일부만 밝혔으면 나머지는 `FOUND` 면 기록에서 잇고' '`counted=0 cap=10 streak=0` 을 쓰고'; do
   if LC_ALL=C grep -Fq -- "$want" "$SKILL_DIR/SKILL.md"; then ok; else bad "문서: 셈은 워크트리의 셈 기록 파일로 잇는다" "$want"; fi
 done
 for want in '  review) name=issue-rounds ;;' '  rereview) name=issue-rereview-rounds ;;'; do
@@ -1951,6 +1956,13 @@ done
 if LC_ALL=C grep -Fqx -- '    .claude/settings.local.json | scratchpad/issue-rounds | scratchpad/issue-rereview-rounds)' "$S/ignored-check.sh"; then ok; else bad "문서: ignored-check.sh 가 셈 기록 두 파일을 지워도 되는 것으로 친다" "regenerable()"; fi
 OUT=$(LC_ALL=C grep -nE '셈을 함께 알려|4단계 셈 모름|be #37 에서 다룬다|git config --replace-all' "$SKILL_DIR/SKILL.md")
 if [ -z "$OUT" ]; then ok; else bad "문서: 옛 인계 문구와 브랜치 설정 쓰기가 남지 않았다" "$OUT"; fi
+
+# 판정 스크립트와 이 테스트는 실행 권한을 둔다(lib.sh 는 불러오기만 하므로 뺀다) — 파일을 새로 써서 바꿔 끼우면 권한이
+# 빠진 채 커밋된다(be #37 셀프 리뷰).
+for f in "$S"/*.sh "$HERE/run.sh"; do
+  [ "${f##*/}" = lib.sh ] && continue
+  if [ -x "$f" ]; then ok; else bad "문서: 스크립트에 실행 권한이 있다" "$f"; fi
+done
 
 # 판정 스크립트가 내는 branch-escaped 줄은 문서에 적혀 있어야 한다 — 안 적히면 그 줄을 받은 모델이 갈래를 모른다.
 if LC_ALL=C grep -Fq 'branch-escaped' "$T/docs.txt"; then ok; else bad "문서: branch-escaped 줄이 적혀 있다" "docs"; fi

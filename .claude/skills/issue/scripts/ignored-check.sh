@@ -25,8 +25,8 @@
 #   - 최상위 .gradle·build 디렉터리(Gradle 게이트가 만든다)
 #   - .claude/settings.local.json 파일(하네스가 그 워크트리에서 받은 허용 설정을 적는다 — 잃어도 다시 묻는다)
 #   - scratchpad/issue-rounds·scratchpad/issue-rereview-rounds 파일(/issue 셀프 리뷰의 셈 기록 — SKILL.md 4단계 "셈 기록",
-#     round-count.sh. PR 이 머지될 때까지 남겨 두는 파일이라, 사람이 보게 하면 머지 정리가 매번 멈춘다. 워크트리를
-#     지우는 것은 그 브랜치 작업을 마쳤거나 버리는 것이라 셈도 쓸 데가 없다)
+#     round-count.sh. PR 이 머지될 때까지 남겨 두는 파일이라, 사람이 보게 하면 머지 정리가 매번 멈춘다. 지운 워크트리를
+#     다시 붙이면 기록이 없어 SKILL.md 대로 셈을 사람에게 묻는다)
 #   - 최상위 .idea 디렉터리와 최상위 *.iml 파일(개발자가 PR 의 코드를 보려고 워크트리를 IntelliJ IDEA 로 열면 생긴다 —
 #     IDEA 가 다시 만든다). 다만 .idea 안에 팀이 남기려고 만드는 폴더(runConfigurations·inspectionProfiles·
 #     dictionaries·scopes·fileTemplates·codeStyles — 프로젝트 파일로 저장한 실행 구성·설정)나 사람이 만든 작업이
