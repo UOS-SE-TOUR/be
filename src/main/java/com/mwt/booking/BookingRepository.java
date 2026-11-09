@@ -23,4 +23,11 @@ interface BookingRepository extends JpaRepository<Booking, Long> {
 			where b.member.id = :memberId and b.tour.status = com.mwt.tour.TourStatus.COMPLETED""")
 	long countPreviousBookings(@Param("memberId") Long memberId);
 
+	/** 그 상품의 신청 모두를 신청한 순서로 돌려준다. 확정 문자를 받을 연락처를 읽도록 회원을 함께 가져온다. */
+	@Query("""
+			select b from Booking b join fetch b.member
+			where b.tour.id = :tourId
+			order by b.id""")
+	List<Booking> findByTourId(@Param("tourId") Long tourId);
+
 }

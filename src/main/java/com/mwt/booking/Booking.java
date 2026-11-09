@@ -1,6 +1,7 @@
 package com.mwt.booking;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -64,6 +65,19 @@ public class Booking {
 
 	@Column(nullable = false)
 	private Instant appliedAt;
+
+	/** 신청(BookingService.applyTour)에서만 만든다. 고른 내용과 가격은 Tour.checkApplicable과 PriceCalculator를 거친 값이다. */
+	Booking(Member member, Tour tour, TourLevel level, int headcount, Collection<TourOption> options, long totalPrice,
+			long discount, Instant appliedAt) {
+		this.member = member;
+		this.tour = tour;
+		this.level = level;
+		this.headcount = headcount;
+		this.options.addAll(options);
+		this.totalPrice = totalPrice;
+		this.discount = discount;
+		this.appliedAt = appliedAt;
+	}
 
 	public long finalPrice() {
 		return totalPrice - discount;
