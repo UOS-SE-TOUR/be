@@ -171,15 +171,16 @@ class SecurityConfigTest {
 	}
 
 	/**
-	 * 암호화는 예외를 던지므로 회원가입 요청 검증에서 막지 않으면 500이 된다(#9에서 비밀번호 길이 규칙으로 막는다).
-	 * 비교는 예외 없이 틀렸다고만 하므로 로그인은 "비밀번호가 틀림"으로 끝난다.
+	 * 암호화는 예외를 던지므로 회원가입에서 막지 않으면 500이 된다. 비교는 예외 없이 앞 72바이트만 보므로
+	 * 72바이트 비밀번호 뒤에 아무 글자나 붙여도 맞다고 한다. 둘 다 member의 MemberService가 72바이트를 넘는 입력을 먼저 막는다.
 	 */
 	@Test
-	void BCrypt는_72바이트를_넘는_비밀번호를_암호화하지_않는다() {
+	void BCrypt는_72바이트를_넘는_비밀번호를_암호화하지_않고_비교할_때는_뒤를_버린다() {
 		String encoded = passwordEncoder.encode("a".repeat(72));
 		assertThatThrownBy(() -> passwordEncoder.encode("가".repeat(25)))   // 한글은 한 글자 3바이트
 			.isInstanceOf(IllegalArgumentException.class);
 		assertThat(passwordEncoder.matches("가".repeat(25), encoded)).isFalse();
+		assertThat(passwordEncoder.matches("a".repeat(72) + "b", encoded)).isTrue();
 	}
 
 	@Test

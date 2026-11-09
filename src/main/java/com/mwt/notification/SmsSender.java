@@ -15,4 +15,12 @@ public interface SmsSender {
 	 */
 	void sendSms(List<String> phoneNumbers, String message);
 
+	/**
+	 * sendSms가 빼지 않고 보내는 번호(휴대폰 번호 꼴)인지. 회원가입이 연락처를 받을 때 같은 규칙으로 확인한다.
+	 * 숫자가 아닌 글자는 보지 않으므로, 어떤 글자를 받을지는 부르는 쪽이 정한다.
+	 */
+	static boolean isMobileNumber(String phoneNumber) {
+		return phoneNumber != null && PhoneNumbers.isMobile(phoneNumber);
+	}
+
 }

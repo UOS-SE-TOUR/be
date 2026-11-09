@@ -42,4 +42,14 @@ public class Member {
 	@Column(nullable = false, length = 20)
 	private MemberType memberType;
 
+	/** 회원가입(MemberService.signUp)에서만 만든다. password는 PasswordEncoder로 암호화한 값이다. */
+	Member(String loginId, String password, String name, String address, String phone, MemberType memberType) {
+		this.loginId = loginId;
+		this.password = password;
+		this.name = name;
+		this.address = address;
+		this.phone = phone;
+		this.memberType = memberType;
+	}
+
 }
