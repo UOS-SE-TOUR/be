@@ -153,6 +153,12 @@ class SecurityConfigTest {
 		mockMvc.perform(get("/api/v1/tours/access-denied").cookie(customer())).andExpect(forbidden());
 	}
 
+	/** 본문 {"message"}는 /error로 넘어가 ApiErrorController가 쓴다(MockMvc는 /error로 넘기지 않아 상태만 본다). */
+	@Test
+	void Controller_안에서_토큰을_못_읽으면_500이_아니라_401() throws Exception {
+		mockMvc.perform(get("/api/v1/tours/invalid-token").cookie(customer())).andExpect(status().isUnauthorized());
+	}
+
 	@Test
 	void 비밀번호는_BCrypt로_암호화한다() {
 		String encoded = passwordEncoder.encode("password1!");
@@ -240,6 +246,11 @@ class SecurityConfigTest {
 		@PostMapping("/api/v1/voice/async")
 		Callable<Long> async(@AuthenticationPrincipal Long memberId) {
 			return () -> memberId;
+		}
+
+		@GetMapping("/api/v1/tours/invalid-token")
+		void invalidToken() {
+			throw new InvalidTokenException("Controller에서 토큰을 읽다 실패");
 		}
 
 		@GetMapping("/api/v1/tours/access-denied")
