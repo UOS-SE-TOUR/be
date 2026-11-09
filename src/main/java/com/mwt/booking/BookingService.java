@@ -103,7 +103,7 @@ public class BookingService {
 
 	/**
 	 * 신청이 커밋된 뒤에 문자를 보낸다. 되돌려지면 보내지 않는다. sendSms는 실패해도 던지지 않고 로그에 남긴다(SmsSender).
-	 * 보내는 동안 신청 응답이 기다린다 — SENS가 느리면 그만큼 늦어진다(SmsSenderConfig의 시간 제한).
+	 * 보내는 동안 신청 응답이 기다린다 — 솔라피가 느리면 그만큼 늦어진다(SmsSenderConfig의 시간 제한).
 	 */
 	private void sendAfterCommit(List<String> phoneNumbers, String message) {
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

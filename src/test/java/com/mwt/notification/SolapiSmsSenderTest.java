@@ -11,6 +11,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.net.ConnectException;
 import java.net.http.HttpTimeoutException;
@@ -21,11 +22,13 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.stream.IntStream;
 
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -33,44 +36,48 @@ import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseActions;
+import org.springframework.test.web.client.ResponseCreator;
 import org.springframework.web.client.RestClient;
 
 @ExtendWith(OutputCaptureExtension.class)
-class SensSmsSenderTest {
+class SolapiSmsSenderTest {
 
-	private static final String URL = "https://sens.apigw.ntruss.com/sms/v2/services/ncp:sms:kr:123456789012:mwt/messages";
+	private static final String URL = "https://api.solapi.com/messages/v4/send-many/fast";
+
+	private static final String SALT = "0123456789abcdefghijklmnopqrstuv";
 
 	private static final String ACCEPTED_BODY = """
-			{"requestId":"RSLA-1","requestTime":"2026-11-10T09:00:00.000","statusCode":"202","statusName":"success"}""";
+			{"failedMessageList": [], "groupInfo": {"groupId": "G4V1", "count": {"total": 1, "registeredFailed": 0}}}""";
 
-	private final SensProperties properties = new SensProperties("test-access-key", "test-secret-key",
-			"ncp:sms:kr:123456789012:mwt", "02-1234-5678");
+	private final SolapiProperties properties = new SolapiProperties("test-api-key", "test-api-secret", "010-9999-8888");
 
-	private final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneId.of("Asia/Seoul"));
+	// 밀리초는 서명 시각에서 버린다
+	private final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_123L), ZoneId.of("Asia/Seoul"));
 
 	private MockRestServiceServer server;
 
-	private SensSmsSender sender;
+	private SolapiSmsSender sender;
 
 	@BeforeEach
 	void setUp() {
 		RestClient.Builder builder = RestClient.builder();
 		server = MockRestServiceServer.bindTo(builder).build();
-		sender = new SensSmsSender(builder.build(), properties, clock, Duration.ZERO);
+		sender = new SolapiSmsSender(builder.build(), properties, clock, Duration.ZERO, () -> SALT);
 	}
 
 	@Test
-	void 서명한_요청을_SENS_형식으로_보낸다() {
-		// 서명 기대값은 같은 입력을 Python hmac(SHA-256)·base64로 따로 계산한 값이다
+	void 서명한_요청을_솔라피_형식으로_보낸다() {
+		// 서명 기대값은 같은 입력을 Python hmac(SHA-256)·hexdigest로 따로 계산한 값이다
 		server.expect(requestTo(URL))
 				.andExpect(method(HttpMethod.POST))
-				.andExpect(header("x-ncp-apigw-timestamp", "1700000000000"))
-				.andExpect(header("x-ncp-iam-access-key", "test-access-key"))
-				.andExpect(header("x-ncp-apigw-signature-v2", "hZfUWnO4P7shi/qpj+c/BcppDD5/mtmnMHTgv6qwF/U="))
+				.andExpect(header(HttpHeaders.AUTHORIZATION, "HMAC-SHA256 apiKey=test-api-key, "
+						+ "date=2023-11-15T07:13:20+09:00, salt=" + SALT + ", "
+						+ "signature=9041e056005f394959df13d5b8b08f39d04fc583190055ac1ce70635599a490b"))
 				.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 				.andExpect(content().json("""
-						{"type": "SMS", "from": "0212345678", "content": "여행 상품이 확정되었습니다",
-						 "messages": [{"to": "01012345678"}, {"to": "01087654321"}, {"to": "01011112222"}]}""",
+						{"messages": [{"to": "01012345678", "from": "01099998888", "text": "여행 상품이 확정되었습니다"},
+						              {"to": "01087654321", "from": "01099998888", "text": "여행 상품이 확정되었습니다"},
+						              {"to": "01011112222", "from": "01099998888", "text": "여행 상품이 확정되었습니다"}]}""",
 						JsonCompareMode.STRICT))
 				.andRespond(accepted());
 
@@ -83,27 +90,40 @@ class SensSmsSenderTest {
 	}
 
 	@Test
-	void 본문이_90바이트를_넘거나_EUC_KR로_못_쓰는_글자가_있으면_LMS로_보낸다() {
-		expectRequest().andExpect(jsonPath("$.type").value("SMS")).andRespond(accepted());
-		expectRequest().andExpect(jsonPath("$.type").value("LMS")).andRespond(accepted());
-		expectRequest().andExpect(jsonPath("$.type").value("LMS")).andRespond(accepted());
+	void 문자_종류는_보내지_않아_솔라피가_길이로_정한다() {
+		expectRequest().andExpect(jsonPath("$.messages[0].type").doesNotExist()).andRespond(accepted());
 
-		sender.sendSms(List.of("01012345678"), "가".repeat(45));
 		sender.sendSms(List.of("01012345678"), "가".repeat(46));
-		sender.sendSms(List.of("01012345678"), "확정 🎉");
 
 		server.verify();
 	}
 
 	@Test
-	void 받는_사람이_100명을_넘으면_나눠_보낸다() {
-		List<String> phoneNumbers = IntStream.rangeClosed(1, 101).mapToObj(i -> "010%08d".formatted(i)).toList();
-		expectRequest().andExpect(jsonPath("$.messages.length()").value(100)).andRespond(accepted());
-		expectRequest().andExpect(jsonPath("$.messages[0].to").value("01000000101")).andRespond(accepted());
+	void 받는_사람이_만_명을_넘으면_나눠_보낸다() {
+		List<String> phoneNumbers = IntStream.rangeClosed(1, 10_001).mapToObj(i -> "010%08d".formatted(i)).toList();
+		expectRequest().andExpect(jsonPath("$.messages.length()").value(10_000)).andRespond(accepted());
+		expectRequest().andExpect(jsonPath("$.messages[0].to").value("01000010001")).andRespond(accepted());
 
 		sender.sendSms(phoneNumbers, "확정");
 
 		server.verify();
+	}
+
+	@Test
+	void 솔라피가_접수하지_않은_번호는_이유와_함께_ERROR로_남기고_다시_보내지_않는다(CapturedOutput output) {
+		expectRequest().andRespond(withSuccess("""
+				{"failedMessageList": [{"to": "01012345678", "from": "01099998888", "type": "SMS",
+				                        "statusCode": "3059", "statusMessage": "변작된 발신번호", "country": "82",
+				                        "messageId": "M4V1", "accountId": "A1"}],
+				 "groupInfo": {"count": {"total": 2, "registeredFailed": 1}}}""", MediaType.APPLICATION_JSON));
+
+		sender.sendSms(List.of("01012345678", "01087654321"), "확정");
+
+		server.verify();
+		assertThat(output).contains("솔라피가 접수하지 않은 문자가 있습니다(1건)")
+				.contains("to=01012345678, statusCode=3059, statusMessage=변작된 발신번호")
+				.contains("받는 사람 2명, 접수 실패 1명")
+				.doesNotContain("한 번 더 보냅니다");
 	}
 
 	@Test
@@ -141,9 +161,9 @@ class SensSmsSenderTest {
 	}
 
 	@Test
-	void SENS가_받았을_수_있거나_다시_보내도_안_되는_실패는_다시_보내지_않는다(CapturedOutput output) {
-		// 응답을 못 받았거나(읽기 시간 초과) 503 밖의 5xx면 SENS가 이미 받았을 수 있다(다시 보내면 문자가 두 번 간다).
-		// 4xx는 키·번호 오류라 다시 보내도 실패한다
+	void 솔라피가_받았을_수_있거나_다시_보내도_안_되는_실패는_다시_보내지_않는다(CapturedOutput output) {
+		// 응답을 못 받았거나(읽기 시간 초과) 503 밖의 5xx면 솔라피가 이미 받았을 수 있다(다시 보내면 문자가 두 번 간다).
+		// 4xx는 키·서명·요청 오류라 다시 보내도 실패한다
 		expectRequest().andRespond(withException(new HttpTimeoutException("request timed out")));
 		expectRequest().andRespond(withServerError());
 		expectRequest().andRespond(withStatus(HttpStatus.GATEWAY_TIMEOUT));
@@ -160,21 +180,50 @@ class SensSmsSenderTest {
 	}
 
 	@Test
+	void 응답_본문을_읽지_못해도_다시_보내지_않는다(CapturedOutput output) {
+		expectRequest().andRespond(withSuccess("{", MediaType.APPLICATION_JSON));
+
+		assertThatCode(() -> sender.sendSms(List.of("01012345678"), "확정")).doesNotThrowAnyException();
+
+		server.verify();
+		assertThat(output).contains("접수 결과를 읽지 못했습니다").doesNotContain("한 번 더 보냅니다");
+	}
+
+	@Test
 	void 발신_번호도_국내_번호로_바꿔_보낸다() {
 		RestClient.Builder builder = RestClient.builder();
 		MockRestServiceServer otherServer = MockRestServiceServer.bindTo(builder).build();
-		SensProperties international = new SensProperties("test-access-key", "test-secret-key",
-				"ncp:sms:kr:123456789012:mwt", "+82 2-1234-5678");
-		otherServer.expect(requestTo(URL)).andExpect(jsonPath("$.from").value("0212345678")).andRespond(accepted());
+		SolapiProperties international = new SolapiProperties("test-api-key", "test-api-secret", "+82 10-9999-8888");
+		otherServer.expect(requestTo(URL)).andExpect(jsonPath("$.messages[0].from").value("01099998888"))
+				.andRespond(accepted());
 
-		new SensSmsSender(builder.build(), international, clock, Duration.ZERO).sendSms(List.of("01012345678"), "확정");
+		new SolapiSmsSender(builder.build(), international, clock, Duration.ZERO, () -> SALT)
+				.sendSms(List.of("01012345678"), "확정");
 
 		otherServer.verify();
 	}
 
 	@Test
+	void 요청마다_새_salt로_서명한다() {
+		RestClient.Builder builder = RestClient.builder();
+		MockRestServiceServer otherServer = MockRestServiceServer.bindTo(builder).build();
+		String authorization = "HMAC-SHA256 apiKey=test-api-key, date=2023-11-15T07:13:20\\+09:00, "
+				+ "salt=[0-9a-zA-Z]{32}, signature=[0-9a-f]{64}";
+		otherServer.expect(ExpectedCount.twice(), requestTo(URL))
+				.andExpect(header(HttpHeaders.AUTHORIZATION, Matchers.matchesPattern(authorization)))
+				.andRespond(accepted());
+		SolapiSmsSender randomSalted = new SolapiSmsSender(builder.build(), properties, clock, Duration.ZERO);
+
+		randomSalted.sendSms(List.of("01012345678"), "확정");
+		randomSalted.sendSms(List.of("01012345678"), "확정");
+
+		otherServer.verify();
+		assertThat(SolapiSmsSender.randomSalt()).matches("[0-9a-zA-Z]{32}").isNotEqualTo(SolapiSmsSender.randomSalt());
+	}
+
+	@Test
 	void 재시도_대기가_인터럽트되면_남은_묶음을_보내지_않는다(CapturedOutput output) {
-		List<String> phoneNumbers = IntStream.rangeClosed(1, 101).mapToObj(i -> "010%08d".formatted(i)).toList();
+		List<String> phoneNumbers = IntStream.rangeClosed(1, 10_001).mapToObj(i -> "010%08d".formatted(i)).toList();
 		RestClient.Builder builder = RestClient.builder();
 		MockRestServiceServer otherServer = MockRestServiceServer.bindTo(builder).build();
 		// 첫 묶음이 503을 받는 사이 서버 종료 등으로 인터럽트가 걸린다 → 재시도 대기(1ms)가 끊긴다
@@ -182,26 +231,17 @@ class SensSmsSenderTest {
 			Thread.currentThread().interrupt();
 			return withStatus(HttpStatus.SERVICE_UNAVAILABLE).createResponse(request);
 		});
-		SensSmsSender waitingSender = new SensSmsSender(builder.build(), properties, clock, Duration.ofMillis(1));
+		SolapiSmsSender waitingSender = new SolapiSmsSender(builder.build(), properties, clock, Duration.ofMillis(1),
+				() -> SALT);
 
 		try {
 			waitingSender.sendSms(phoneNumbers, "확정");
-		}
-		finally {
+		} finally {
 			Thread.interrupted();
 		}
 
 		otherServer.verify();
-		assertThat(output).contains("문자 발송이 중단되어 보내지 못했습니다: phoneNumbers=[01000000101]");
-	}
-
-	@Test
-	void 응답_본문을_읽지_못해도_성공으로_친다() {
-		expectRequest().andRespond(withStatus(HttpStatus.ACCEPTED).contentType(MediaType.APPLICATION_JSON).body("{"));
-
-		sender.sendSms(List.of("01012345678"), "확정");
-
-		server.verify();
+		assertThat(output).contains("문자 발송이 중단되어 보내지 못했습니다: phoneNumbers=[01000010001]");
 	}
 
 	@Test
@@ -217,8 +257,8 @@ class SensSmsSenderTest {
 		return server.expect(requestTo(URL)).andExpect(method(HttpMethod.POST));
 	}
 
-	private static org.springframework.test.web.client.ResponseCreator accepted() {
-		return withStatus(HttpStatus.ACCEPTED).contentType(MediaType.APPLICATION_JSON).body(ACCEPTED_BODY);
+	private static ResponseCreator accepted() {
+		return withSuccess(ACCEPTED_BODY, MediaType.APPLICATION_JSON);
 	}
 
 }

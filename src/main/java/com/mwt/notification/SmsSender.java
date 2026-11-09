@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * notification 모듈이 공개하는 문자 발송 인터페이스(설계산출물 v0.5 4.6).
- * NCP SENS 키가 있으면 SensSmsSender가, 없으면 보낸 내용을 로그로만 남기는 FakeSmsSender가 빈으로 등록된다.
+ * 솔라피 키가 있으면 SolapiSmsSender가, 없으면 보낸 내용을 로그로만 남기는 FakeSmsSender가 빈으로 등록된다.
  */
 public interface SmsSender {
 
