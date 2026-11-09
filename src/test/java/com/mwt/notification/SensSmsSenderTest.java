@@ -7,11 +7,13 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadRequest;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
-import java.net.SocketTimeoutException;
+import java.net.ConnectException;
+import java.net.http.HttpTimeoutException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -76,12 +78,14 @@ class SensSmsSenderTest {
 	}
 
 	@Test
-	void 본문이_90바이트를_넘으면_LMS로_보낸다() {
+	void 본문이_90바이트를_넘거나_EUC_KR로_못_쓰는_글자가_있으면_LMS로_보낸다() {
 		expectRequest().andExpect(jsonPath("$.type").value("SMS")).andRespond(accepted());
+		expectRequest().andExpect(jsonPath("$.type").value("LMS")).andRespond(accepted());
 		expectRequest().andExpect(jsonPath("$.type").value("LMS")).andRespond(accepted());
 
 		sender.sendSms(List.of("01012345678"), "가".repeat(45));
 		sender.sendSms(List.of("01012345678"), "가".repeat(46));
+		sender.sendSms(List.of("01012345678"), "확정 🎉");
 
 		server.verify();
 	}
@@ -105,14 +109,17 @@ class SensSmsSenderTest {
 		sender.sendSms(List.of("01012345678"), "확정");
 
 		server.verify();
-		assertThat(output).contains("한 번 더 보냅니다").contains("requestId=RSLA-1").doesNotContain("2번 실패");
+		assertThat(output).contains("한 번 더 보냅니다").contains("문자 발송을 요청했습니다").doesNotContain("보내지 못했습니다");
 	}
 
 	@Test
-	void 응답이_없어_실패해도_한_번_더_보낸다() {
-		expectRequest().andRespond(withException(new SocketTimeoutException("Read timed out")));
+	void 연결이_안_되거나_요청이_많다고_하면_한_번_더_보낸다() {
+		expectRequest().andRespond(withException(new ConnectException("Connection refused")));
+		expectRequest().andRespond(accepted());
+		expectRequest().andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
 		expectRequest().andRespond(accepted());
 
+		sender.sendSms(List.of("01012345678"), "확정");
 		sender.sendSms(List.of("01012345678"), "확정");
 
 		server.verify();
@@ -125,7 +132,31 @@ class SensSmsSenderTest {
 		assertThatCode(() -> sender.sendSms(List.of("01012345678"), "확정")).doesNotThrowAnyException();
 
 		server.verify();
-		assertThat(output).contains("문자 발송에 2번 실패했습니다").contains("01012345678");
+		assertThat(output).contains("문자를 보내지 못했습니다(시도 2번)").contains("01012345678");
+	}
+
+	@Test
+	void SENS가_받았을_수_있거나_다시_보내도_안_되는_실패는_다시_보내지_않는다(CapturedOutput output) {
+		// 응답을 못 받으면 SENS가 이미 받았을 수 있다(다시 보내면 문자가 두 번 간다). 4xx는 키·번호 오류라 다시 보내도 실패한다
+		expectRequest().andRespond(withException(new HttpTimeoutException("request timed out")));
+		expectRequest().andRespond(withBadRequest());
+
+		assertThatCode(() -> {
+			sender.sendSms(List.of("01012345678"), "확정");
+			sender.sendSms(List.of("01012345678"), "확정");
+		}).doesNotThrowAnyException();
+
+		server.verify();
+		assertThat(output).contains("문자를 보내지 못했습니다(시도 1번)").doesNotContain("한 번 더 보냅니다");
+	}
+
+	@Test
+	void 응답_본문을_읽지_못해도_성공으로_친다() {
+		expectRequest().andRespond(withStatus(HttpStatus.ACCEPTED).contentType(MediaType.APPLICATION_JSON).body("{"));
+
+		sender.sendSms(List.of("01012345678"), "확정");
+
+		server.verify();
 	}
 
 	@Test

@@ -27,7 +27,7 @@ record SensProperties(String accessKey, String secretKey, String serviceId, Stri
 		if (isBlank(serviceId)) {
 			missing.add("SENS_SERVICE_ID");
 		}
-		if (isBlank(senderNumber)) {
+		if (isBlank(senderNumber) || !senderNumber.matches(".*[0-9].*")) {   // 보낼 때 숫자만 남긴다
 			missing.add("SENS_SENDER_NUMBER");
 		}
 		return missing;

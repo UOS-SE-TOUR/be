@@ -39,4 +39,14 @@ class SmsSenderConfigTest {
 						.hasMessageContaining("SENS_SECRET_KEY, SENS_SERVICE_ID"));
 	}
 
+	@Test
+	void 발신_번호에_숫자가_없으면_서버가_뜨지_않는다() {
+		runner.withPropertyValues("sens.access-key=access", "sens.secret-key=secret",
+				"sens.service-id=ncp:sms:kr:123456789012:mwt", "sens.sender-number=미정")
+				.run(context -> assertThat(context).hasFailed()
+						.getFailure()
+						.rootCause()
+						.hasMessageContaining("SENS_SENDER_NUMBER"));
+	}
+
 }

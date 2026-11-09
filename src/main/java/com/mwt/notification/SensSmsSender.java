@@ -1,6 +1,9 @@
 package com.mwt.notification;
 
+import java.net.ConnectException;
 import java.net.URI;
+import java.net.UnknownHostException;
+import java.net.http.HttpConnectTimeoutException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -12,14 +15,17 @@ import java.util.Objects;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * NCP SENS 문자 발송 API(POST /sms/v2/services/{serviceId}/messages)로 문자를 보낸다.
- * 실패하면 한 번 더 보내고, 그래도 실패하면 서버 로그에 남긴다(설계산출물 v0.4 1.3 (8)).
+ * 실패하면 한 번 더 보내고, 그래도 실패하면 서버 로그에 남긴다(설계산출물 v0.4 1.3 (8)). 다시 보내는 경우는 isRetryable에 있다.
  */
 @Slf4j
 class SensSmsSender implements SmsSender {
@@ -70,32 +76,49 @@ class SensSmsSender implements SmsSender {
 	}
 
 	private void sendWithRetry(List<String> recipients, String message) {
-		RuntimeException lastError = null;
-		for (int attempt = 0; attempt <= RETRY_COUNT; attempt++) {
+		for (int attempt = 1;; attempt++) {
 			try {
-				SendResponse response = send(recipients, message);
-				log.info("문자 발송을 요청했습니다: requestId={}, 받는 사람 {}명",
-						response == null ? null : response.requestId(), recipients.size());
+				send(recipients, message);
+				log.info("문자 발송을 요청했습니다: 받는 사람 {}명", recipients.size());
 				return;
 			}
 			catch (RuntimeException e) {
-				lastError = e;
-				if (attempt < RETRY_COUNT) {
+				if (attempt <= RETRY_COUNT && isRetryable(e)) {
 					log.warn("문자 발송에 실패해 한 번 더 보냅니다: {}", e.toString());
+					continue;
 				}
+				log.error("문자를 보내지 못했습니다(시도 {}번): phoneNumbers={}, message={}", attempt, recipients, message, e);
+				return;
 			}
 		}
-		log.error("문자 발송에 {}번 실패했습니다: phoneNumbers={}, message={}", RETRY_COUNT + 1, recipients, message,
-				lastError);
 	}
 
-	private SendResponse send(List<String> recipients, String message) {
+	/**
+	 * SENS에 닿지 못했거나(연결 실패) SENS가 처리하지 못했다고 답했을 때(5xx·429)만 다시 보낸다.
+	 * 응답을 못 받은 경우(읽기 시간 초과)는 SENS가 이미 받았을 수 있어 같은 문자가 두 번 가지 않게 다시 보내지 않고,
+	 * 다른 4xx(키·번호 오류)는 다시 보내도 실패한다.
+	 */
+	private static boolean isRetryable(RuntimeException e) {
+		if (e instanceof RestClientResponseException response) {
+			return response.getStatusCode().is5xxServerError()
+					|| response.getStatusCode().isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS);
+		}
+		if (e instanceof ResourceAccessException) {
+			Throwable cause = e.getCause();
+			return cause instanceof ConnectException || cause instanceof HttpConnectTimeoutException
+					|| cause instanceof UnknownHostException;
+		}
+		return false;
+	}
+
+	private void send(List<String> recipients, String message) {
 		String path = "/sms/v2/services/" + properties.serviceId() + "/messages";
 		String timestamp = String.valueOf(clock.millis());
 		SendRequest request = new SendRequest(typeOf(message), digitsOnly(properties.senderNumber()), message,
 				recipients.stream().map(Recipient::new).toList());
 		// URI로 넘겨 경로를 다시 인코딩하지 않는다 — 서명한 경로와 보내는 경로가 같아야 한다(서비스 ID에 ':'가 든다)
-		return restClient.post()
+		// 응답 본문은 읽지 않는다 — 2xx면 SENS가 받은 것이고, 본문 해석이 실패했다고 다시 보내면 문자가 두 번 간다
+		restClient.post()
 				.uri(URI.create(API_HOST + path))
 				.contentType(MediaType.APPLICATION_JSON)
 				.header("x-ncp-apigw-timestamp", timestamp)
@@ -103,7 +126,7 @@ class SensSmsSender implements SmsSender {
 				.header("x-ncp-apigw-signature-v2", sign("POST " + path + "\n" + timestamp + "\n" + properties.accessKey()))
 				.body(request)
 				.retrieve()
-				.body(SendResponse.class);
+				.toBodilessEntity();
 	}
 
 	/** NCP API 서명: HmacSHA256(Secret Key)을 Base64로. */
@@ -118,8 +141,10 @@ class SensSmsSender implements SmsSender {
 		}
 	}
 
+	/** EUC-KR로 못 쓰는 글자(이모지 등)가 있으면 바이트 수를 알 수 없으니 LMS로 보낸다. */
 	private static String typeOf(String message) {
-		return message.getBytes(EUC_KR).length <= SMS_MAX_BYTES ? "SMS" : "LMS";
+		boolean fitsSms = EUC_KR.newEncoder().canEncode(message) && message.getBytes(EUC_KR).length <= SMS_MAX_BYTES;
+		return fitsSms ? "SMS" : "LMS";
 	}
 
 	private static String digitsOnly(String phoneNumber) {
@@ -130,9 +155,6 @@ class SensSmsSender implements SmsSender {
 	}
 
 	record Recipient(String to) {
-	}
-
-	record SendResponse(String requestId, String statusName) {
 	}
 
 }
