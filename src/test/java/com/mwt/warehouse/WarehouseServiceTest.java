@@ -72,15 +72,27 @@ class WarehouseServiceTest {
 	}
 
 	@Test
-	void 같은_이름의_물품이_있으면_수량만_더하고_테마는_그대로_둔다() {
+	void 같은_이름의_물품이_있으면_수량만_더한다() {
 		Item first = warehouseService.addItem("생수", Theme.GOLF, 10);
 
-		Item added = warehouseService.addItem("  생수", Theme.TREKKING, 5);
+		Item added = warehouseService.addItem("  생수", Theme.GOLF, 5);
 
 		assertThat(added.getId()).isEqualTo(first.getId());
 		assertThat(added.getQuantity()).isEqualTo(15);
 		assertThat(itemRepository.findAll()).extracting(Item::getName, Item::getTheme, Item::getQuantity)
 			.containsExactly(tuple("생수", Theme.GOLF, 15));
+	}
+
+	@Test
+	void 있는_물품에_다른_테마를_보내면_거부하고_수량은_그대로다() {
+		warehouseService.addItem("생수", Theme.GOLF, 10);
+
+		assertThatThrownBy(() -> warehouseService.addItem("생수", Theme.TREKKING, 5))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("같은 이름의 물품이 이미 골프 챌린지 투어 테마로 있습니다. 테마를 확인해 주세요.");
+
+		assertThat(itemRepository.findAll()).extracting(Item::getTheme, Item::getQuantity)
+			.containsExactly(tuple(Theme.GOLF, 10));
 	}
 
 	@Test

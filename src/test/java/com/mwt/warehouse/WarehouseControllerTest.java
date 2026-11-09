@@ -77,13 +77,27 @@ class WarehouseControllerTest {
 		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", "10")))
 			.andExpect(status().isOk());
 
-		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"TREKKING\"", "5")))
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", "5")))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.name").value("생수"))
 			.andExpect(jsonPath("$.theme").value("GOLF"))
 			.andExpect(jsonPath("$.quantity").value(15));
 
 		assertThat(itemRepository.count()).isEqualTo(1);
+	}
+
+	@Test
+	void 있는_물품에_다른_테마를_보내면_400이고_수량은_그대로다() throws Exception {
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"GOLF\"", "10")))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("\"생수\"", "\"TREKKING\"", "5")))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().json(
+					"{\"message\": \"같은 이름의 물품이 이미 골프 챌린지 투어 테마로 있습니다. 테마를 확인해 주세요.\"}",
+					JsonCompareMode.STRICT));
+
+		assertThat(itemRepository.findAll()).extracting(Item::getQuantity).containsExactly(10);
 	}
 
 	@Test

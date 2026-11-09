@@ -37,7 +37,8 @@ public class WarehouseService {
 	}
 
 	/**
-	 * 같은 이름의 물품이 있으면 수량만 더하고(테마는 쓰지 않아 null이어도 된다), 없으면 테마와 함께 새로 만든다.
+	 * 같은 이름의 물품이 있으면 수량만 더하고, 없으면 테마와 함께 새로 만든다. 있는 물품이면 테마는 보내지 않아도 되지만,
+	 * 보냈는데 그 물품의 테마와 다르면 거부한다.
 	 * 같은 이름인지는 DB 정렬 규칙(utf8mb4_0900_ai_ci)으로 가려 대소문자·악센트만 다른 이름도 같은 물품이다.
 	 *
 	 * <p>새 물품을 넣을 때 다른 요청과 겹치면 MySQL이 이쪽을 되돌린다 — 같은 이름을 먼저 넣었으면 유일 제약 위반,
@@ -62,6 +63,7 @@ public class WarehouseService {
 		Optional<Item> found = itemRepository.findByName(name);
 		if (found.isPresent()) {
 			Item item = found.get();
+			item.checkTheme(theme);
 			item.addQuantity(quantity);
 			return itemRepository.save(item);
 		}

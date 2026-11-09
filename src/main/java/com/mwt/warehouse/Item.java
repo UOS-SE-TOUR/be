@@ -55,6 +55,13 @@ public class Item {
 		this.quantity += quantity;
 	}
 
+	/** 테마는 처음 만들 때 정한다. 있는 물품에 더하면서 다른 테마를 보내면 잘못 고른 것으로 보고 거부한다(보내지 않으면 통과). */
+	void checkTheme(Theme theme) {
+		if (theme != null && theme != this.theme) {
+			throw new BusinessException("같은 이름의 물품이 이미 " + this.theme.getDisplayName() + " 테마로 있습니다. 테마를 확인해 주세요.");
+		}
+	}
+
 	/** 같은 물품인지는 이 값(앞뒤 공백을 뗀 이름)으로 찾는다. */
 	static String normalizeName(String name) {
 		String trimmed = name == null ? "" : name.strip();

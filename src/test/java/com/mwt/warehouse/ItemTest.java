@@ -60,6 +60,23 @@ class ItemTest {
 	}
 
 	@Test
+	void 있는_물품에는_테마를_보내지_않거나_같은_테마를_보낼_수_있다() {
+		Item item = new Item("생수", Theme.GOLF, 10);
+
+		item.checkTheme(null);
+		item.checkTheme(Theme.GOLF);
+	}
+
+	@Test
+	void 있는_물품에_다른_테마를_보내면_거부한다() {
+		Item item = new Item("생수", Theme.GOLF, 10);
+
+		assertThatThrownBy(() -> item.checkTheme(Theme.TREKKING))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("같은 이름의 물품이 이미 골프 챌린지 투어 테마로 있습니다. 테마를 확인해 주세요.");
+	}
+
+	@Test
 	void 수량을_더한다() {
 		Item item = new Item("생수", Theme.GOLF, 10);
 
