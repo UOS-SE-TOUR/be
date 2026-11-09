@@ -40,7 +40,7 @@ out/
 .env
 .env.*
 !.env.example
-application-local.yml
+application-local.*
 
 ### macOS ###
 .DS_Store

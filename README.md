@@ -7,8 +7,10 @@
 준비물은 JDK 21과 Docker(로컬 MySQL용)입니다.
 
 ```bash
-docker compose up -d   # 로컬 MySQL 8.4를 띄운다 (DB 이름 mwt, 계정 mwt / 비밀번호 mwt)
-./gradlew bootRun      # http://localhost:8080
+# 로컬 MySQL 8.4를 띄우고 접속 준비가 끝날 때까지 기다린다 (DB 이름 mwt, 계정 mwt / 비밀번호 mwt)
+docker compose up -d --wait
+# 서버를 띄운다 (http://localhost:8080)
+./gradlew bootRun
 ```
 
 테스트는 Testcontainers로 MySQL 8.4 컨테이너를 따로 띄워서 돕니다. 위의 로컬 MySQL은 필요 없고 Docker만 켜져 있으면 됩니다. Docker가 꺼져 있으면 DB가 필요한 테스트는 건너뛰고(skipped), CI에서는 항상 돕니다.
@@ -25,13 +27,23 @@ docker compose up -d   # 로컬 MySQL 8.4를 띄운다 (DB 이름 mwt, 계정 mw
 | `DB_USERNAME` | `mwt` | MySQL 계정 |
 | `DB_PASSWORD` | `mwt` | MySQL 비밀번호 |
 
-모듈을 만들면서 직원 코드(member), JWT 비밀 키(common.security), OpenAI API 키(voice), NCP SENS 키(notification)를 더합니다. 이런 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다. 내 컴퓨터에서만 쓰는 `.env`와 `application-local.yml`은 `.gitignore`에 들어 있어 커밋되지 않습니다.
+모듈을 만들면서 직원 코드(member), JWT 비밀 키(common.security), OpenAI API 키(voice), NCP SENS 키(notification)를 더합니다. 이런 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
+
+내 컴퓨터에서 값을 바꿀 때는 둘 중 하나를 씁니다. 둘 다 `.gitignore`에 들어 있어 커밋되지 않습니다.
+
+- **`.env`:** 레포 맨 위에 `DB_PASSWORD=secret`처럼 위 표의 이름을 한 줄에 하나씩 적으면 `./gradlew bootRun` 할 때 읽습니다(테스트에는 쓰이지 않습니다).
+  - `.env`는 Java properties 파일로 읽습니다. 위 표의 이름과 `server.port=9090`처럼 점으로 쓴 Spring 설정 이름은 적용되고, `SERVER_PORT`·`SPRING_PROFILES_ACTIVE`처럼 환경변수 꼴(대문자·밑줄)로 쓴 Spring 설정 이름은 적용되지 않습니다. 그런 값은 명령 앞에 환경변수로 줍니다.
+  - 따옴표나 `export` 없이 `이름=값`으로만 쓰고, 값을 비워 두지 않으며, 값에는 공백·`#`·`\`·`$`를 쓰지 않습니다. 서버(Java properties 문법)와 `docker compose`가 같은 파일을 읽는데, 이런 문자는 둘이 다르게 해석합니다.
+  - `DB_USERNAME`·`DB_PASSWORD`는 `docker compose`도 읽어 MySQL 계정을 만듭니다. `DB_USERNAME`에 `root`는 쓸 수 없습니다(MySQL 이미지가 거부). MySQL은 데이터 볼륨을 처음 만들 때만 이 값을 쓰므로, 바꾼 뒤에는 `docker compose down -v`로 볼륨을 지우고 다시 띄웁니다. DB 이름(`mwt`)과 포트(3306)는 `compose.yaml`에 고정이라, `DB_URL`을 바꾸면 `compose.yaml`도 함께 고칩니다.
+- **`application-local.yml`:** 레포 맨 위에 두고 `SPRING_PROFILES_ACTIVE=local ./gradlew bootRun`처럼 local 프로필을 켜야 읽습니다. `src/main/resources/` 아래(하위 폴더 포함)에 두면 비밀 값이 실행 파일(jar)에 들어가지 않도록 빌드에서 빠지므로 읽히지 않습니다. `.yaml`·`.properties`로 만들어도 커밋되지 않습니다.
 
 ## 화면과 연결
 
 화면(React)은 정적 호스팅에 따로 배포하고, 호스팅의 프록시(rewrite) 기능으로 `/api/*` 요청을 이 서버로 넘깁니다. 브라우저에는 화면과 서버가 같은 주소로 보이므로 로그인 쿠키(HttpOnly, SameSite=Lax)가 그대로 실리고, 서버에는 CORS 설정을 두지 않습니다.
 
 로컬에서는 화면 개발 서버의 프록시로 `/api`를 `http://localhost:8080`에 넘깁니다.
+
+**서버 API 주소는 모두 `/api/v1`로 시작합니다**(설계산출물 4.9 서버 API 표, 예: `/api/v1/members/login`). 그래서 화면 호스팅의 프록시, 서버 앞 웹 서버, 로컬 화면 개발 서버의 프록시는 모두 `/api`로 시작하는 경로를 떼지 않고 그대로 넘깁니다. 어느 한 곳이라도 앞부분을 떼면 서버에서 404가 납니다.
 
 ## 패키지
 
@@ -56,8 +68,11 @@ docker compose up -d   # 로컬 MySQL 8.4를 띄운다 (DB 이름 mwt, 계정 mw
 
 - **DB 테이블은 Flyway로만 바꿉니다.** 엔티티를 추가하거나 고치면 `src/main/resources/db/migration/`에 SQL 파일을 하나 더합니다. 파일 이름은 `V<번호>__<설명>.sql`(예: `V1__create_member.sql`)이고, 이미 머지된 파일은 고치지 않고 새 번호로 더합니다. JPA는 `ddl-auto: validate`라 엔티티와 테이블이 안 맞으면 서버가 뜨지 않습니다.
 - **마이그레이션 번호는 머지 직전에 맞춥니다.** 다른 PR이 같은 번호를 먼저 머지했으면 main의 마지막 번호 다음으로 바꿉니다.
-- **Lombok은 이것만 씁니다:** `@Getter`, `@NoArgsConstructor(access = AccessLevel.PROTECTED)`(엔티티), `@RequiredArgsConstructor`(의존성 주입), `@Slf4j`, 필요하면 `@Builder`. 엔티티에 `@Setter`·`@Data`는 쓰지 않습니다. 상태는 `Tour.addApplicants()`처럼 의미 있는 메소드로만 바꿉니다.
+- **Lombok은 이것만 씁니다:** `@Getter`, `@NoArgsConstructor(access = AccessLevel.PROTECTED)`(엔티티), `@RequiredArgsConstructor`(의존성 주입), `@Slf4j`, 필요하면 `@Builder`. `@Builder`는 클래스가 아니라 필요한 필드만 받는 생성자에 붙입니다(빈 생성자와 함께 클래스에 붙이면 컴파일되지 않습니다). 엔티티에 `@Setter`·`@Data`는 쓰지 않습니다. 상태는 `Tour.addApplicants()`처럼 의미 있는 메소드로만 바꿉니다.
 - **요청·응답 DTO는 `record`로** 씁니다.
+- **"오늘"과 현재 시각은 주입한 `Clock`에서만 얻습니다.** `ClockConfig`가 서울 시간대 시계를 하나 만들어 둡니다. `LocalDate.now()`·`Instant.now()`처럼 인자 없는 `now()`를 부르지 않고 `LocalDate.now(clock)`처럼 시계를 넘기며, 예약 작업(`@Scheduled`)에는 `zone = "Asia/Seoul"`을 적습니다.
+- **시각(신청 시각 등)은 `Instant`로 둡니다.** Hibernate가 DB에 UTC로 저장합니다. 날짜만 필요한 값(출발일 등)은 `LocalDate`로 둡니다. `LocalDateTime`은 저장값이 서버 시간대에 따라 달라질 수 있어 시각 저장에 쓰지 않습니다.
+- **DB가 필요한 테스트**에는 `@Testcontainers(disabledWithoutDocker = true)`와 `@Import(TestcontainersConfiguration.class)`를 함께 붙입니다. 앞의 것은 Docker가 없을 때 실패 대신 건너뛰게 하고, 뒤의 것은 테스트용 MySQL을 붙입니다.
 
 ## 배포
 

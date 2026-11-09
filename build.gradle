@@ -39,6 +39,16 @@ dependencies {
 	testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
+// 레포 맨 위의 .env는 ./gradlew bootRun 할 때만 읽는다 — 테스트 결과가 개인 .env에 따라 달라지지 않게(README 환경변수 절)
+tasks.named('bootRun') {
+	systemProperty 'spring.config.import', 'optional:file:.env[.properties]'
+}
+
+// 개인 설정 파일(비밀 값)이 src/main/resources에 놓여도 jar에 들어가지 않게 한다
+tasks.named('processResources') {
+	exclude '**/application-local.*'
+}
+
 tasks.named('test') {
 	useJUnitPlatform()
 	testLogging {
