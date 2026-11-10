@@ -213,7 +213,7 @@ docker compose run --rm --entrypoint certbot certbot delete --non-interactive --
 
 ```bash
 # 서버가 뜰 때까지 3분까지 다시 물어보고, 마지막 상태 코드만 찍습니다(200이어야 합니다)
-curl -s -o /dev/null -w '%{http_code}\n' --retry 60 --retry-delay 3 --retry-all-errors "https://<DOMAIN>/api/docs"
+curl -s -o /dev/null -w '%{http_code}\n' --retry 60 --retry-delay 3 --retry-all-errors "https://$(sed -n 's/^DOMAIN=//p' .env)/api/docs"
 # 인증서 갱신이 될지 미리 봅니다(실제로 갱신하지 않습니다). 갱신은 처음 받을 때와 달리 Nginx를 거쳐 확인합니다
 docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -w /var/www/certbot
 ```
@@ -222,22 +222,30 @@ docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -
 
 ### 다시 배포
 
-main에 머지된 코드를 받아 다시 빌드합니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없으니 **배포 전에 아래 "로그와 백업"의 백업 명령으로 DB를 받아 둡니다.** 빌드하는 동안에는 앞의 서버가 그대로 응답하고, 서버 컨테이너를 바꿔 띄우는 몇십 초 동안만 503(`{"message": "서버에 잠시 연결할 수 없습니다. …"}`)이 납니다.
+main에 머지된 코드를 받아 다시 빌드합니다. 아래 두 번째 명령이 다음을 차례로 하고, 한 단계라도 실패하면 거기서 멈춘 뒤 마지막에 "배포가 중간에 멈췄습니다"를 찍습니다.
+
+1. DB를 백업하고 끝까지 받아졌는지 봅니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없기 때문입니다.
+2. 받아 온 Nginx 설정(`nginx/templates`)에 틀린 곳이 없는지 봅니다.
+3. 서버 이미지를 새로 빌드합니다. 베이스 이미지(JRE)도 새로 받아 보안 수정이 들어가게 합니다. 빌드하는 동안에는 앞의 서버가 그대로 응답합니다.
+4. 바뀐 컨테이너를 다시 만들고, Nginx는 끊지 않고 설정을 다시 채워 읽습니다(설정은 컨테이너가 시작할 때만 채워지기 때문입니다). 서버 컨테이너를 바꿔 띄우는 몇십 초 동안은 503(`{"message": "서버에 잠시 연결할 수 없습니다. …"}`)이 납니다.
+5. 서버가 뜰 때까지 3분까지 기다려 봅니다.
+6. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지워 디스크가 차지 않게 합니다.
 
 ```bash
 cd ~/be && git pull && cd deploy
-# 받아 온 Nginx 설정(nginx/templates)에 틀린 곳이 없는지 먼저 봅니다. "test is successful"이 나와야 합니다
-docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t
-docker compose up -d --build
-# Nginx 설정은 컨테이너가 시작할 때만 채워지므로, 끊지 않고 다시 채워 읽게 합니다.
-# 여기서 nginx -t가 실패하면 틀린 설정이 파일에 남아 Nginx가 다시 켜질 때 뜨지 않으니, 고친 뒤 이 줄을 다시 돌립니다
-docker compose exec nginx sh -c '/docker-entrypoint.d/20-envsubst-on-templates.sh && nginx -t && nginx -s reload'
-# 서버가 떴는지 봅니다(200이어야 합니다). 아니면 docker compose ps 와 docker compose logs app nginx 로 이유를 보고,
-# 고칠 수 없으면 아래 "배포 되돌리기"로 갑니다(서버가 못 뜨면 다시 뜨기를 되풀이합니다)
-curl -s -o /dev/null -w '%{http_code}\n' --retry 60 --retry-delay 3 --retry-all-errors "https://<DOMAIN>/api/docs"
-# 200을 본 뒤에 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지워 디스크가 차지 않게 합니다
-docker image prune -f && docker builder prune -f --filter until=168h
+B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
+  && tail -n 1 "$B" | grep -q '^-- Dump completed' \
+  && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t \
+  && docker compose build --pull app \
+  && docker compose up -d \
+  && docker compose exec nginx sh -c '/docker-entrypoint.d/20-envsubst-on-templates.sh && nginx -t && nginx -s reload' \
+  && curl -fs -o /dev/null --retry 60 --retry-delay 3 --retry-all-errors "https://$(sed -n 's/^DOMAIN=//p' .env)/api/docs" \
+  && docker image prune -f && docker builder prune -f --filter until=168h \
+  && echo "배포했습니다(배포 전 백업: $B)" \
+  || echo "배포가 중간에 멈췄습니다. 위 출력에서 멈춘 단계를 보고, 서버가 문제면 docker compose logs app nginx 를 봅니다. 고칠 수 없으면 아래 '배포 되돌리기'로 갑니다"
 ```
+
+Nginx 설정을 다시 채우는 단계에서 멈췄으면 틀린 설정이 파일에 남아 Nginx가 다시 켜질 때 뜨지 않으니, 고친 뒤 다시 돌립니다.
 
 ### 배포 되돌리기
 
@@ -249,7 +257,7 @@ git checkout <앞 커밋> && cd deploy && docker compose build app
 ```
 
 1. 새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 들어 있었으면, 이어서 배포 전에 받은 백업을 아래 "로그와 백업"의 되살리기 명령으로 넣습니다. DB만 되돌리고 새 버전으로 띄우면 같은 마이그레이션이 다시 돌기 때문에, 앞 버전을 빌드한 뒤에 넣습니다.
-2. 위 "다시 배포"의 명령을 첫 줄(`git pull`)만 빼고 차례로 돌립니다. 바뀐 서비스가 앞 버전으로 다시 만들어지고, Nginx도 앞 버전의 설정을 다시 읽습니다.
+2. 위 "다시 배포"의 두 번째 명령(`B=…`로 시작하는 것)을 그대로 돌립니다. 바뀐 서비스가 앞 버전으로 다시 만들어지고, Nginx도 앞 버전의 설정을 다시 읽습니다.
 
 고친 버전이 main에 머지되면 `cd ~/be && git checkout main && git pull` 뒤 위 "다시 배포"대로 합니다.
 
@@ -259,9 +267,10 @@ git checkout <앞 커밋> && cd deploy && docker compose build app
 cd ~/be/deploy
 docker compose ps             # 컨테이너 상태
 docker compose logs -f app    # 서버 로그(문자 발송 실패 등)
-# DB를 파일로 받아 둡니다. 파일에는 DB를 지우고 원래 문자셋으로 다시 만드는 문장까지 들어갑니다.
+# DB를 파일로 받아 둡니다(다시 배포도 배포 전에 같은 명령으로 받습니다). 파일에는 DB를 지우고 원래 문자셋으로 다시 만드는 문장까지 들어갑니다.
 # 이름에 받은 시각(서울, 서버 로그와 같은 시간대)을 넣어 앞서 받은 백업을 덮지 않고, 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
-(umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > ~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql)
+B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
+  && tail -n 1 "$B" | grep -q '^-- Dump completed' && echo "백업했습니다: $B" || echo "백업하지 못했습니다. 위 출력을 봅니다"
 ```
 
 받아 둔 파일로 되살릴 때는 서버를 멈추고 넣습니다. 파일이 DB를 통째로 지우고 다시 만들므로 백업 뒤에 생긴 테이블은 남지 않습니다(남으면 서버가 뜰 때 마이그레이션이 그 테이블을 다시 만들려다 실패합니다). 아래 명령은 백업 파일이 끝까지 받아진 것(마지막 줄 `-- Dump completed`)을 확인한 뒤에만 넣고, 넣기가 성공했을 때만 서버를 다시 띄웁니다.
