@@ -209,7 +209,9 @@ if docker image inspect "$app_image" >/dev/null 2>&1; then
   saved_app_image=1
   docker tag "$app_image" "$app_image:before-deploy" || stop
 fi
-docker compose build --pull app || stop
+# 출처 증명(provenance attestation)을 붙이지 않는다. 붙이면 내용이 같은 빌드도 이미지 ID가 빌드마다 바뀌는데, Compose는
+# 내용이 같다며 서버 컨테이너를 그대로 둬서, 7단계가 아직 쓰이는 앞 이미지의 이름을 지우려다 실패한다(#59)
+BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose build --pull app || stop
 
 # DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되고, 중간에 실패하면 되돌릴 수 없어서 띄우기 바로 전에 받는다.
 # 빌드 뒤에 받아야 빌드하는 몇 분 동안 들어온 가입·신청도 들어간다. 끝까지 받아진 것을 확인한 뒤에야 이름을 붙인다
@@ -250,8 +252,11 @@ else
   # 되돌리기는 되살려야 할 백업이 지워지지 않게 백업을 정리하지 않는다
   step "7/7 앞 이미지를 정리합니다(백업은 지우지 않습니다)"
 fi
-{ { [ -z "$saved_app_image" ] || docker rmi "$app_image:before-deploy" >/dev/null; } \
-  && docker image prune -f && docker builder prune -f --filter until=168h; } \
+# 빌드 전 이미지에 붙여 둔 이름을 뗀다. 이미지 내용이 같아 Compose가 서버 컨테이너를 그대로 두었으면(출처 증명을 붙여
+# 빌드한 이미지에서 넘어오는 첫 배포, 손으로 docker compose up -d --build 한 뒤의 배포 등) 그 이미지를 아직 써서 떼지
+# 못한다. 그 이름은 다음 배포가 3단계에서 옮기니 실패로 치지 않는다(#59)
+[ -z "$saved_app_image" ] || docker rmi "$app_image:before-deploy" >/dev/null 2>&1
+{ docker image prune -f && docker builder prune -f --filter until=168h; } \
   || echo "${kind}는 끝났고, 앞 이미지 정리만 실패했습니다. 디스크가 차면 위 출력을 봅니다"
 if [ "$kind" = 배포 ]; then
   # shellcheck disable=SC2012 # 지울 파일 이름은 이 스크립트가 만드는 mwt-<시각>.sql 꼴뿐이다
