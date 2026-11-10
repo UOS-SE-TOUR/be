@@ -55,7 +55,6 @@ public class BookingController {
 		return bookingService.quote(memberId, request);
 	}
 
-	/** 신청 내용은 가격 계산과 같다. 더는 신청할 수 없는 상품이면 409, 고른 내용이 맞지 않으면 400이다(Tour.checkApplicable). */
 	@Operation(summary = "신청 (고객)",
 			description = "가격 계산과 같은 내용을 보내 신청한다. 이 신청으로 상품이 확정(신청 인원 3명 이상)되면 신청자 모두에게, 이미 확정된 상품이면 이 신청자에게 확정 문자를 보낸다.")
 	@ApiResponse(responseCode = "201", description = "신청 ID와 신청 뒤 상품 상태")

@@ -36,7 +36,6 @@ public class WarehouseController {
 		return warehouseService.getItems().stream().map(ItemResponse::from).toList();
 	}
 
-	/** 추가한 뒤의 물품(현재 수량 포함)을 돌려준다. 새로 만들었든 수량만 더했든 200이다. */
 	@Operation(summary = "창고 물품 추가 (직원)",
 			description = "이름과 테마가 같은 물품이 있으면 수량만 더하고, 없으면 새로 만든다. 어느 쪽이든 200이다.")
 	@ApiResponse(responseCode = "200", description = "추가한 뒤의 물품과 현재 수량")

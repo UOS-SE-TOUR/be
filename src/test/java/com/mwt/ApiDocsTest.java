@@ -2,7 +2,6 @@ package com.mwt;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
@@ -22,11 +21,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.web.access.WebInvocationPrivilegeEvaluator;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.jayway.jsonpath.JsonPath;
@@ -56,6 +58,9 @@ class ApiDocsTest {
 
 	@Autowired
 	JwtTokenProvider jwtTokenProvider;
+
+	@Autowired
+	WebInvocationPrivilegeEvaluator privilegeEvaluator;
 
 	@Test
 	void Swagger_UI_주소는_화면으로_넘긴다() throws Exception {
@@ -118,13 +123,16 @@ class ApiDocsTest {
 	}
 
 	/**
-	 * 한 줄 설명 끝 괄호의 말이 실제 권한 규칙(common.security의 SecurityConfig)과 같은지 API마다 불러 본다 —
-	 * 로그인 없이 부르면 401인지, 고객·직원 계정으로 부르면 403인지. 본문은 빈 JSON이라 검증(400)에서 끝나 데이터를 바꾸지 않는다.
+	 * 한 줄 설명 끝 괄호의 말이 실제 권한 규칙(common.security의 SecurityConfig)과 같은지 API마다 본다 —
+	 * 로그인하지 않은 사람·고객·직원이 그 메소드와 주소를 부를 수 있는지. 요청을 보내지 않고 권한 규칙에만 물어서
+	 * (WebInvocationPrivilegeEvaluator) Controller가 돌지 않으니 데이터가 바뀌지 않는다.
 	 */
 	@Test
 	void 끝_괄호의_부를_수_있는_사람은_실제_권한_규칙과_같다() throws Exception {
-		Cookie customer = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "CUSTOMER"));
-		Cookie staff = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "STAFF"));
+		Authentication anonymous = new AnonymousAuthenticationToken("ApiDocsTest", "anonymousUser",
+				AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"));
+		Authentication customer = member(MemberType.CUSTOMER);
+		Authentication staff = member(MemberType.STAFF);
 		Map<String, Map<String, Map<String, Object>>> paths = JsonPath.read(apiDocs(), "$.paths");
 		List<String> wrong = new ArrayList<>();
 		int checked = 0;
@@ -135,23 +143,30 @@ class ApiDocsTest {
 					continue;   // 꼴이 틀린 summary는 모든_API에_한_줄_설명과_부를_수_있는_사람이_있다가 잡는다
 				}
 				String caller = summary.group(1);
-				HttpMethod method = HttpMethod.valueOf(operation.getKey().toUpperCase(Locale.ROOT));
+				String method = operation.getKey().toUpperCase(Locale.ROOT);
 				String url = path.getKey().replaceAll("\\{[^}]+}", "1");
 				String where = method + " " + path.getKey() + " (" + caller + ")";
-				if ((statusOf(method, url, null) == 401) == caller.equals("누구나")) {
-					wrong.add(where + " — 로그인 없이 부른 결과가 괄호와 다름");
+				if (isAllowed(method, url, anonymous) != caller.equals("누구나")) {
+					wrong.add(where + " — 로그인하지 않은 사람의 권한이 괄호와 다름");
 				}
-				if ((statusOf(method, url, customer) == 403) != caller.equals("직원")) {
-					wrong.add(where + " — 고객 계정으로 부른 결과가 괄호와 다름");
+				if (isAllowed(method, url, customer) == caller.equals("직원")) {
+					wrong.add(where + " — 고객 계정의 권한이 괄호와 다름");
 				}
-				if ((statusOf(method, url, staff) == 403) != caller.equals("고객")) {
-					wrong.add(where + " — 직원 계정으로 부른 결과가 괄호와 다름");
+				if (isAllowed(method, url, staff) == caller.equals("고객")) {
+					wrong.add(where + " — 직원 계정의 권한이 괄호와 다름");
 				}
 				checked++;
 			}
 		}
 		assertThat(checked).isPositive();
 		assertThat(wrong).isEmpty();
+	}
+
+	/** nullableRefCustomizer(OpenApiConfig)가 놓친 자리가 있으면 걸린다 — {"$ref", "type": "null"}은 어떤 값도 맞지 않는 꼴이다. */
+	@Test
+	void 문서_어디에도_null과_묶인_참조가_없다() throws Exception {
+		List<Map<String, Object>> broken = JsonPath.read(apiDocs(), "$..[?(@['$ref'] && @.type)]");
+		assertThat(broken).isEmpty();
 	}
 
 	/** 열거형에 값을 더하고 @Schema 설명에 뜻을 빠뜨리거나, 화면 이름을 바꾸고 설명을 안 고치면 걸린다. */
@@ -217,15 +232,17 @@ class ApiDocsTest {
 	/** 이름이 같은 중첩 record(TourOptionsResponse.Option·PriceQuote.Option)가 문서에서 한 스키마로 합쳐지지 않는다. */
 	@Test
 	void 옵션_목록과_가격_계산의_옵션_스키마는_따로다() throws Exception {
-		mockMvc.perform(get("/api/docs"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.components.schemas.TourOptionsResponse.properties.hotels.items['$ref']")
-				.value("#/components/schemas/TourOptionItem"))
-			.andExpect(jsonPath("$.components.schemas.TourOptionItem.properties.category").doesNotExist())
-			.andExpect(jsonPath("$.components.schemas.QuoteSummary.properties.options.items['$ref']")
-				.value("#/components/schemas/SelectedOption"))
-			.andExpect(jsonPath("$.components.schemas.SelectedOption.properties.category").exists())
-			.andExpect(jsonPath("$.components.schemas.Option").doesNotExist());
+		String docs = apiDocs();
+		Map<String, Object> schemas = JsonPath.read(docs, "$.components.schemas");
+		assertThat(JsonPath.<String>read(docs, "$.components.schemas.TourOptionsResponse.properties.hotels.items['$ref']"))
+			.isEqualTo("#/components/schemas/TourOptionItem");
+		assertThat(JsonPath.<Map<String, Object>>read(docs, "$.components.schemas.TourOptionItem.properties"))
+			.doesNotContainKey("category");
+		assertThat(JsonPath.<String>read(docs, "$.components.schemas.QuoteSummary.properties.options.items['$ref']"))
+			.isEqualTo("#/components/schemas/SelectedOption");
+		assertThat(JsonPath.<Map<String, Object>>read(docs, "$.components.schemas.SelectedOption.properties"))
+			.containsKey("category");
+		assertThat(schemas).doesNotContainKey("Option");
 	}
 
 	/** 음성으로 고르기에서 알아듣지 못한 조건은 null이 온다. 열거형 칸은 anyOf [열거형, null]이다(OpenApiConfig). */
@@ -245,14 +262,14 @@ class ApiDocsTest {
 
 	@Test
 	void 비밀번호의_최소_길이는_서버_규칙과_같다() throws Exception {
-		mockMvc.perform(get("/api/docs"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.components.schemas.SignUpRequest.properties.password.minLength").value(8));
+		assertThat(JsonPath.<Integer>read(apiDocs(), "$.components.schemas.SignUpRequest.properties.password.minLength"))
+			.isEqualTo(8);
 	}
 
 	@Test
 	void 권한_규칙을_통과한_없는_API_주소는_404와_문구() throws Exception {
-		Cookie customer = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "CUSTOMER"));
+		Cookie customer = new Cookie(JwtTokenProvider.COOKIE_NAME,
+				jwtTokenProvider.createToken(1, MemberType.CUSTOMER.name()));
 		mockMvc.perform(get("/api/v1/tours/nothing/here").cookie(customer))
 			.andExpect(status().isNotFound())
 			.andExpect(content().json("{\"message\": \"요청한 주소를 찾을 수 없습니다.\"}", JsonCompareMode.STRICT));
@@ -265,12 +282,14 @@ class ApiDocsTest {
 			.andExpect(content().json("{\"message\": \"로그인이 필요합니다.\"}", JsonCompareMode.STRICT));
 	}
 
-	private int statusOf(HttpMethod method, String url, Cookie cookie) throws Exception {
-		MockHttpServletRequestBuilder request = request(method, url).contentType(MediaType.APPLICATION_JSON).content("{}");
-		if (cookie != null) {
-			request.cookie(cookie);
-		}
-		return mockMvc.perform(request).andReturn().getResponse().getStatus();
+	private boolean isAllowed(String method, String url, Authentication authentication) {
+		return privilegeEvaluator.isAllowed("", url, method, authentication);
+	}
+
+	/** JwtAuthenticationFilter가 만드는 것과 같은 로그인(권한 이름 = 회원 구분). */
+	private static Authentication member(MemberType memberType) {
+		return UsernamePasswordAuthenticationToken.authenticated(1L, null,
+				List.of(new SimpleGrantedAuthority(memberType.name())));
 	}
 
 	private String apiDocs() throws Exception {

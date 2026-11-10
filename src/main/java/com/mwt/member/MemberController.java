@@ -42,7 +42,6 @@ public class MemberController {
 		return new SignUpResponse(memberService.signUp(request));
 	}
 
-	/** 토큰을 쿠키로 내려 주고, 화면이 쓸 회원 구분과 이름을 본문으로 돌려준다. */
 	@Operation(summary = "로그인 (누구나)",
 			description = "로그인 쿠키(accessToken, HttpOnly)를 내려 준다. 화면은 쿠키를 읽을 수 없으니 응답의 회원 구분과 이름으로 로그인 상태를 둔다.")
 	@ApiResponse(responseCode = "200", description = "로그인한 회원의 구분과 이름")
@@ -56,7 +55,6 @@ public class MemberController {
 			.body(MemberResponse.from(member));
 	}
 
-	/** 새로고침 뒤 화면이 로그인 상태를 되살릴 때 부른다. */
 	@Operation(summary = "내 정보 (로그인한 회원)", description = "새로고침 뒤 로그인 상태를 되살릴 때 부른다. 응답은 로그인과 같은 모양이다.")
 	@ApiResponse(responseCode = "200", description = "로그인한 회원의 구분과 이름")
 	@ApiResponse(responseCode = "401", description = OpenApiConfig.UNAUTHORIZED)
