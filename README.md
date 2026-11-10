@@ -198,7 +198,16 @@ docker compose run --rm -p 80:80 --entrypoint sh certbot -c 'certbot certonly --
 docker compose up -d --build
 ```
 
-인증서보다 `docker compose up`을 먼저 했다면 Nginx가 인증서를 못 찾아 다시 뜨기를 되풀이하며 80번 포트를 잡으니, `docker compose stop nginx` 뒤에 인증서를 받고 다시 `up` 합니다. `DOMAIN`을 바꿀 때도 같은 순서로 새 주소의 인증서를 받습니다.
+인증서보다 `docker compose up`을 먼저 했다면 Nginx가 인증서를 못 찾아 다시 뜨기를 되풀이하며 80번 포트를 잡으니, `docker compose stop nginx` 뒤에 인증서를 받고 다시 `up` 합니다.
+
+`DOMAIN`을 바꿀 때는 Nginx를 띄운 채 새 주소의 인증서를 받습니다. 80번 포트의 Nginx가 어느 주소로 오든 인증서 확인 파일을 내주기 때문입니다. 받은 뒤 `.env`의 `DOMAIN`을 고치고 `docker compose up -d`로 Nginx를 새 주소로 다시 만듭니다. 옛 주소의 인증서는 지웁니다. 남겨 두면 갱신할 때가 됐을 때 12시간마다 갱신에 실패합니다.
+
+```bash
+docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot --non-interactive --agree-tos --register-unsafely-without-email -d <새 주소>
+# .env의 DOMAIN을 새 주소로 고친 뒤
+docker compose up -d
+docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name <옛 주소>
+```
 
 첫 빌드는 Gradle과 의존성을 받느라 몇 분 걸립니다. 다 뜨면 확인합니다.
 
@@ -218,7 +227,7 @@ main에 머지된 코드를 받아 다시 빌드합니다. DB 테이블 변경(F
 ```bash
 cd ~/be && git pull && cd deploy
 # 받아 온 Nginx 설정(nginx/templates)에 틀린 곳이 없는지 먼저 봅니다. "test is successful"이 나와야 합니다
-docker compose run --rm --no-deps --entrypoint /docker-entrypoint.sh nginx nginx -t
+docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t
 docker compose up -d --build
 # Nginx 설정은 컨테이너가 시작할 때만 채워지므로, 끊지 않고 다시 채워 읽게 합니다.
 # 여기서 nginx -t가 실패하면 틀린 설정이 파일에 남아 Nginx가 다시 켜질 때 뜨지 않으니, 고친 뒤 이 줄을 다시 돌립니다
@@ -232,14 +241,15 @@ docker image prune -f && docker builder prune -f --filter until=168h
 
 ### 배포 되돌리기
 
-새 버전의 서버가 뜨지 않거나 문제가 있으면 앞 커밋으로 되돌려 빌드합니다. 새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 들어 있었으면 DB도 바뀌었을 수 있으니, 배포 전에 받은 백업을 아래 "로그와 백업"의 되살리기 명령으로 함께 넣습니다 — DB만 되돌리고 새 버전으로 띄우면 같은 마이그레이션이 다시 돕니다.
+새 버전에 문제가 있으면 앞 커밋으로 되돌립니다. 서버만이 아니라 Nginx 설정과 compose 설정도 함께 앞 버전으로 돌아가게 합니다.
 
 ```bash
 cd ~/be && git log --oneline -5      # 되돌아갈 커밋(배포 전 main)을 고릅니다
 git checkout <앞 커밋> && cd deploy && docker compose build app
-# 마이그레이션이 없었으면 서버만 앞 버전으로 바꿔 띄웁니다. 있었으면 이 줄 대신 되살리기 명령을 돌립니다(서버도 앞 버전으로 띄웁니다)
-docker compose up -d app
 ```
+
+1. 새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 들어 있었으면, 이어서 배포 전에 받은 백업을 아래 "로그와 백업"의 되살리기 명령으로 넣습니다. DB만 되돌리고 새 버전으로 띄우면 같은 마이그레이션이 다시 돌기 때문에, 앞 버전을 빌드한 뒤에 넣습니다.
+2. 위 "다시 배포"의 명령을 첫 줄(`git pull`)만 빼고 차례로 돌립니다. 바뀐 서비스가 앞 버전으로 다시 만들어지고, Nginx도 앞 버전의 설정을 다시 읽습니다.
 
 고친 버전이 main에 머지되면 `cd ~/be && git checkout main && git pull` 뒤 위 "다시 배포"대로 합니다.
 
@@ -273,7 +283,7 @@ tail -n 1 "$F" | grep -q '^-- Dump completed' \
 - 넣기(`mysql`)가 실패했으면 DB가 지워졌거나 반쯤 들어갔을 수 있습니다. 서버를 띄우지 말고 원인을 고친 뒤 같은 명령을 다시 돌립니다(파일이 DB를 처음부터 다시 만듭니다).
 - 마지막 `docker compose up -d app`만 실패했으면 되살리기는 끝난 것이니 그 명령만 다시 칩니다.
 
-서버가 다시 켜지면 컨테이너도 저절로 다시 뜹니다. `docker compose down`은 컨테이너만 지우고 DB와 인증서(볼륨)는 남깁니다. `docker compose down -v`는 운영 DB까지 지우니 쓰지 않습니다.
+서버(Lightsail)가 다시 켜지면 컨테이너도 저절로 다시 뜹니다. 이때는 서버(app)가 MySQL보다 먼저 떠서 DB에 못 붙으면 꺼졌다가 다시 뜨기를 몇 번 되풀이한 뒤 붙고, 그동안은 503이 납니다. `docker compose down`은 컨테이너만 지우고 DB와 인증서(볼륨)는 남깁니다. `docker compose down -v`는 운영 DB까지 지우니 쓰지 않습니다.
 
 ## 작업 규칙
 
