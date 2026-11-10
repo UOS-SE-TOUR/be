@@ -212,11 +212,13 @@ docker compose run --rm --entrypoint certbot certbot delete --non-interactive --
 첫 빌드는 Gradle과 의존성을 받느라 몇 분 걸립니다. 다 뜨면 확인합니다.
 
 ```bash
-# 서버가 뜰 때까지 3분까지 다시 물어보고, 마지막 상태 코드만 찍습니다(200이어야 합니다)
-curl -s -o /dev/null -w '%{http_code}\n' --retry 60 --retry-delay 3 --retry-all-errors "https://$(docker compose exec -T nginx printenv DOMAIN)/api/docs"
+# 서버 안에서 서버가 뜰 때까지 3분까지 다시 물어보고, 마지막 상태 코드만 찍습니다(200이어야 합니다)
+D=$(docker compose exec -T nginx printenv DOMAIN); curl -s -o /dev/null -w '%{http_code}\n' --resolve "$D:443:127.0.0.1" --retry 60 --retry-delay 3 --retry-all-errors "https://$D/api/docs"
 # 인증서 갱신이 될지 미리 봅니다(실제로 갱신하지 않습니다). 갱신은 처음 받을 때와 달리 Nginx를 거쳐 확인합니다
 docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -w /var/www/certbot
 ```
+
+바깥에서도 열리는지(서버 주소·방화벽)는 내 컴퓨터에서 `curl -I https://<서버 주소>/api/docs`로 봅니다(`HTTP/2 200`).
 
 인증서를 standalone으로 받았으므로 갱신 설정에도 standalone이 적혀 있습니다. 갱신을 손으로 돌릴 때는 위처럼 늘 `--webroot -w /var/www/certbot`을 붙입니다. 붙이지 않으면 certbot이 80번 포트를 직접 열려다 Nginx와 부딪쳐 실패합니다. `certbot` 컨테이너는 이 옵션을 붙여 돌고, 첫 갱신에 성공하면 설정도 webroot로 바뀝니다.
 
@@ -225,27 +227,30 @@ docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -
 main에 머지된 코드를 받아 다시 빌드합니다. 아래 두 번째 명령이 다음을 차례로 하고, 한 단계라도 실패하면 거기서 멈춘 뒤 마지막에 "배포가 중간에 멈췄습니다"를 찍습니다.
 
 1. DB를 백업하고 끝까지 받아졌는지 봅니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없기 때문입니다.
-2. 받아 온 Nginx 설정(`nginx/templates`)에 틀린 곳이 없는지 봅니다.
-3. MySQL·Nginx·Certbot 이미지와 서버 이미지의 베이스(JRE)를 새로 받아 보안 수정이 들어가게 하고, 서버 이미지를 새로 빌드합니다. 빌드하는 동안에는 앞의 서버가 그대로 응답합니다.
+2. Nginx·Certbot 이미지를 새로 받고, 받아 온 Nginx 설정(`nginx/templates`)에 틀린 곳이 없는지 그 새 이미지로 봅니다.
+3. 서버 이미지를 베이스(JRE)까지 새로 받아 빌드합니다(보안 수정이 들어가게). 빌드하는 동안에는 앞의 서버가 그대로 응답합니다.
 4. 바뀐 컨테이너를 다시 만들고, Nginx는 늘 새로 만듭니다(Nginx 설정은 컨테이너가 시작할 때만 채워지기 때문입니다. 끊기는 것은 0.2초쯤입니다). 서버 컨테이너를 바꿔 띄우는 몇십 초 동안은 503(`{"message": "서버에 잠시 연결할 수 없습니다. …"}`)이 납니다.
-5. 서버가 뜰 때까지 3분까지 기다려 봅니다.
+5. 서버가 뜰 때까지 서버 안에서 3분까지 기다려 봅니다(바깥 DNS를 거치지 않고 이 서버의 Nginx로 바로 묻습니다).
 6. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고, 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다.
 
 ```bash
 cd ~/be && git pull && cd deploy
 B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
   && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } \
+  && docker compose pull nginx certbot \
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t \
-  && docker compose pull mysql nginx certbot \
   && docker compose build --pull app \
   && docker compose up -d --remove-orphans \
   && docker compose up -d --force-recreate nginx \
-  && curl -fs -o /dev/null --retry 60 --retry-delay 3 --retry-all-errors "https://$(docker compose exec -T nginx printenv DOMAIN)/api/docs" \
+  && D=$(docker compose exec -T nginx printenv DOMAIN) \
+  && curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --retry 60 --retry-delay 3 --retry-all-errors "https://$D/api/docs" \
   && docker image prune -f && docker builder prune -f --filter until=168h \
   && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
   && echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)" \
   || echo "배포가 중간에 멈췄습니다. 위 출력에서 멈춘 단계를 보고, 서버가 문제면 docker compose logs app nginx 를 봅니다. 고칠 수 없으면 아래 '배포 되돌리기'로 갑니다"
 ```
+
+MySQL 이미지는 다시 배포 때 받지 않습니다. 새 패치를 받으면 배포 도중에 DB가 다시 켜지며 그동안 서버가 500을 내기 때문입니다. MySQL 보안 수정을 넣을 때는 쓰는 사람이 적은 때에 백업(아래 "로그와 백업")을 받은 뒤 `docker compose pull mysql && docker compose up -d mysql`을 따로 돌립니다. 다시 켜지는 동안(보통 몇십 초) 서버는 DB에 못 붙다가 저절로 다시 붙습니다.
 
 ### 배포 되돌리기
 

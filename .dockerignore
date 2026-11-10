@@ -12,7 +12,7 @@ scratchpad
 src/test
 deploy
 .github
-*.md
+**/*.md
 compose.yaml
 Dockerfile
 .dockerignore
