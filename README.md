@@ -156,6 +156,8 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 
 배포한 뒤에는 `https://<DOMAIN>/api/swagger-ui.html`에서 API 문서가 열립니다. 화면 호스팅의 프록시는 `/api/*`를 `https://<DOMAIN>/api/*`로 넘기면 됩니다(위 "화면과 연결").
 
+아래 명령 가운데 `docker compose exec`·`run`에는 `< /dev/null`을 붙였습니다. 두 명령은 `-T`를 줘도 표준 입력을 컨테이너로 넘겨서, 붙이지 않으면 함께 붙여 넣은 다음 줄을 읽어 버려 그 줄이 돌지 않습니다. 명령을 새로 적을 때도 입력이 필요 없으면 붙입니다.
+
 ### 운영 값(`deploy/.env`)
 
 `deploy/.env.example`을 같은 폴더의 `.env`로 복사해 채웁니다. 이름마다 설명이 붙어 있습니다. 레포 맨 위의 `.env`(내 컴퓨터용)와는 다른 파일이고, 둘 다 커밋되지 않습니다.
@@ -194,7 +196,7 @@ Nginx는 인증서가 있어야 뜨므로 인증서부터 받습니다. 아직 N
 
 ```bash
 cd ~/be/deploy
-docker compose run --rm -p 80:80 --entrypoint sh certbot -c 'certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$DOMAIN"'
+docker compose run --rm -p 80:80 --entrypoint sh certbot -c 'certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$DOMAIN"' < /dev/null
 docker compose up -d --build
 ```
 
@@ -203,19 +205,19 @@ docker compose up -d --build
 `DOMAIN`을 바꿀 때는 Nginx를 띄운 채 새 주소의 인증서를 받습니다. 80번 포트의 Nginx가 어느 주소로 오든 인증서 확인 파일을 내주기 때문입니다. 받은 뒤 `.env`의 `DOMAIN`을 고치고 `docker compose up -d`로 Nginx를 새 주소로 다시 만듭니다. 옛 주소의 인증서는 지웁니다. 남겨 두면 갱신할 때가 됐을 때 12시간마다 갱신에 실패합니다.
 
 ```bash
-docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot --non-interactive --agree-tos --register-unsafely-without-email -d <새 주소>
+docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot --non-interactive --agree-tos --register-unsafely-without-email -d <새 주소> < /dev/null
 # .env의 DOMAIN을 새 주소로 고친 뒤
 docker compose up -d
-docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name <옛 주소>
+docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name <옛 주소> < /dev/null
 ```
 
 첫 빌드는 Gradle과 의존성을 받느라 몇 분 걸립니다. 다 뜨면 확인합니다.
 
 ```bash
 # 서버 안에서 서버가 뜰 때까지 3분까지 다시 물어보고, 마지막 상태 코드만 찍습니다(200이어야 합니다)
-D=$(docker compose exec -T nginx printenv DOMAIN); curl -s -o /dev/null -w '%{http_code}\n' --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs"
+D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null); curl -s -o /dev/null -w '%{http_code}\n' --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs"
 # 인증서 갱신이 될지 미리 봅니다(실제로 갱신하지 않습니다). 갱신은 처음 받을 때와 달리 Nginx를 거쳐 확인합니다
-docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -w /var/www/certbot
+docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -w /var/www/certbot < /dev/null
 ```
 
 바깥에서도 열리는지(서버 주소·방화벽)는 내 컴퓨터에서 `curl -I https://<서버 주소>/api/docs`로 봅니다(`HTTP/2 200`).
@@ -236,13 +238,13 @@ main에 머지된 코드를 받아 다시 빌드합니다. 첫 줄의 `git pull`
 ```bash
 cd ~/be/deploy && git pull --ff-only
 docker compose pull nginx certbot \
-  && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t \
+  && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t < /dev/null \
   && docker compose build --pull app \
-  && B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql && { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
+  && B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql && { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' < /dev/null > "$B") \
   && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } \
   && docker compose up -d --remove-orphans \
   && docker compose up -d --force-recreate nginx \
-  && D=$(docker compose exec -T nginx printenv DOMAIN) \
+  && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) \
   && curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
   && docker image prune -f && docker builder prune -f --filter until=168h \
   && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
@@ -282,7 +284,7 @@ docker compose ps             # 컨테이너 상태
 docker compose logs -f app    # 서버 로그(문자 발송 실패 등)
 # DB를 파일로 받아 둡니다(다시 배포도 배포 전에 같은 명령으로 받습니다). 파일에는 DB를 지우고 원래 문자셋으로 다시 만드는 문장까지 들어갑니다.
 # 이름에 받은 시각(서울, 서버 로그와 같은 시간대)을 넣어 앞서 받은 백업을 덮지 않고, 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
-B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
+B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' < /dev/null > "$B") \
   && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } && echo "백업했습니다: $B" || echo "백업하지 못했습니다(덜 받은 파일은 지웠습니다). 위 출력을 봅니다"
 ```
 
