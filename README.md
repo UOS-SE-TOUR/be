@@ -67,6 +67,14 @@ API 키·서명 키·직원 코드 같은 값은 코드나 커밋에 넣지 않�
 
 `./gradlew bootRun`으로 서버를 띄운 뒤 브라우저에서 http://localhost:8080/api/swagger-ui.html 을 엽니다. 문서 원본(OpenAPI JSON)은 `/api/docs`이고, `/api/v1/...` 주소만 문서에 실립니다. 문서도 `/api` 아래에 두어서 화면 호스팅이나 Nginx 프록시를 거쳐도 같은 주소로 열립니다.
 
+API마다 한 줄 설명 끝 괄호에 부를 수 있는 사람(누구나·로그인한 회원·고객·직원)이 있고, 실패 응답의 상태 코드와 그 뜻이 적혀 있습니다. 실패 응답의 본문은 모두 아래 "오류 응답"의 `{"message"}` 한 가지입니다. 500과, 운영 서버 앞단 Nginx가 내는 503·504는 API마다 적지 않고 아래 표에 둡니다.
+
+**로그인한 채로 시험하기:** Swagger 화면에서 `POST /api/v1/members/login`을 "Try it out"으로 먼저 실행하면, 브라우저가 로그인 쿠키를 저장해 그 뒤 실행하는 API에 함께 실어 보냅니다. Swagger 화면과 서버가 같은 주소라서 따로 설정할 것은 없습니다. 로그아웃은 `POST /api/v1/members/logout`을 실행합니다. 쿠키는 HttpOnly라 Swagger 화면에도 보이지 않습니다. 로컬에서는 http://localhost 로 열어야 합니다(위 "화면과 연결"의 쿠키 이야기와 같습니다).
+
+운영 서버의 Swagger(`https://<서버 주소>/api/swagger-ui.html`)에서 시험하면 운영 DB에 그대로 남습니다. 운영에서는 시험용 계정으로 `GET /api/v1/members/me`처럼 읽기만 하는 API로 시험합니다. 신청(`POST /api/v1/bookings`)을 실행하면 상품의 남은 자리가 줄고, 그 신청으로 상품이 확정되거나 이미 확정된 상품이면 실제 확정 문자가 나갑니다.
+
+API를 새로 만들면 `@Operation(summary = "<한 줄 설명> (<부를 수 있는 사람>)")`과 실패 응답마다 `@ApiResponse(responseCode = "...", description = "...")`를 답니다. 실패 응답의 본문은 `OpenApiConfig`가 한 번에 붙이고, 여러 API에서 같은 설명(로그인 필요 등)은 `OpenApiConfig`의 상수를 씁니다. 한 줄 설명이 없는 API가 있으면 `ApiDocsTest`가 실패합니다.
+
 ## 오류 응답
 
 API가 실패하면 상태 코드와 함께 본문을 늘 아래 모양 하나로 돌려줍니다. 화면은 `message`를 그대로 보여 주면 됩니다.
