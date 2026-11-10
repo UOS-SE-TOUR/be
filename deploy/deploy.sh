@@ -252,19 +252,11 @@ else
   # 되돌리기는 되살려야 할 백업이 지워지지 않게 백업을 정리하지 않는다
   step "7/7 앞 이미지를 정리합니다(백업은 지우지 않습니다)"
 fi
-# 이미지 내용이 같아 Compose가 서버 컨테이너를 그대로 두었으면 그 컨테이너는 앞 이미지를 아직 쓴다(출처 증명을 붙여
-# 빌드한 이미지에서 넘어오는 첫 배포, 손으로 docker compose up -d --build 한 뒤의 배포). 그 이름은 지우지 않고 두면
-# 다음 배포가 3단계에서 지금 이미지로 옮긴다
-keep_saved=
-if [ -n "$saved_app_image" ]; then
-  app_ctr=$(docker compose ps -q app 2>/dev/null)
-  saved_id=$(docker image inspect --format '{{.Id}}' "$app_image:before-deploy" 2>/dev/null)
-  if [ -n "$app_ctr" ] && [ -n "$saved_id" ] && [ "$(docker inspect --format '{{.Image}}' "$app_ctr" 2>/dev/null)" = "$saved_id" ]; then
-    keep_saved=1
-  fi
-fi
-{ { [ -z "$saved_app_image" ] || [ -n "$keep_saved" ] || docker rmi "$app_image:before-deploy" >/dev/null; } \
-  && docker image prune -f && docker builder prune -f --filter until=168h; } \
+# 빌드 전 이미지에 붙여 둔 이름을 뗀다. 이미지 내용이 같아 Compose가 서버 컨테이너를 그대로 두었으면(출처 증명을 붙여
+# 빌드한 이미지에서 넘어오는 첫 배포, 손으로 docker compose up -d --build 한 뒤의 배포 등) 그 이미지를 아직 써서 떼지
+# 못한다. 그 이름은 다음 배포가 3단계에서 옮기니 실패로 치지 않는다(#59)
+[ -z "$saved_app_image" ] || docker rmi "$app_image:before-deploy" >/dev/null 2>&1
+{ docker image prune -f && docker builder prune -f --filter until=168h; } \
   || echo "${kind}는 끝났고, 앞 이미지 정리만 실패했습니다. 디스크가 차면 위 출력을 봅니다"
 if [ "$kind" = 배포 ]; then
   # shellcheck disable=SC2012 # 지울 파일 이름은 이 스크립트가 만드는 mwt-<시각>.sql 꼴뿐이다
