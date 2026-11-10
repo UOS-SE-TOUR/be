@@ -44,6 +44,10 @@ cd "$MWT_DEPLOY_DIR" || exit 1
 
 if [ $# -eq 1 ]; then
   kind=되돌리기
+  # main 같은 브랜치 이름을 주면 받지 않은 로컬 브랜치로 "되돌리기"가 되므로 커밋 해시만 받는다
+  case $1 in
+    *[!0-9a-f]*) echo "되돌릴 커밋은 배포 기록에 적힌 커밋 해시(예: a1b2c3d)로 줍니다: $1" >&2; exit 2 ;;
+  esac
   target=$(git rev-parse --verify --quiet "$1^{commit}") || { echo "커밋을 찾지 못했습니다: $1" >&2; exit 2; }
 else
   kind=배포
@@ -52,6 +56,14 @@ fi
 # 배포가 두 번 겹쳐 돌지 않게 잠근다. 잠금은 이 스크립트가 끝나면(죽어도) 풀린다
 exec 9>"$HOME/.mwt-deploy.lock" || exit 1
 flock -n 9 || { echo "다른 배포가 돌고 있습니다. 그 배포가 끝난 뒤 다시 돌립니다" >&2; exit 3; }
+
+# 서버가 꺼지는 등으로 강제로 끝난 배포가 남긴, 받다 만 백업(회원 정보가 든다)을 지운다
+rm -f "$HOME"/mwt-*.sql.part
+
+# 출력을 ~/mwt-deploy-output.log에도 남긴다(마지막 배포 것만). SSH가 끊겨 터미널에 쓰지 못해도
+# tee가 파일에는 계속 써서, 명령이 출력 실패로 멈추지 않는다. tee는 Ctrl-C에 같이 죽지 않게 하고
+# (죽으면 멈췄다는 문구와 기록을 남기기 전에 이 스크립트가 출력 실패로 죽는다), 잠금(9번)은 물려받지 않게 닫는다
+exec > >(trap '' INT TERM; exec tee "$HOME/mwt-deploy-output.log" 9>&-) 2>&1
 
 log=$HOME/mwt-deploys.log
 B=     # 이번에 받아 끝까지 확인한 백업 파일
@@ -69,6 +81,8 @@ record() {
 
 # 단계가 실패했을 때: 어디서 멈췄는지 알리고 기록한 뒤 1로 끝낸다
 stop() {
+  # 기록이 두 줄이 되지 않게, 멈추는 동안 들어온 Ctrl-C 등은 무시한다
+  trap '' INT TERM
   # 받는 중이던 백업은 지운다. 이름을 바꾼 바로 뒤에 멈췄으면(끝까지 받은 백업) 기록에 남긴다
   if [ -n "$part" ]; then
     if [ -e "${part%.part}" ]; then B=${part%.part}; else rm -f "$part"; fi
