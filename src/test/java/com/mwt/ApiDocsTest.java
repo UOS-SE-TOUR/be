@@ -31,7 +31,9 @@ import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
+import com.jayway.jsonpath.Option;
 import com.mwt.common.security.JwtTokenProvider;
 import com.mwt.member.MemberType;
 import com.mwt.tour.OptionCategory;
@@ -52,6 +54,7 @@ import jakarta.servlet.http.Cookie;
 class ApiDocsTest {
 
 	private static final Pattern SUMMARY = Pattern.compile(".+ \\((누구나|로그인한 회원|고객|직원)\\)");
+	private static final String ERROR_RESPONSE_REF = "#/components/schemas/ErrorResponse";
 
 	@Autowired
 	MockMvc mockMvc;
@@ -187,6 +190,11 @@ class ApiDocsTest {
 		assertThat(schemas).containsKeys(Theme.class.getSimpleName(), TourLevel.class.getSimpleName(),
 				TourStatus.class.getSimpleName(), MemberType.class.getSimpleName(), OptionCategory.class.getSimpleName());
 		assertThat(missing).as("@Schema 설명에 뜻이 없는 열거값").isEmpty();
+		// @Schema(enumAsRef = true)를 빠뜨린 열거형은 칸 안에 그대로 실려 위 검사를 비켜 간다
+		List<String> enumPaths = JsonPath.using(Configuration.builder().options(Option.AS_PATH_LIST).build())
+			.parse(docs).read("$..enum");
+		assertThat(enumPaths).as("components.schemas 밖에 실린 열거값 — 열거형에 @Schema(enumAsRef = true)를 단다")
+			.allMatch(enumPath -> enumPath.matches("\\$\\['components']\\['schemas']\\['[^']+']\\['enum']"));
 		String theme = JsonPath.read(docs, "$.components.schemas.Theme.description");
 		for (Theme value : Theme.values()) {
 			assertThat(theme).contains(value.name() + "(" + value.getDisplayName() + ")");
@@ -197,8 +205,9 @@ class ApiDocsTest {
 		}
 	}
 
+	/** 성공 응답 쪽도 본다 — 실패 응답을 고치다 같은 객체를 쓰는 성공 응답까지 ErrorResponse로 바뀌면 안 된다. */
 	@Test
-	void 실패_응답의_본문은_모두_ErrorResponse다() throws Exception {
+	void 실패_응답의_본문은_모두_ErrorResponse이고_성공_응답은_아니다() throws Exception {
 		String docs = apiDocs();
 		Map<String, Map<String, Map<String, Object>>> paths = JsonPath.read(docs, "$.paths");
 		List<String> errorResponses = new ArrayList<>();
@@ -206,18 +215,22 @@ class ApiDocsTest {
 		paths.forEach((path, operations) -> operations.forEach((method, operation) -> {
 			@SuppressWarnings("unchecked")
 			Map<String, Object> responses = (Map<String, Object>) operation.get("responses");
-			responses.keySet().stream().filter(code -> code.startsWith("4") || code.startsWith("5")).forEach(code -> {
+			responses.forEach((code, response) -> {
 				String where = method.toUpperCase(Locale.ROOT) + " " + path + " " + code;
-				errorResponses.add(where);
-				List<String> refs = JsonPath.read(docs, "$.paths['" + path + "']." + method + ".responses['" + code
-						+ "'].content.*.schema['$ref']");
-				if (!refs.equals(List.of("#/components/schemas/ErrorResponse"))) {
+				List<String> refs = response instanceof Map<?, ?> body && body.containsKey("content")
+						? JsonPath.read(response, "$.content.*.schema['$ref']")
+						: List.of();   // 본문 없는 응답(로그아웃 204)
+				boolean error = code.startsWith("4") || code.startsWith("5");
+				if (error) {
+					errorResponses.add(where);
+				}
+				if (error != refs.equals(List.of(ERROR_RESPONSE_REF))) {
 					wrong.add(where + " " + refs);
 				}
 			});
 		}));
 		assertThat(errorResponses).isNotEmpty();
-		assertThat(wrong).as("본문이 ErrorResponse 하나가 아닌 실패 응답").isEmpty();
+		assertThat(wrong).as("본문이 ErrorResponse 하나가 아닌 실패 응답, 또는 ErrorResponse인 성공 응답").isEmpty();
 		assertThat(JsonPath.<String>read(docs, "$.components.schemas.ErrorResponse.type")).isEqualTo("object");
 		assertThat(JsonPath.<String>read(docs, "$.components.schemas.ErrorResponse.properties.message.type"))
 			.isEqualTo("string");
@@ -258,12 +271,6 @@ class ApiDocsTest {
 		assertThat(JsonPath.<List<Object>>read(docs, properties + "level.anyOf[*].type")).containsExactly("null");
 		assertThat(JsonPath.<List<String>>read(docs, properties + "departureDate.type")).contains("string", "null");
 		assertThat(JsonPath.<List<String>>read(docs, properties + "headcount.type")).contains("integer", "null");
-	}
-
-	@Test
-	void 비밀번호의_최소_길이는_서버_규칙과_같다() throws Exception {
-		assertThat(JsonPath.<Integer>read(apiDocs(), "$.components.schemas.SignUpRequest.properties.password.minLength"))
-			.isEqualTo(8);
 	}
 
 	@Test

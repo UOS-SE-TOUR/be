@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import org.springdoc.core.customizers.GlobalOpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
@@ -19,7 +20,6 @@ import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.JsonSchema;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
-import io.swagger.v3.oas.models.responses.ApiResponses;
 import io.swagger.v3.oas.models.servers.Server;
 
 /**
@@ -51,9 +51,10 @@ public class OpenApiConfig {
 	}
 
 	/**
-	 * 실패 응답(4xx·5xx)의 본문을 ErrorResponse({"message"})로 적는다. Controller에는 상태 코드와 설명만 적고, 본문 모양은
-	 * 여기서 한 번에 붙인다. springdoc은 본문을 적지 않은 실패 응답에 성공 응답의 반환 타입을 채우므로, 본문이 없거나 성공
-	 * 응답과 같은 것만 바꾼다 — @ApiResponse에 본문(예시 등)을 직접 적은 실패 응답은 그대로 둔다.
+	 * 실패 응답(4xx·5xx)의 본문 스키마를 모두 ErrorResponse({"message"})로 적는다. Controller에는 상태 코드와 설명만 적고,
+	 * 본문 모양은 여기서 한 번에 붙인다. 서버의 실패 응답은 늘 이 모양이라(GlobalExceptionHandler·ApiErrorController)
+	 * 스키마는 무조건 바꾼다 — springdoc은 본문을 적지 않은 실패 응답에 성공 응답의 반환 타입을 채운다.
+	 * 스키마 말고 @ApiResponse에 직접 적은 것(예시 등)은 그대로 둔다.
 	 */
 	@Bean
 	GlobalOpenApiCustomizer errorResponseCustomizer() {
@@ -61,28 +62,41 @@ public class OpenApiConfig {
 			// 다른 스키마와 같은 판(3.1)으로 만들어야 "type": "object"가 붙는다
 			ModelConverters.getInstance(openApi.getSpecVersion() == SpecVersion.V31).read(ErrorResponse.class)
 				.forEach(openApi.getComponents()::addSchemas);
-			openApi.getPaths().values().forEach(path -> path.readOperations().forEach(operation -> {
-				ApiResponses responses = operation.getResponses();
-				Content success = responses.entrySet().stream()
-					.filter(entry -> entry.getKey().startsWith("2"))
-					.map(entry -> entry.getValue().getContent())
-					.filter(Objects::nonNull)
-					.findFirst()
-					.orElse(null);
-				responses.forEach((code, response) -> {
-					boolean error = code.startsWith("4") || code.startsWith("5");
-					if (error && (response.getContent() == null || response.getContent().equals(success))) {
-						response.setContent(errorContent());
+			openApi.getPaths().values().forEach(path -> path.readOperations().forEach(operation ->
+				operation.getResponses().forEach((code, response) -> {
+					if (code.startsWith("4") || code.startsWith("5")) {
+						response.setContent(errorContent(response.getContent()));
 					}
-				});
-			}));
+				})));
 		};
+	}
+
+	/**
+	 * 새 Content를 만든다 — springdoc이 채운 Content·MediaType은 성공 응답과 같은 객체일 수 있어 그 자리에서 고치면 성공 응답까지
+	 * 바뀐다. 원래 본문의 형식(media type)과 예시는 옮긴다.
+	 */
+	private static Content errorContent(Content original) {
+		Content content = new Content();
+		if (original == null || original.isEmpty()) {
+			return content.addMediaType(org.springframework.http.MediaType.APPLICATION_JSON_VALUE,
+					new MediaType().schema(errorSchema()));
+		}
+		original.forEach((type, mediaType) -> {
+			MediaType copy = new MediaType().schema(errorSchema()).examples(mediaType.getExamples())
+				.encoding(mediaType.getEncoding()).extensions(mediaType.getExtensions());
+			if (mediaType.getExampleSetFlag()) {
+				copy.setExample(mediaType.getExample());
+			}
+			content.addMediaType(type, copy);
+		});
+		return content;
 	}
 
 	/**
 	 * null일 수 있는 열거형 칸(@Schema(nullable = true))을 3.1 꼴인 anyOf [열거형, null]로 바꾼다.
 	 * springdoc은 그런 칸을 {"$ref": 열거형, "type": "null"}로 내는데, 이 꼴은 "열거형이면서 null"이라 어떤 값도 맞지 않는다.
-	 * 스키마의 칸과 목록 항목(안쪽까지), 요청 파라미터를 본다. 놓친 자리가 있으면 ApiDocsTest가 잡는다.
+	 * 스키마의 안쪽(칸·목록 항목·Map 값·allOf/anyOf/oneOf)과 요청 파라미터·요청과 응답 본문을 본다. 놓친 자리가 있으면
+	 * ApiDocsTest가 잡는다.
 	 */
 	@Bean
 	GlobalOpenApiCustomizer nullableRefCustomizer() {
@@ -92,16 +106,25 @@ public class OpenApiConfig {
 				if (operation.getParameters() != null) {
 					operation.getParameters().forEach(parameter -> fixNullableRefs(parameter.getSchema()));
 				}
+				if (operation.getRequestBody() != null) {
+					fixNullableRefs(operation.getRequestBody().getContent());
+				}
+				operation.getResponses().values().forEach(response -> fixNullableRefs(response.getContent()));
 			}));
 		};
 	}
 
-	private static Content errorContent() {
-		return new Content().addMediaType(org.springframework.http.MediaType.APPLICATION_JSON_VALUE,
-				new MediaType().schema(new Schema<>().$ref("#/components/schemas/" + ERROR_RESPONSE)));
+	private static Schema<?> errorSchema() {
+		return new Schema<>().$ref("#/components/schemas/" + ERROR_RESPONSE);
 	}
 
-	/** 그 자리를 고친 뒤 안쪽(칸·목록 항목)으로 내려간다. 원래 스키마 객체를 고쳐 설명·예시 같은 다른 값은 남긴다. */
+	private static void fixNullableRefs(Content content) {
+		if (content != null) {
+			content.values().forEach(mediaType -> fixNullableRefs(mediaType.getSchema()));
+		}
+	}
+
+	/** 그 자리를 고친 뒤 안쪽으로 내려간다. 원래 스키마 객체를 고쳐 설명·예시 같은 다른 값은 남긴다. */
 	@SuppressWarnings({"rawtypes", "unchecked"})
 	private static void fixNullableRefs(Schema schema) {
 		if (schema == null) {
@@ -119,6 +142,12 @@ public class OpenApiConfig {
 			properties.values().forEach(OpenApiConfig::fixNullableRefs);
 		}
 		fixNullableRefs(schema.getItems());
+		if (schema.getAdditionalProperties() instanceof Schema valueSchema) {
+			fixNullableRefs(valueSchema);
+		}
+		Stream.of(schema.getAllOf(), schema.getAnyOf(), schema.getOneOf())
+			.filter(Objects::nonNull)
+			.forEach(schemas -> ((List<Schema>) schemas).forEach(OpenApiConfig::fixNullableRefs));
 	}
 
 }
