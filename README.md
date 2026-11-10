@@ -170,7 +170,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 | `<앞 커밋>` | 배포가 끝날 때 "배포했습니다: …"에 찍힌 커밋 | `a1b2c3d` |
 | `<받은 시각>` | 백업 파일 이름의 시각. `ls -1t ~/mwt-*.sql`로 목록을 봅니다 | `20261110-143000` |
 
-README에 명령을 새로 적을 때도 입력이 필요 없는 `exec`·`run`에는 `< /dev/null`을 붙입니다. `-T`는 가상 터미널만 끄고 입력은 그대로 넘기므로 이것으로는 막지 못합니다.
+README에 명령을 새로 적을 때도 입력이 필요 없는 `exec`·`run`에는 `< /dev/null`을 붙입니다. `-T`는 가상 터미널만 끄고 입력은 그대로 넘기므로 이것으로는 막지 못합니다. 자리표시자가 든 줄 다음의 줄은 `&&`나 `||`로 시작하게 씁니다. 터미널의 셸은 문법 오류가 난 줄만 버리고 다음 줄을 새 명령으로 돌리기 때문에, 그렇게 써야 채우지 않은 자리표시자가 사슬 전체를 멈춥니다.
 
 ### 운영 값(`deploy/.env`)
 
@@ -243,7 +243,7 @@ docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -
 
 ### 다시 배포
 
-main에 머지된 코드를 받아 다시 빌드합니다. 아래 명령 하나가 다음을 차례로 하고, 한 단계라도 실패하면 거기서 멈춘 뒤 마지막에 "배포가 중간에 멈췄습니다"를 찍습니다. 다 되면 "배포했습니다: <커밋>"을 찍습니다 — 배포를 되돌릴 때 이 줄로 앞 버전을 찾습니다.
+main에 머지된 코드를 받아 다시 빌드합니다. 아래 명령 하나가 다음을 차례로 하고, 다 되면 "배포했습니다: <커밋> (배포 전 백업: <파일>)"을 찍습니다. 배포를 되돌릴 때 이 줄로 앞 버전과 백업을 찾습니다. 한 단계라도 실패하면 거기서 멈추고, 새 버전을 띄우기 전에 멈췄는지(운영은 앞 버전 그대로) 띄운 뒤에 멈췄는지를 찍습니다.
 
 1. main을 받습니다(`git pull --ff-only`). 받지 못한 채 이어 가면 지금 있는 코드를 그대로 다시 배포하게 되므로 여기서 멈춥니다. 배포를 되돌린 뒤라 브랜치에 있지 않으면 `not currently on a branch`로 멈추니, 먼저 `cd ~/be && git checkout main` 합니다.
 2. Nginx·Certbot 이미지를 새로 받고, 받아 온 Nginx 설정(`nginx/templates`)에 틀린 곳이 없는지 그 새 이미지로 봅니다.
@@ -254,20 +254,20 @@ main에 머지된 코드를 받아 다시 빌드합니다. 아래 명령 하나�
 7. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고, 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다.
 
 ```bash
-cd ~/be/deploy && { git pull --ff-only || { echo "main을 받지 못했습니다(위 git 오류를 봅니다). 'not currently on a branch'면 먼저 cd ~/be && git checkout main 합니다"; false; }; } && \
-docker compose pull nginx certbot \
+cd ~/be/deploy && B= U= && { git pull --ff-only || { echo "main을 받지 못했습니다(위 git 오류를 봅니다). 'not currently on a branch'면 먼저 cd ~/be && git checkout main 합니다"; false; }; } \
+  && docker compose pull nginx certbot \
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t < /dev/null \
   && docker compose build --pull app \
   && B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql && { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' < /dev/null > "$B") \
   && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } \
-  && docker compose up -d --remove-orphans \
+  && U=1 && docker compose up -d --remove-orphans \
   && docker compose up -d --force-recreate nginx \
   && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) \
   && curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
   && docker image prune -f && docker builder prune -f --filter until=168h \
   && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
   && echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)" \
-  || echo "배포가 중간에 멈췄습니다. 위 출력에서 멈춘 단계를 보고, 서버가 문제면 docker compose logs app nginx 를 봅니다. 고칠 수 없으면 README '배포 되돌리기'로 갑니다"
+  || if [ -n "$U" ]; then echo "배포가 새 버전을 띄운 뒤에 멈췄습니다(배포 전 백업: $B). 서버가 문제면 docker compose logs app nginx 를 보고, 고칠 수 없으면 README '배포 되돌리기'로 갑니다"; else echo "배포가 새 버전을 띄우기 전에 멈췄습니다. 운영은 앞 버전 그대로이니, 위 출력에서 멈춘 단계를 보고 고친 뒤 다시 돌립니다"; fi
 ```
 
 MySQL 이미지는 다시 배포 때 받지 않습니다. 새 패치를 받으면 배포 도중에 DB가 다시 켜지며 그동안 서버가 500을 내기 때문입니다. MySQL 보안 수정을 넣을 때는 쓰는 사람이 적은 때에 백업(아래 "DB 백업")을 받은 뒤 `docker compose pull mysql && docker compose up -d mysql`을 따로 돌립니다. 다시 켜지는 동안(보통 몇십 초) 서버는 DB에 못 붙다가 저절로 다시 붙습니다.
@@ -281,7 +281,8 @@ MySQL 이미지는 다시 배포 때 받지 않습니다. 새 패치를 받으�
 | 문제가 생긴 배포의 마지막 줄 | 되돌아갈 커밋 |
 | --- | --- |
 | "배포했습니다: …" | 그보다 하나 앞에 찍힌 "배포했습니다: …"의 커밋 |
-| "배포가 중간에 멈췄습니다…" | 가장 마지막에 찍힌 "배포했습니다: …"의 커밋 |
+| "배포가 새 버전을 띄운 뒤에 멈췄습니다…" | 가장 마지막에 찍힌 "배포했습니다: …"의 커밋 |
+| "배포가 새 버전을 띄우기 전에 멈췄습니다…" | 되돌리지 않습니다. 운영은 앞 버전 그대로입니다 |
 
 출력이 남아 있지 않으면(앞 배포를 다른 사람이 했거나 터미널을 닫았으면) `cd ~/be && git reflog -10`을 봅니다. `pull`이나 `checkout`이라고 적힌 줄이 코드가 그 커밋으로 옮겨 간 기록입니다. 받기만 하고 배포는 멈춘 커밋도 섞여 있으니, 운영에서 잘 돌았던 커밋인지는 그 배포를 한 사람에게 확인합니다.
 
@@ -297,30 +298,31 @@ cd ~/be && git diff --name-only <앞 커밋> HEAD -- src/main/resources/db/migra
 | --- | --- | --- |
 | 테이블을 더하거나, 비어 있어도 되는(또는 기본값이 있는) 칸을 더함 | 그 DB를 그대로 씁니다 | 3번만 합니다. DB는 그대로 둡니다 |
 | 기본값 없는 `NOT NULL` 칸을 더함 | 뜨고 확인도 200이지만, 신청 같은 쓰기가 500입니다(서버 로그에 `Field '…' doesn't have a default value`) | 3번 뒤에 새 버전 배포 때 받은 백업을 되살립니다 |
-| 앞 버전이 쓰는 칸·테이블의 이름을 바꾸거나 지움 | 시작할 때 테이블 확인에 실패해 뜨지 못합니다(서버 로그에 `Schema validation: missing …`). 3번 명령이 "되돌리기가 중간에 멈췄습니다"로 끝납니다 | 3번을 다시 돌리지 말고 새 버전 배포 때 받은 백업을 되살립니다. 되살리기가 앞 버전 서버를 띄웁니다 |
+| 앞 버전이 쓰는 칸·테이블의 이름을 바꾸거나 지움 | 시작할 때 테이블 확인에 실패해 뜨지 못합니다(서버 로그에 `Schema validation: missing …`). 3번 명령이 "되돌리기가 앞 버전을 띄운 뒤에 멈췄습니다"로 끝납니다 | 3번을 다시 돌리지 말고 새 버전 배포 때 받은 백업을 되살립니다. 되살리기가 앞 버전 서버를 띄웁니다 |
+| 새 버전의 마이그레이션이 중간에 실패함(새 버전 서버 로그에 `Migration … failed`) | MySQL은 테이블 변경을 중간에 되돌리지 않아 반쯤 바뀐 테이블과 실패 기록이 남고, 앞 버전도 그 때문에 뜨지 못하거나 쓰기가 실패할 수 있습니다 | 바로 위 줄과 같이 3번 뒤에 새 버전 배포 때 받은 백업을 되살립니다 |
 | 판단이 서지 않음 | | 3번 뒤에 가입이나 신청을 한 번 해 봅니다 |
 
-"새 버전 배포 때 받은 백업"은 문제가 생긴 배포의 마지막 줄 "(배포 전 백업: <파일>)"에 찍힌 파일입니다. 남아 있지 않으면 `ls -1t ~/mwt-*.sql`의 보통 둘째 줄입니다(파일 이름의 시각이 새 버전을 배포한 때와 맞는지 봅니다). 첫째 줄은 3번 명령이 받은 백업이라 새 버전의 테이블이 이미 들어 있어, 넣어도 소용이 없습니다. 되살리는 법은 아래 "백업 되살리기"에 있습니다.
+"새 버전 배포 때 받은 백업"은 문제가 생긴 배포가 마지막 줄에 "배포 전 백업: <파일>"로 찍은 파일입니다. 출력이 남아 있지 않으면 `ls -lt ~/mwt-*.sql`에서 파일 이름의 시각이 새 버전을 배포한 때와 맞는 것을 고릅니다(목록의 몇째 줄인지로 고르지 않습니다 — 그 사이에 받은 백업이 있으면 줄이 밀립니다). 3번 명령이 받는 "되돌리기 전 백업"에는 새 버전의 테이블이 이미 들어 있어, 넣어도 소용이 없습니다. 되살리는 법은 아래 "백업 되살리기"에 있습니다.
 
-백업을 넣으면 그 백업 뒤에 들어온 가입·신청이 사라집니다(확정 문자가 이미 나간 신청도). 사라질 기록은 3번 명령이 받은 백업에만 남으니, 넣기 전에 그 파일을 `mwt-`로 시작하지 않는 이름으로 복사해 둡니다(다시 배포가 `mwt-*.sql`을 최근 10개만 남깁니다).
+백업을 넣으면 그 백업 뒤에 들어온 가입·신청이 사라집니다(확정 문자가 이미 나간 신청도). 사라질 기록은 3번 명령이 받은 "되돌리기 전 백업"에만 남으니, 넣기 전에 그 파일을 `mwt-`로 시작하지 않는 이름으로 복사해 둡니다(다시 배포가 `mwt-*.sql`을 최근 10개만 남깁니다).
 
 **3. 앞 버전을 다시 배포합니다.** `<앞 커밋>`을 채워 붙여 넣습니다. "다시 배포" 명령에서 첫 줄의 main 받기를 앞 커밋으로 옮기기로 바꾼 것이고, 이때 받는 백업은 되돌리기 직전의 DB입니다.
 
 ```bash
-cd ~/be/deploy && git checkout <앞 커밋> && \
-docker compose pull nginx certbot \
+cd ~/be/deploy && B= U= && git checkout <앞 커밋> \
+  && docker compose pull nginx certbot \
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t < /dev/null \
   && docker compose build --pull app \
   && B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql && { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' < /dev/null > "$B") \
   && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } \
-  && docker compose up -d --remove-orphans \
+  && U=1 && docker compose up -d --remove-orphans \
   && docker compose up -d --force-recreate nginx \
   && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) \
   && curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
   && docker image prune -f && docker builder prune -f --filter until=168h \
   && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
   && echo "배포했습니다: $(git rev-parse --short HEAD) (앞 버전으로 되돌림, 되돌리기 전 백업: $B)" \
-  || echo "되돌리기가 중간에 멈췄습니다. 앞 버전 서버가 뜨지 못했으면 README '배포 되돌리기' 2번 표를 봅니다"
+  || if [ -n "$U" ]; then echo "되돌리기가 앞 버전을 띄운 뒤에 멈췄습니다(되돌리기 전 백업: $B). 앞 버전 서버가 뜨지 못했으면 README '배포 되돌리기' 2번 표를 봅니다"; else echo "되돌리기가 앞 버전을 띄우기 전에 멈췄습니다. 운영은 그대로이니 위 출력에서 멈춘 단계를 봅니다"; fi
 ```
 
 고친 버전이 main에 머지되면 `cd ~/be && git checkout main` 뒤 위 "다시 배포" 명령을 그대로 돌립니다.
@@ -352,8 +354,8 @@ B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; { (umask 077; docker compose e
 
 ```bash
 cd ~/be/deploy
-F=~/mwt-<받은 시각>.sql
-tail -n 1 "$F" | grep -q '^-- Dump completed' \
+F=~/mwt-<받은 시각>.sql \
+  && tail -n 1 "$F" | grep -q '^-- Dump completed' \
   && docker compose stop app \
   && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER"' < "$F" \
   && docker compose up -d app \
@@ -364,7 +366,7 @@ tail -n 1 "$F" | grep -q '^-- Dump completed' \
 
 | 보이는 것 | 할 일 |
 | --- | --- |
-| `tail: cannot open …` 뒤에, 또는 다른 오류 없이 "되살리지 못했습니다" | 파일 확인에서 멈췄습니다. DB와 서버는 그대로입니다. `ls -l "$F"`로 파일 이름이 맞는지 보고, 파일이 있는데도 멈췄으면 끝이 잘린 파일이니 다른 백업을 고릅니다 |
+| `No such file`·`tail: cannot open …` 뒤에, 또는 다른 오류 없이 "되살리지 못했습니다" | 파일 확인에서 멈췄습니다. DB와 서버는 그대로입니다. `ls -lt ~/mwt-*.sql`로 `<받은 시각>`을 맞게 채웠는지 보고, 파일이 있는데도 멈췄으면 끝이 잘린 파일이니 다른 백업을 고릅니다 |
 | `ERROR`로 시작하는 MySQL 오류 뒤 "되살리지 못했습니다" | DB가 지워졌거나 반쯤 들어갔을 수 있습니다. 서버를 띄우지 말고 원인을 고친 뒤 같은 명령을 다시 돌립니다(파일이 DB를 처음부터 다시 만듭니다) |
 | 서버(`app`)를 띄우다 난 오류 뒤 "되살리지 못했습니다" | 되살리기는 끝났습니다. `docker compose up -d app`만 다시 돌립니다 |
 
