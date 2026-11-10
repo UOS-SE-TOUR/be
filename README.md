@@ -158,11 +158,11 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 
 ### 명령을 붙여 넣을 때
 
-아래 코드 블록은 복사 버튼으로 통째로 복사해 운영 서버 터미널에 붙여 넣습니다. 블록 안의 명령은 앞 명령이 실패하면 뒤 명령이 돌지 않게 이어 두었고, 끝에 성공·실패를 한 줄로 찍습니다.
+아래 코드 블록은 복사 버튼으로 통째로 복사해 운영 서버 터미널에 붙여 넣습니다. 앞 명령이 실패하면 뒤 명령이 돌면 안 되는 곳은 `&&`로 이어 두었습니다.
 
 - 몇몇 줄 끝의 `< /dev/null`은 "이 명령에 넣을 입력이 없다"는 표시이니 지우지 않습니다. `docker compose exec`·`run`(컨테이너 안에서 명령을 돌리는 것)은 터미널 입력을 컨테이너로 넘기므로, 이 표시가 없으면 함께 붙여 넣은 다음 줄을 입력으로 가져가 그 줄이 돌지 않습니다.
 - `docker compose logs -f`처럼 Ctrl-C를 누를 때까지 끝나지 않는 명령은 따로 칩니다.
-- `<…>`로 된 자리는 붙여 넣기 전에 실제 값으로 바꿉니다. 복사해 메모장에서 고친 뒤 붙여 넣으면 편합니다. 바꾸지 않고 붙여 넣으면 셸이 오류를 내고 그 명령은 돌지 않습니다.
+- 명령 안의 `"<…>"`는 붙여 넣기 전에 실제 값으로 바꿉니다. 둘레의 따옴표는 그대로 둡니다. 복사해 메모장에서 고친 뒤 붙여 넣으면 편합니다. 바꾸지 않고 붙여 넣으면 그 명령이 오류를 내고 사슬이 멈춥니다.
 
 | 자리 | 넣을 것 | 예 |
 | --- | --- | --- |
@@ -170,7 +170,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 | `<앞 커밋>` | 배포가 끝날 때 "배포했습니다: …"에 찍힌 커밋 | `a1b2c3d` |
 | `<받은 시각>` | 백업 파일 이름의 시각. `ls -1t ~/mwt-*.sql`로 목록을 봅니다 | `20261110-143000` |
 
-README에 명령을 새로 적을 때도 입력이 필요 없는 `exec`·`run`에는 `< /dev/null`을 붙입니다. `-T`는 가상 터미널만 끄고 입력은 그대로 넘기므로 이것으로는 막지 못합니다. 자리표시자가 든 줄 다음의 줄은 `&&`나 `||`로 시작하게 씁니다. 터미널의 셸은 문법 오류가 난 줄만 버리고 다음 줄을 새 명령으로 돌리기 때문에, 그렇게 써야 채우지 않은 자리표시자가 사슬 전체를 멈춥니다.
+README에 명령을 새로 적을 때도 입력이 필요 없는 `exec`·`run`에는 `< /dev/null`을 붙입니다. `-T`는 가상 터미널만 끄고 입력은 그대로 넘기므로 이것으로는 막지 못합니다. 자리표시자는 따옴표 안에 둡니다. 따옴표 밖의 `<`·`>`는 셸이 파일 입출력으로 읽습니다. 여러 줄 사슬은 둘째 줄부터 `&&`나 `||`로 시작하게 씁니다. 터미널의 셸은 문법 오류가 난 줄만 버리고 다음 줄을 새 명령으로 돌리기 때문입니다.
 
 ### 운영 값(`deploy/.env`)
 
@@ -251,7 +251,7 @@ main에 머지된 코드를 받아 다시 빌드합니다. 아래 명령 하나�
 4. 새 서버를 띄우기 바로 전에 DB를 백업하고 끝까지 받아졌는지 봅니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없기 때문입니다. 빌드 뒤에 받아야 빌드하는 몇 분 동안 들어온 가입·신청도 백업에 들어갑니다.
 5. 바뀐 컨테이너를 다시 만들고, Nginx는 늘 새로 만듭니다. Nginx 설정은 컨테이너가 시작할 때만 채워지기 때문이고, 끊기는 것은 0.2초쯤입니다. 서버 컨테이너를 바꿔 띄우는 몇십 초 동안은 503(`{"message": "서버에 잠시 연결할 수 없습니다. …"}`)이 납니다.
 6. 서버(`app`)가 뜰 때까지 3분까지 기다려 봅니다. 바깥 DNS를 거치지 않고 이 서버의 Nginx로 바로 묻습니다.
-7. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고, 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다.
+7. 다 됐으면 "배포했습니다"를 찍은 뒤, 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다. 이 정리만 실패하면 배포는 끝난 것이라 따로 알립니다.
 
 ```bash
 cd ~/be/deploy && B= U= && { git pull --ff-only || { echo "main을 받지 못했습니다(위 git 오류를 봅니다). 'not currently on a branch'면 먼저 cd ~/be && git checkout main 합니다"; false; }; } \
@@ -264,9 +264,8 @@ cd ~/be/deploy && B= U= && { git pull --ff-only || { echo "main을 받지 못했
   && docker compose up -d --force-recreate nginx \
   && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) \
   && curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
-  && docker image prune -f && docker builder prune -f --filter until=168h \
-  && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
   && echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)" \
+  && { docker image prune -f && docker builder prune -f --filter until=168h && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } || echo "배포는 끝났고, 앞 이미지·오래된 백업 정리만 실패했습니다. 디스크가 차면 위 출력을 봅니다"; } \
   || if [ -n "$U" ]; then echo "배포가 새 버전을 띄운 뒤에 멈췄습니다(배포 전 백업: $B). 서버가 문제면 docker compose logs app nginx 를 보고, 고칠 수 없으면 README '배포 되돌리기'로 갑니다"; else echo "배포가 새 버전을 띄우기 전에 멈췄습니다. 운영은 앞 버전 그대로이니, 위 출력에서 멈춘 단계를 보고 고친 뒤 다시 돌립니다"; fi
 ```
 
@@ -286,10 +285,10 @@ MySQL 이미지는 다시 배포 때 받지 않습니다. 새 패치를 받으�
 
 출력이 남아 있지 않으면(앞 배포를 다른 사람이 했거나 터미널을 닫았으면) `cd ~/be && git reflog -10`을 봅니다. `pull`이나 `checkout`이라고 적힌 줄이 코드가 그 커밋으로 옮겨 간 기록입니다. 받기만 하고 배포는 멈춘 커밋도 섞여 있으니, 운영에서 잘 돌았던 커밋인지는 그 배포를 한 사람에게 확인합니다.
 
-**2. 새 버전에 DB 테이블 변경이 있었는지 봅니다.** 3번 전에 봅니다(3번이 코드를 앞 버전으로 옮기기 때문입니다).
+**2. 새 버전에 DB 테이블 변경이 있었는지 봅니다.** 앞 커밋과, 다시 배포가 받아 둔 새 버전(`main`)을 견줍니다. 3번 뒤에 다시 봐도 결과는 같습니다.
 
 ```bash
-cd ~/be && git diff --name-only <앞 커밋> HEAD -- src/main/resources/db/migration
+cd ~/be && git diff --name-only "<앞 커밋>" main -- src/main/resources/db/migration
 ```
 
 아무것도 찍히지 않으면 3번만 하면 됩니다. 파일이 찍히면 그 파일(마이그레이션)을 열어 보고 아래 표에서 고릅니다. Flyway(서버가 뜰 때 DB 테이블 변경을 적용하는 도구)는 앞 버전이 모르는 새 마이그레이션이 적용돼 있어도 경고만 남기고 넘어가므로, 앞 버전 서버가 그 DB로 뜰 수는 있습니다.
@@ -306,10 +305,10 @@ cd ~/be && git diff --name-only <앞 커밋> HEAD -- src/main/resources/db/migra
 
 백업을 넣으면 그 백업 뒤에 들어온 가입·신청이 사라집니다(확정 문자가 이미 나간 신청도). 사라질 기록은 3번 명령이 받은 "되돌리기 전 백업"에만 남으니, 넣기 전에 그 파일을 `mwt-`로 시작하지 않는 이름으로 복사해 둡니다(다시 배포가 `mwt-*.sql`을 최근 10개만 남깁니다).
 
-**3. 앞 버전을 다시 배포합니다.** `<앞 커밋>`을 채워 붙여 넣습니다. "다시 배포" 명령에서 첫 줄의 main 받기를 앞 커밋으로 옮기기로 바꾼 것이고, 이때 받는 백업은 되돌리기 직전의 DB입니다.
+**3. 앞 버전을 다시 배포합니다.** `"<앞 커밋>"`을 채워 붙여 넣습니다. "다시 배포" 명령에서 첫 줄의 main 받기를 앞 커밋으로 옮기기로 바꾸고, 되살릴 백업이 지워지지 않게 오래된 백업 정리를 뺀 것입니다. 이때 받는 백업은 되돌리기 직전의 DB입니다.
 
 ```bash
-cd ~/be/deploy && B= U= && git checkout <앞 커밋> \
+cd ~/be/deploy && B= U= && git checkout "<앞 커밋>" \
   && docker compose pull nginx certbot \
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t < /dev/null \
   && docker compose build --pull app \
@@ -319,10 +318,9 @@ cd ~/be/deploy && B= U= && git checkout <앞 커밋> \
   && docker compose up -d --force-recreate nginx \
   && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) \
   && curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
-  && docker image prune -f && docker builder prune -f --filter until=168h \
-  && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
   && echo "배포했습니다: $(git rev-parse --short HEAD) (앞 버전으로 되돌림, 되돌리기 전 백업: $B)" \
-  || if [ -n "$U" ]; then echo "되돌리기가 앞 버전을 띄운 뒤에 멈췄습니다(되돌리기 전 백업: $B). 앞 버전 서버가 뜨지 못했으면 README '배포 되돌리기' 2번 표를 봅니다"; else echo "되돌리기가 앞 버전을 띄우기 전에 멈췄습니다. 운영은 그대로이니 위 출력에서 멈춘 단계를 봅니다"; fi
+  && { docker image prune -f && docker builder prune -f --filter until=168h || echo "되돌리기는 끝났고, 앞 이미지 정리만 실패했습니다"; } \
+  || if [ -n "$U" ]; then echo "되돌리기가 앞 버전을 띄운 뒤에 멈췄습니다(되돌리기 전 백업: $B). 앞 버전 서버가 뜨지 못했으면 README '배포 되돌리기' 2번 표를 봅니다"; else echo "되돌리기가 앞 버전을 띄우기 전에 멈췄습니다. 운영은 그대로입니다. 코드는 앞 커밋으로 옮겨졌을 수 있으니, 위 출력에서 멈춘 단계를 보고 되돌리기를 그만두려면 cd ~/be && git checkout main 합니다"; fi
 ```
 
 고친 버전이 main에 머지되면 `cd ~/be && git checkout main` 뒤 위 "다시 배포" 명령을 그대로 돌립니다.
@@ -354,7 +352,7 @@ B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; { (umask 077; docker compose e
 
 ```bash
 cd ~/be/deploy
-F=~/mwt-<받은 시각>.sql \
+F="$HOME/mwt-<받은 시각>.sql" \
   && tail -n 1 "$F" | grep -q '^-- Dump completed' \
   && docker compose stop app \
   && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER"' < "$F" \
@@ -379,7 +377,7 @@ F=~/mwt-<받은 시각>.sql \
 
    ```bash
    cd ~/be/deploy
-   docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot --non-interactive --agree-tos --register-unsafely-without-email -d <새 주소> < /dev/null
+   docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot --non-interactive --agree-tos --register-unsafely-without-email -d "<새 주소>" < /dev/null
    ```
 
    받은 인증서의 이름은 `docker compose run --rm --entrypoint certbot certbot certificates < /dev/null`로 봅니다. 새 주소와 같아야 합니다.
@@ -398,18 +396,20 @@ F=~/mwt-<받은 시각>.sql \
    | --- | --- | --- |
    | `Nginx가 쓰는 주소:` 뒤에 새 주소, 다음 줄에 `200` | 바뀌었습니다 | 5번으로 갑니다 |
    | `Nginx가 쓰는 주소:` 뒤에 옛 주소 | `.env`가 바뀌지 않았습니다 | 3번(저장했는지, 맞는 파일인지)을 보고 이 블록을 다시 붙여 넣습니다 |
-   | 새 주소 다음 줄에 `200`이 아닌 숫자(`000`은 연결 자체가 안 된 것) | 새 주소로 HTTPS가 열리지 않습니다 | 먼저 `docker compose logs nginx`로 원인을 봅니다(되돌리면 컨테이너가 새로 만들어져 이 로그가 사라집니다). 그다음 `.env`의 `DOMAIN`을 옛 주소로 되돌리고 `docker compose up -d` 합니다. 옛 인증서가 남아 있어 그대로 뜹니다 |
-   | 주소도 숫자도 찍히지 않음 | `up`이 실패했거나 Nginx가 뜨지 못했습니다 | 바로 위 줄과 같습니다 |
+   | 새 주소 다음 줄에 `000` | 새 주소로 HTTPS가 열리지 않습니다(인증서가 맞지 않거나 Nginx가 받지 않음) | 먼저 `docker compose logs nginx`로 원인을 봅니다(되돌리면 컨테이너가 새로 만들어져 이 로그가 사라집니다). 그다음 `.env`의 `DOMAIN`을 옛 주소로 되돌리고 `docker compose up -d` 합니다. 옛 인증서가 남아 있어 그대로 뜹니다 |
+   | 새 주소 다음 줄에 `503` 같은 다른 숫자 | 새 주소의 HTTPS는 열렸고, 서버(`app`) 쪽 문제입니다 | 되돌리지 않습니다. `docker compose ps`·`docker compose logs app`으로 서버를 보고, 서버가 뜨면 이 블록을 다시 붙여 넣습니다 |
+   | 주소도 숫자도 찍히지 않음 | `up`이 실패했거나 Nginx가 뜨지 못했습니다 | `000` 줄과 같습니다 |
 
 5. 화면 호스팅의 프록시가 넘기는 주소를 새 주소로 바꿉니다(위 "화면과 연결"). 내 컴퓨터에서 `curl -I https://<새 주소>/api/docs`가 `HTTP/2 200`인지도 봅니다.
-6. 쓰지 않게 된 주소의 인증서를 지웁니다. 주소를 바꿨으면 옛 주소를, 4번에서 바꾸기를 그만두고 옛 주소로 되돌렸으면 2번에서 받은 새 주소를 `<지울 주소>`에 넣습니다. 남겨 두면 그 주소가 이 서버를 가리키지 않게 된 뒤부터 12시간마다 갱신에 실패합니다. 지금 Nginx가 쓰는 주소를 넣으면 지우지 않고 멈춥니다.
+6. 쓰지 않게 된 주소의 인증서를 지웁니다. 주소를 바꿨으면 옛 주소를, 4번에서 바꾸기를 그만두고 옛 주소로 되돌렸으면 2번에서 받은 새 주소를 `<지울 주소>`에 넣습니다. 남겨 두면 그 주소가 이 서버를 가리키지 않게 된 뒤부터 12시간마다 갱신에 실패합니다. 지금 Nginx가 쓰는 주소나 `.env`의 `DOMAIN`(다음 `up`이 쓸 주소)을 넣으면 지우지 않고 멈춥니다.
 
    ```bash
    cd ~/be/deploy
-   DEL=<지울 주소> && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) \
-     && [ -n "$DEL" ] && [ "$DEL" != "$D" ] \
+   DEL="<지울 주소>" && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) \
+     && E=$(docker compose run --rm --entrypoint printenv certbot DOMAIN < /dev/null) \
+     && [ -n "$DEL" ] && [ "$DEL" != "$D" ] && [ "$DEL" != "$E" ] \
      && docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name "$DEL" < /dev/null \
-     || echo "지우지 않았습니다(지울 주소: ${DEL:-비어 있음}, Nginx가 쓰는 주소: ${D:-알 수 없음})"
+     || echo "지우지 않았습니다(지울 주소: ${DEL:-비어 있음}, Nginx가 쓰는 주소: ${D:-알 수 없음}, .env의 주소: ${E:-알 수 없음})"
    ```
 
    | 찍힌 것 | 할 일 |
@@ -417,7 +417,7 @@ F=~/mwt-<받은 시각>.sql \
    | `Deleted all files relating to certificate <지울 주소>` | 끝났습니다 |
    | `Another instance of Certbot is already running` | 4번에서 새로 만든 certbot 컨테이너가 시작하며 갱신할 때가 됐는지 보는 중입니다. 잠시 뒤 다시 돌립니다 |
    | `No certificate found` | 인증서 이름이 틀렸습니다. 2번의 `certificates` 명령으로 이름을 봅니다 |
-   | "지우지 않았습니다(…)"만 찍힘 | 괄호 안 두 주소를 보고 `<지울 주소>`를 고쳐 다시 돌립니다 |
+   | "지우지 않았습니다(…)"만 찍힘 | 괄호 안 주소들을 봅니다. 지울 주소가 `.env`의 주소와 같으면 `.env`를 먼저 되돌리고 `docker compose up -d` 합니다. 그 밖이면 `"<지울 주소>"`를 고쳐 다시 돌립니다 |
 
 ## 작업 규칙
 
