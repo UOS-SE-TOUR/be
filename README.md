@@ -325,15 +325,16 @@ tail -n 20 ~/mwt-deploys.log
 **2. 앞 버전이 모르는 DB 테이블 변경이 DB에 있는지 봅니다.** 서버가 뜰 때 적용한 DB 테이블 변경(마이그레이션)은 DB 안의 Flyway 기록(`flyway_schema_history` 테이블)에 남습니다. Flyway는 서버가 뜰 때 마이그레이션을 적용하는 도구입니다. 아래 명령은 그 기록과 앞 커밋의 마이그레이션 파일을 견주어, DB에는 적용됐는데 앞 버전은 모르는 것을 찍습니다. 커밋끼리 견주지 않고 DB를 보는 것은, 띄우기 전에 멈춘 배포가 있었거나 DB를 되살리지 않은 채 거듭 되돌린 경우에도 DB에 실제로 적용된 것을 빠짐없이 보려는 것입니다. 3번 뒤에 다시 봐도 결과는 같습니다.
 
 ```bash
-cd ~/be/deploy && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -N -u"$MYSQL_USER" mwt -e "select script from flyway_schema_history"' < /dev/null | sort > /tmp/mwt-db-migrations \
-  && git -C ~/be ls-tree --name-only "<앞 커밋>" src/main/resources/db/migration/ | sed 's#.*/##' | sort > /tmp/mwt-old-migrations \
-  && comm -23 /tmp/mwt-db-migrations /tmp/mwt-old-migrations \
+cd ~/be/deploy && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -N -u"$MYSQL_USER" mwt -e "select script from flyway_schema_history"' < /dev/null > /tmp/mwt-db-migrations.txt \
+  && git -C ~/be ls-tree --name-only "<앞 커밋>" src/main/resources/db/migration/ > /tmp/mwt-old-migrations.txt \
+  && [ -s /tmp/mwt-db-migrations.txt ] && [ -s /tmp/mwt-old-migrations.txt ] \
+  && comm -23 <(sort /tmp/mwt-db-migrations.txt) <(sed 's#.*/##' /tmp/mwt-old-migrations.txt | sort) \
   && echo "(여기까지가 앞 버전이 모르는 마이그레이션입니다)"
 ```
 
 - 마지막 줄 "(여기까지가 …)"만 찍히면 3번만 하면 됩니다.
 - 그 위에 파일 이름(`V5__…sql` 꼴)이 찍히면, 그 마이그레이션을 `cd ~/be && git show main:src/main/resources/db/migration/<파일>`로 열어 보고 아래 표에서 고릅니다.
-- 마지막 줄이 찍히지 않았으면 명령이 중간에 실패한 것입니다(MySQL이 떠 있지 않음 등). 위 오류를 고친 뒤 다시 돌립니다.
+- 마지막 줄이 찍히지 않았으면 명령이 중간에 멈춘 것입니다(MySQL이 떠 있지 않음, `<앞 커밋>`을 잘못 채움, 읽어 온 목록이 비었음 등). 이때는 결과를 믿지 말고, 위 오류를 고친 뒤 다시 돌립니다.
 
 Flyway는 앞 버전이 모르는 새 마이그레이션이 적용돼 있어도 경고만 남기고 넘어가므로, 앞 버전 서버가 그 DB로 뜰 수는 있습니다.
 

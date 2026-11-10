@@ -26,10 +26,11 @@ finish() {
     # 잠금을 먼저 놓는다 — 출력을 물고 있는 자손이 남아 tee가 끝나지 않아도 다음 배포가 막히지 않게.
     # 그런 자손이 있어도 스크립트가 끝나도록 10초까지만 기다린다
     exec 9>&- >&- 2>&-
-    (sleep 10; kill "$tee_pid" 2>/dev/null) &
+    # tee는 INT·TERM을 무시하게 띄웠고 감시도 그 무시를 물려받으므로, 둘 다 무시할 수 없는 KILL로 끝낸다
+    (sleep 10; kill -KILL "$tee_pid" 2>/dev/null) &
     watchdog=$!
     wait "$tee_pid"
-    kill "$watchdog" 2>/dev/null
+    kill -KILL "$watchdog" 2>/dev/null
   fi
   rm -f "$MWT_DEPLOY_COPY"
 }
@@ -82,6 +83,7 @@ if [ $# -eq 1 ]; then
     || { echo "$1 커밋에는 운영 배포 설정(deploy/compose.yaml)이 없어 되돌릴 수 없습니다. 아무것도 바꾸지 않았습니다" >&2; exit 2; }
 else
   kind=배포
+  target=
 fi
 
 # 잠금은 이 스크립트가 끝나면(죽어도) 풀린다. README 백업 되살리기도 같은 잠금 파일을 쥔다
@@ -112,6 +114,8 @@ note=
 # 그 뒤 ~/be/deploy에서 치는 docker compose 명령이 다른 설정을 쓴다
 start_branch=$(git symbolic-ref -q --short HEAD)
 start_commit=$(git rev-parse HEAD)
+# 배포 기록의 커밋 칸. 되돌리기는 되돌리려던 커밋, 재배포는 main을 받은 뒤부터 받은 커밋(받기 전에 멈추면 배포 전 커밋)
+intended=${target:-$start_commit}
 # 서버 이미지 이름(compose.yaml의 app image)도 빌드 전 이미지로 되돌린다. 그러지 않으면 빌드 뒤에 멈췄을 때
 # README 되살리기의 docker compose up -d app 같은 명령이 배포하지 않은 새 이미지를 백업 없이 띄운다.
 # 빌드 전 이미지에는 두 번째 이름을 붙여 둔다 — containerd 이미지 저장소는 이름이 다 떨어진 이미지를 ID로도 찾지 못한다
@@ -122,8 +126,7 @@ step() { echo "== $*"; }
 
 # 칸 순서와 결과 문구는 README "배포 되돌리기"가 읽는 방법과 맞춰 둔다
 record() {
-  # 커밋 칸: 되돌리기는 되돌리려던 커밋, 재배포는 그때 서버의 코드가 있던 커밋(main을 받기 전에 멈췄으면 배포 전 커밋)
-  printf '%s\t%s\t%s\t%s\t%s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')" "$kind" "$(git rev-parse --short=12 "${target:-HEAD}")" "$1" "${backup:--}" >>"$log" \
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')" "$kind" "$(git rev-parse --short=12 "$intended")" "$1" "${backup:--}" >>"$log" \
     || echo "배포 기록($log)을 남기지 못했습니다" >&2
 }
 
@@ -145,7 +148,7 @@ stop() {
   fi
   record "띄우기 전 멈춤$note"
   if [ -n "$saved_app_image" ]; then
-    docker tag "$app_image:before-deploy" "$app_image" \
+    { docker tag "$app_image:before-deploy" "$app_image" && docker rmi "$app_image:before-deploy" >/dev/null; } \
       || echo "서버 이미지($app_image)를 빌드 전 이미지로 되돌리지 못했습니다. 재배포하기 전에는 ~/be/deploy 에서 docker compose up 을 치지 않습니다"
   fi
   # 시작한 브랜치가 그 커밋에 그대로 있으면 브랜치로, 아니면(main을 받아 앞으로 갔으면) 그 커밋으로 돌려놓는다
@@ -188,6 +191,7 @@ if [ "$kind" = 배포 ]; then
   step "1/7 main을 받습니다"
   # pull 뒤 뒤에서 도는 git gc·maintenance가 잠금(9번)을 물려받아 배포가 끝난 뒤에도 쥐고 있지 않게 닫아 준다
   git pull --ff-only 9>&- || { echo "main을 받지 못했습니다(위 git 오류를 봅니다)"; stop; }
+  intended=$(git rev-parse HEAD)
 else
   step "1/7 $1 커밋으로 옮깁니다"
   git checkout --detach "$target" || { echo "$1 커밋으로 옮기지 못했습니다(위 git 오류를 봅니다)"; stop; }
