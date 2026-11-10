@@ -11,10 +11,16 @@ import com.mwt.tour.TourLevel;
 import com.mwt.tour.TourOption;
 import com.mwt.tour.TourSummary;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * 가격 계산 결과다(설계산출물 4.5). 고른 내용, 할인 전 총 가격, 할인 금액(없으면 0), 최종 가격(totalPrice − discount)을 담는다.
  */
-public record PriceQuote(Summary summary, long totalPrice, long discount, long finalPrice) {
+@Schema(description = "가격 계산 결과")
+public record PriceQuote(@Schema(description = "고른 내용") Summary summary,
+		@Schema(description = "할인 전 총 가격(원)") long totalPrice,
+		@Schema(description = "단골 할인 금액(원). 할인이 없으면 0") long discount,
+		@Schema(description = "최종 가격(원). totalPrice − discount") long finalPrice) {
 
 	static PriceQuote of(Tour tour, TourLevel level, int headcount, Collection<Long> optionIds, long totalPrice,
 			long discount) {
@@ -33,12 +39,24 @@ public record PriceQuote(Summary summary, long totalPrice, long discount, long f
 	 * 고른 내용. options는 요청의 optionIds를 종류 순(호텔, 교통, 식사, 추가)으로 담는다. 그 등급의 기본 제공을 골랐으면 priceDiff가 0이고,
 	 * 고르지 않은 종류는 그 등급의 기본 제공(교통은 기본 교통)이다.
 	 */
-	public record Summary(Long tourId, String title, LocalDate departureDate, int duration, TourLevel level,
-			String levelName, int headcount, List<Option> options) {
+	@Schema(name = "QuoteSummary",
+			description = "고른 내용. 고르지 않은 옵션 종류는 그 등급의 기본 제공(교통은 기본 교통)으로 계산한다")
+	public record Summary(Long tourId,
+			@Schema(description = "상품 이름(테마 이름·출발일·기간, 예: 허니문 낭만 투어 10/20 출발 5일)") String title,
+			LocalDate departureDate,
+			@Schema(description = "여행 기간(일)") int duration,
+			TourLevel level,
+			@Schema(description = "투어 등급의 화면 이름(예: 그랜드)") String levelName,
+			@Schema(description = "인원(명)") int headcount,
+			@Schema(description = "요청의 optionIds를 종류 순(호텔, 교통, 식사, 추가)으로 담은 것. 고르지 않았으면 빈 목록")
+			List<Option> options) {
 	}
 
 	/** 고른 옵션 하나. priceDiff는 고른 투어 등급을 기준으로 한 1인 요금 차이(Tour.optionPriceDiff)다. */
-	public record Option(Long optionId, OptionCategory category, String name, long priceDiff) {
+	@Schema(name = "SelectedOption", description = "고른 옵션 하나")
+	public record Option(Long optionId, OptionCategory category, String name,
+			@Schema(description = "고른 투어 등급을 기준으로 한 1인 요금 차이(원). 그 등급의 기본 제공이면 0, 더 싼 호텔·식사면 음수")
+			long priceDiff) {
 	}
 
 }
