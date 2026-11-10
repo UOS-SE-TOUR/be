@@ -64,11 +64,13 @@ if [ $# -eq 1 ]; then
   esac
   hash=$(printf '%s' "$1" | tr 'A-F' 'a-f')
   # 짧아서 여러 커밋에 걸리면 git이 그렇다고 알리므로 git의 오류를 그대로 보인다
-  # git은 같은 이름의 브랜치·태그를 해시보다 먼저 풀므로, 그런 이름이 있으면 받지 않는다
-  if git show-ref -q "$hash"; then
-    echo "$1 은 브랜치나 태그 이름이기도 해서 해시로 쓸 수 없습니다. 배포 기록의 12자리 해시를 그대로 줍니다. 아무것도 바꾸지 않았습니다" >&2
-    exit 2
-  fi
+  # git은 같은 이름의 브랜치·태그를 해시보다 먼저 풀므로, git이 먼저 보는 이름이 있으면 받지 않는다
+  for ref in "refs/$hash" "refs/tags/$hash" "refs/heads/$hash" "refs/remotes/$hash" "refs/remotes/$hash/HEAD"; do
+    if git show-ref --verify -q "$ref"; then
+      echo "$1 은 브랜치나 태그 이름이기도 해서 해시로 쓸 수 없습니다. 배포 기록의 12자리 해시를 그대로 줍니다. 아무것도 바꾸지 않았습니다" >&2
+      exit 2
+    fi
+  done
   target=$(git rev-parse --verify "$hash^{commit}") \
     || { echo "커밋 $1 을 찾지 못했습니다(위 git 오류를 봅니다). 배포 기록의 12자리 해시를 그대로 줍니다. 아무것도 바꾸지 않았습니다" >&2; exit 2; }
   git merge-base --is-ancestor "$target" main \
@@ -79,7 +81,7 @@ else
   kind=배포
 fi
 
-# 배포가 두 번 겹쳐 돌지 않게 잠근다. 잠금은 이 스크립트가 끝나면(죽어도) 풀린다. README 백업 되살리기도 같은 잠금을 쥔다
+# 잠금은 이 스크립트가 끝나면(죽어도) 풀린다. README 백업 되살리기도 같은 잠금 파일을 쥔다
 exec 9>>"$HOME/.mwt-deploy.lock" || exit 1
 flock -n 9 || { echo "다른 배포나 백업 되살리기가 돌고 있습니다. 그 작업이 끝난 뒤 다시 돌립니다. 아무것도 바꾸지 않았습니다" >&2; exit 3; }
 
@@ -91,7 +93,9 @@ rm -f "$HOME"/mwt-*.sql.part
 # 남기기 전에 이 스크립트가 출력 실패로 죽으므로, INT·TERM을 무시한 채 띄워 무시를 물려준다(프로세스 치환 안에서
 # 무시하면 bash 5.3에서는 tee가 그대로 죽었다). 잠금(9번)은 물려받지 않게 닫는다.
 # -p: 터미널 대신 파이프로 받던 쪽(pty 없는 ssh 등)이 사라져도 tee가 끝나지 않고 파일에 계속 쓴다
+# 파일은 지우고 새로 만든다 — 앞 배포의 tee가 아직 쓰고 있어도 그 쓰기는 지운 파일로 가서 섞이지 않는다
 trap '' INT TERM
+rm -f "$HOME/mwt-deploy-output.log"
 exec > >(exec tee -p "$HOME/mwt-deploy-output.log" 9>&-) 2>&1
 tee_pid=${!:-}  # bash 4.4 아래는 프로세스 치환의 pid를 알 수 없어 기다리지 않는다
 
@@ -217,7 +221,6 @@ launched=1
 docker compose up -d --remove-orphans || stop
 docker compose up -d --force-recreate nginx || stop
 
-# 바깥 DNS를 거치지 않고 이 서버의 Nginx로 바로 묻는다
 step "6/7 서버가 뜰 때까지 3분까지 기다립니다"
 domain=$(docker compose exec -T nginx printenv DOMAIN) \
   || { echo "Nginx 컨테이너에서 서버 주소(DOMAIN)를 읽지 못했습니다. Nginx가 뜨지 못했을 수 있으니 cd ~/be/deploy && docker compose ps 와 docker compose logs nginx 로 봅니다"; stop; }
