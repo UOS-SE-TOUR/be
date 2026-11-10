@@ -3,7 +3,7 @@ name: 운영 이미지
 # 운영 서버 이미지(Dockerfile)와 운영 Compose(deploy/)가 깨지지 않았는지 본다.
 # 이미지 빌드는 몇 분 걸려서, 이미지나 운영 구성에 들어가는 파일이 바뀌었을 때만 돈다.
 # 서버 코드(src/main)는 넣지 않는다 — 컴파일은 CI(ci.yml)의 ./gradlew build가 모든 PR에서 본다.
-# 배포 스크립트(deploy/deploy.sh)만 바뀐 때는 돌지 않는다 — 그것은 deploy-script.yml이 본다.
+# deploy/ 아래 셸 스크립트(deploy.sh·button.sh)만 바뀐 때는 돌지 않는다 — 그것은 deploy-script.yml이 본다.
 # 아래 두 paths 목록은 같게 둔다(PR과 main push가 같은 파일을 보게)
 on:
   pull_request:
@@ -18,7 +18,7 @@ on:
       - gradle/**
       - buildSrc/**
       - deploy/**
-      - '!deploy/deploy.sh'
+      - '!deploy/*.sh'
       - .github/workflows/image.yml
   push:
     branches: [main]
@@ -33,7 +33,7 @@ on:
       - gradle/**
       - buildSrc/**
       - deploy/**
-      - '!deploy/deploy.sh'
+      - '!deploy/*.sh'
       - .github/workflows/image.yml
 
 permissions:
