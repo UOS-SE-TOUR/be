@@ -1,0 +1,97 @@
+# 운영 서버(Lightsail)에서 띄우는 구성: Nginx(HTTPS, /api 전달)·서버·MySQL과 HTTPS 인증서 갱신(Certbot).
+# 이 폴더에서 docker compose up -d --build 로 띄우고, 값은 이 폴더의 .env에서 읽는다(README 배포 절).
+# 내 컴퓨터에서 개발할 때 쓰는 MySQL은 레포 맨 위의 compose.yaml이다.
+name: mwt
+
+# 컨테이너 로그가 서버 디스크를 채우지 않게 10MB짜리 파일 3개까지만 남긴다
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: mwt
+      # MySQL은 이 세 값을 데이터 볼륨을 처음 만들 때만 쓴다(README 배포 절)
+      MYSQL_USER: ${DB_USERNAME:?.env에 DB_USERNAME을 넣으세요}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?.env에 DB_PASSWORD를 넣으세요}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?.env에 MYSQL_ROOT_PASSWORD를 넣으세요}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    # 바깥에 포트를 열지 않는다. 서버(app)는 같은 Compose 네트워크에서 mysql 이름으로 붙는다
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+    logging: *logging
+
+  app:
+    build: ..
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/mwt
+      DB_USERNAME: ${DB_USERNAME:?.env에 DB_USERNAME을 넣으세요}
+      DB_PASSWORD: ${DB_PASSWORD:?.env에 DB_PASSWORD를 넣으세요}
+      JWT_SECRET: ${JWT_SECRET:?.env에 JWT_SECRET을 넣으세요}
+      STAFF_CODE: ${STAFF_CODE:?.env에 STAFF_CODE를 넣으세요}
+      # 셋 다 비우면 문자를 보내지 않고 로그로만 남긴다(README 환경변수 절)
+      SOLAPI_API_KEY: ${SOLAPI_API_KEY:-}
+      SOLAPI_API_SECRET: ${SOLAPI_API_SECRET:-}
+      SOLAPI_SENDER_NUMBER: ${SOLAPI_SENDER_NUMBER:-}
+      # 비우면 음성으로 고르기만 503
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # 2GB 서버에서 MySQL과 함께 돌도록 힙을 묶는다
+      JAVA_TOOL_OPTIONS: -Xmx512m
+      # 로그 시각과 JVM 기본 시간대를 서울로 맞춘다(업무의 "오늘"은 ClockConfig가 정한다)
+      TZ: Asia/Seoul
+    logging: *logging
+
+  nginx:
+    image: nginx:1.30-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?.env에 DOMAIN을 넣으세요}
+      # 템플릿에서 DOMAIN만 채운다($host 같은 Nginx 변수는 그대로 둔다)
+      NGINX_ENVSUBST_FILTER: DOMAIN
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - certs:/etc/letsencrypt:ro
+      - acme:/var/www/certbot:ro
+    # certbot이 갱신한 인증서를 읽도록 12시간마다 설정을 다시 읽는다.
+    # 공식 이미지의 시작 스크립트(템플릿을 /etc/nginx/conf.d로 옮기며 DOMAIN 채우기)는 그대로 거친다
+    entrypoint: ["/bin/sh", "-c", "while :; do sleep 12h; nginx -s reload; done & exec /docker-entrypoint.sh nginx -g 'daemon off;'"]
+    logging: *logging
+
+  certbot:
+    image: certbot/certbot:v5.8.0
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?.env에 DOMAIN을 넣으세요}
+    volumes:
+      - certs:/etc/letsencrypt
+      - acme:/var/www/certbot
+    # 12시간마다 갱신할 때가 됐는지 보고, 됐으면 Nginx가 내주는 확인 파일로 갱신한다.
+    # 처음 발급은 Nginx가 뜨기 전에 README 배포 절의 명령으로 따로 한다
+    entrypoint: ["/bin/sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
+    logging: *logging
+
+volumes:
+  mysql-data:
+  # Let's Encrypt 인증서와 갱신 설정(/etc/letsencrypt)
+  certs:
+  # 갱신 때 Let's Encrypt가 http://<DOMAIN>/.well-known/acme-challenge/ 로 확인하는 파일
+  acme:
