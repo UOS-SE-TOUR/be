@@ -226,38 +226,39 @@ main에 머지된 코드를 받아 다시 빌드합니다. 아래 두 번째 명
 
 1. DB를 백업하고 끝까지 받아졌는지 봅니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없기 때문입니다.
 2. 받아 온 Nginx 설정(`nginx/templates`)에 틀린 곳이 없는지 봅니다.
-3. 서버 이미지를 새로 빌드합니다. 베이스 이미지(JRE)도 새로 받아 보안 수정이 들어가게 합니다. 빌드하는 동안에는 앞의 서버가 그대로 응답합니다.
-4. 바뀐 컨테이너를 다시 만들고, Nginx는 끊지 않고 설정을 다시 채워 읽습니다(설정은 컨테이너가 시작할 때만 채워지기 때문입니다). 서버 컨테이너를 바꿔 띄우는 몇십 초 동안은 503(`{"message": "서버에 잠시 연결할 수 없습니다. …"}`)이 납니다.
+3. MySQL·Nginx·Certbot 이미지와 서버 이미지의 베이스(JRE)를 새로 받아 보안 수정이 들어가게 하고, 서버 이미지를 새로 빌드합니다. 빌드하는 동안에는 앞의 서버가 그대로 응답합니다.
+4. 바뀐 컨테이너를 다시 만들고, Nginx는 늘 새로 만듭니다(Nginx 설정은 컨테이너가 시작할 때만 채워지기 때문입니다. 끊기는 것은 0.2초쯤입니다). 서버 컨테이너를 바꿔 띄우는 몇십 초 동안은 503(`{"message": "서버에 잠시 연결할 수 없습니다. …"}`)이 납니다.
 5. 서버가 뜰 때까지 3분까지 기다려 봅니다.
-6. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지워 디스크가 차지 않게 합니다.
+6. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고, 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다.
 
 ```bash
 cd ~/be && git pull && cd deploy
 B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
   && tail -n 1 "$B" | grep -q '^-- Dump completed' \
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t \
+  && docker compose pull mysql nginx certbot \
   && docker compose build --pull app \
   && docker compose up -d \
-  && docker compose exec nginx sh -c '/docker-entrypoint.d/20-envsubst-on-templates.sh && nginx -t && nginx -s reload' \
+  && docker compose up -d --force-recreate nginx \
   && curl -fs -o /dev/null --retry 60 --retry-delay 3 --retry-all-errors "https://$(sed -n 's/^DOMAIN=//p' .env)/api/docs" \
   && docker image prune -f && docker builder prune -f --filter until=168h \
+  && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
   && echo "배포했습니다(배포 전 백업: $B)" \
   || echo "배포가 중간에 멈췄습니다. 위 출력에서 멈춘 단계를 보고, 서버가 문제면 docker compose logs app nginx 를 봅니다. 고칠 수 없으면 아래 '배포 되돌리기'로 갑니다"
 ```
 
-Nginx 설정을 다시 채우는 단계에서 멈췄으면 틀린 설정이 파일에 남아 Nginx가 다시 켜질 때 뜨지 않으니, 고친 뒤 다시 돌립니다.
-
 ### 배포 되돌리기
 
-새 버전에 문제가 있으면 앞 커밋으로 되돌립니다. 서버만이 아니라 Nginx 설정과 compose 설정도 함께 앞 버전으로 돌아가게 합니다.
+새 버전에 문제가 있으면 앞 커밋을 다시 배포합니다. 서버만이 아니라 Nginx 설정과 compose 설정도 앞 버전으로 돌아갑니다.
 
 ```bash
 cd ~/be && git log --oneline -5      # 되돌아갈 커밋(배포 전 main)을 고릅니다
-git checkout <앞 커밋> && cd deploy && docker compose build app
+git checkout <앞 커밋> && cd deploy
 ```
 
-1. 새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 들어 있었으면, 이어서 배포 전에 받은 백업을 아래 "로그와 백업"의 되살리기 명령으로 넣습니다. DB만 되돌리고 새 버전으로 띄우면 같은 마이그레이션이 다시 돌기 때문에, 앞 버전을 빌드한 뒤에 넣습니다.
-2. 위 "다시 배포"의 두 번째 명령(`B=…`로 시작하는 것)을 그대로 돌립니다. 바뀐 서비스가 앞 버전으로 다시 만들어지고, Nginx도 앞 버전의 설정을 다시 읽습니다.
+그다음 위 "다시 배포"의 두 번째 명령(`B=…`로 시작하는 것)을 그대로 돌립니다. 이때 받는 백업은 되돌리기 직전의 DB입니다.
+
+새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 있었어도 DB는 먼저 그대로 둡니다. 마이그레이션이 테이블·칸을 더하기만 했으면 앞 버전 서버도 그 DB로 뜹니다(Flyway는 앞 버전이 모르는 새 마이그레이션이 적용돼 있어도 경고만 남기고 넘어갑니다). 앞 버전 서버가 DB 때문에 뜨지 않을 때만, 새 버전을 배포하기 전에 받은 백업을 아래 "로그와 백업"의 되살리기 명령으로 넣습니다. 그 백업 뒤에 들어온 가입·신청은 사라지니(확정 문자가 이미 나간 신청도), 넣기 전에 무엇이 사라지는지 되돌리기 직전의 백업과 견줘 봅니다.
 
 고친 버전이 main에 머지되면 `cd ~/be && git checkout main && git pull` 뒤 위 "다시 배포"대로 합니다.
 
@@ -284,7 +285,7 @@ tail -n 1 "$F" | grep -q '^-- Dump completed' \
   || echo "되살리지 못했습니다. 위 출력에서 어느 단계가 실패했는지 봅니다"
 ```
 
-마지막 줄이 `start`가 아니라 `up -d`인 것은, 그 사이 `docker compose build app`으로 앞 버전을 빌드했으면(위 "배포 되돌리기") 서버 컨테이너를 그 이미지로 새로 만들기 위해서입니다.
+마지막 줄이 `start`가 아니라 `up -d`인 것은, 서버 컨테이너가 지금 빌드된 이미지와 다르면(앞 버전을 빌드해 둔 경우 등) 그 이미지로 새로 만들기 위해서입니다. 같으면 그대로 띄웁니다.
 
 실패했을 때는 어느 단계였는지에 따라 다르게 합니다.
 
