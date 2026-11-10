@@ -29,7 +29,7 @@
 ## 빌드 / 실행
 
 - 실행: `docker compose up -d --wait`(로컬 MySQL) → `./gradlew bootRun`.
-- 배포 설정은 `Dockerfile`·`deploy/`(운영 Compose·Nginx)에 있다. 바꾸면 README 배포 절도 고치고, `Dockerfile`·`.dockerignore`·빌드 설정(`build.gradle`·`settings.gradle`·`gradle/`)을 고쳤으면 `docker build .`도 통과시킨다.
+- 배포 설정은 `Dockerfile`·`deploy/`(운영 Compose·Nginx·배포 스크립트)에 있다. 바꾸면 README 배포 절도 고치고, `Dockerfile`·`.dockerignore`·빌드 설정(`build.gradle`·`settings.gradle`·`gradle/`)을 고쳤으면 `docker build .`도, `deploy/deploy.sh`를 고쳤으면 `shellcheck deploy/deploy.sh`도 통과시킨다.
 - AI 기본 게이트: `src/`·`build.gradle`·`settings.gradle`·`gradle/`·`gradlew`·`.github/`를 고쳤으면 `./gradlew build`(컴파일+테스트). Docker가 꺼져 있으면 DB 테스트는 SKIPPED로 끝나니 그 사실을 PR에 적고 CI 결과로 넘긴다.
 - `.claude/skills/`를 고쳤으면 `bash .claude/skills/issue/tests/run.sh`를 통과시킨다.
 
