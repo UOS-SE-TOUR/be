@@ -639,6 +639,7 @@ has "residue: 중첩 고아" "orphan $C/fix/11-nested"
 # 앞자리 0 이 든 이름은 잡지 않는다(알려진 한계) — 0 을 허용하면 docs/01-intro 같은 남의 이름이 1번 이슈 잔재가 된다.
 g branch docs/01-intro origin/main
 run "$R" "$S/residue.sh" 1
+check "residue: 앞자리 0 이 든 남의 이름이 있어도 이슈 1 판정은 그대로" RESIDUE
 hasnt "residue: 앞자리 0 이 든 남의 이름은 잡지 않는다" "branch docs/01-intro"
 g branch -D docs/01-intro
 # 옛 중첩 디렉터리 안의 잔재가 링크여도 잡는다 — 바깥 스캔만 링크를 보면 CLEAN 이 된다(ai #31 codex 지적).
@@ -727,9 +728,10 @@ run "$R" "$S/residue.sh" 1a
 check_rc "residue: 숫자 아닌 번호" 2
 # 앞자리 0 번호는 판별식이 5- 와 맞지 않아 fix/5-unique 를 놓치고 CLEAN 을 냈다(be #55) — branch-issue.sh 처럼 사용법
 # 오류로 멈춘다.
+run "$R" "$S/residue.sh" 5
+has "residue: 이 자리에 fix/5-unique 잔재가 있다(아래 05 의 전제)" "branch fix/5-unique"
 run "$R" "$S/residue.sh" 05
 check_rc "residue: 앞자리 0 번호" 2
-hasnt "residue: 앞자리 0 번호로 CLEAN 을 내지 않는다" "CLEAN"
 for bad_num in 0 02 ''; do
   run "$R" "$S/residue.sh" "$bad_num"
   check_rc "residue: 이슈 번호가 1 이상의 정수가 아니면 사용법 오류([$bad_num])" 2

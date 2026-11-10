@@ -924,7 +924,8 @@ bash "<스킬 디렉터리>/scripts/branch-issue.sh" "<스킬 레포 루트>" <�
   이 레포에 맞췄고(스크립트 머리말), limbing-ios 에는 없다. `.DS_Store` 판정은 `orphan-check.sh` 와 따로 적혀
   있다 — ClimPick 사본들이 똑같이 두는 `lib.sh` 로 옮기면 한 사본만 고칠 수 없어서다(이 사본의 `lib.sh` 도 옮겨 올
   때 그쪽과 같았다). `volume-check.sh` 는 climpick-ai 에만 있다. 그 밖의 판정 스크립트의 판정 코드는 옮겨 올 때
-  limbing-aos 사본과 같았다(ios #562 에서 두 사본을 맞췄고, limbing-aos 는 그 뒤 limbing-ios 것을 옮겼다).
+  limbing-aos 사본과 같았다(ios #562 에서 두 사본을 맞췄고, limbing-aos 는 그 뒤 limbing-ios 것을 옮겼다). 그 뒤
+  `residue.sh` 의 번호 검사가 앞자리 0 을 사용법 오류로 거르게 바뀌었다(be #55) — 그쪽 것을 옮겨 올 때 이 검사를 되돌리지 않는다.
 - **판정은 스크립트에, 무엇을 왜 하는지와 키워드별 갈래는 문서에** 둔다. 판정 규칙을 산문으로
   적으면 같은 규칙이 여러 곳에 생기고 한 곳만 고쳐져 나머지가 낡는다(ios #287·ios #322에서 반복됐다).
   스크립트를 고치면 `tests/run.sh` 에 그 경우를 더한다. 테스트는 스크립트가 내는 키워드가 문서에
