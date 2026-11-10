@@ -5,10 +5,14 @@
 # 사용: residue.sh <이슈 번호>
 #   부르기 전에 git fetch origin --prune 을 해 둔다 — GitHub 이 지운 브랜치의 원격 추적 ref 가
 #   남아 있으면 잔재로 잡힌다.
+#   <이슈 번호>는 앞자리 0 없는 1 이상의 정수다(branch-issue.sh 와 같다). 02 를 받으면 판별식이 2- 와 맞지 않아
+#   잔재를 놓치고 CLEAN 을 내므로 사용법 오류로 멈춘다(be #55).
 #
 # 이름 판별식: (^|/)<번호>-  또는  (^|/)[a-z-]+\+<번호>-
 #   규약 브랜치(fix/278-x), 평탄화한 디렉터리(fix+278-x), 옛 EnterWorktree 이름(worktree-fix+278-x)을
-#   잡고, 1278-x·feat/300-fix+278-x 는 안 잡는다.
+#   잡고, 1278-x·feat/300-fix+278-x 는 안 잡는다. 앞자리 0 이 든 이름(fix/07-x — 번호를 0 째로 받던 옛 실행이 만들 수
+#   있었다)도 잡지 않는다(알려진 한계). branch-issue.sh 도 그 이름을 규약 밖으로 보고, 0 을 허용하면 docs/01-intro 같은
+#   남의 이름까지 1번 이슈 잔재로 잡는다.
 # 세 가지를 훑는다:
 #   - 브랜치(로컬·원격)
 #   - .claude/worktrees 아래 디렉터리. 등록 여부는 이름이 아니라 등록된 경로와 같은 디렉터리인지(-ef)로
@@ -40,7 +44,7 @@
 #   orphan <경로>        .claude/worktrees 아래 등록 없는 디렉터리 중 이 이슈 것(컨테이너가 링크를 거치면 실제 경로)
 #   other-orphan <경로>  등록 없는 디렉터리 중 이 이슈와 무관한 것 (보고만 한다)
 #
-# 종료 코드: 0 판정함 · 2 사용법 · 3 환경 실패(.claude·.claude/worktrees 나 그 안의 옛 중첩 디렉터리를 읽지 못한 경우,
+# 종료 코드: 0 판정함 · 2 사용법(인자 개수, <이슈 번호>가 앞자리 0 없는 1 이상의 정수가 아니다) · 3 환경 실패(.claude·.claude/worktrees 나 그 안의 옛 중첩 디렉터리를 읽지 못한 경우,
 # .claude 나 .claude/worktrees 가 디렉터리가 아닌 경우(끊긴 링크·파일) 포함)
 #
 # find 실패 처리와 옛 중첩 디렉터리 안의 링크 스캔, branch-escaped 는 climpick-ai 사본에서 옮겨 왔다(ai #31·ai #33,
@@ -57,7 +61,7 @@ declare -F die_usage die_env rev_parse git_err_not_repo git_err_line lower_ascii
 if [ $# -ne 1 ]; then die_usage "residue.sh <이슈 번호>"; fi
 n=$1
 case "$n" in
-  '' | *[!0-9]*) die_usage "이슈 번호는 숫자여야 한다: $n" ;;
+  '' | 0* | *[!0123456789]*) die_usage "이슈 번호는 앞자리 0 없는 1 이상의 정수다: $n" ;;
 esac
 re="(^|/)${n}-|(^|/)[a-z-]+\\+${n}-"
 
