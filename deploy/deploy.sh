@@ -22,6 +22,10 @@ set -u
 # 함께 붙여 넣은 다음 줄이나 SSH 입력을 docker compose exec·run이 입력으로 가져가지 않게 한다
 exec </dev/null
 
+# SSH 연결이 끊겨도(HUP) 컨테이너를 바꿔 끼우던 docker compose가 같이 죽지 않도록 무시한다.
+# 무시는 이 스크립트가 띄우는 명령에도 이어진다. 결과는 다시 접속해 배포 기록으로 본다
+trap '' HUP
+
 usage() {
   echo "사용법: deploy/deploy.sh          main을 받아 배포합니다" >&2
   echo "        deploy/deploy.sh <커밋>   그 커밋으로 되돌립니다" >&2
@@ -65,7 +69,10 @@ record() {
 
 # 단계가 실패했을 때: 어디서 멈췄는지 알리고 기록한 뒤 1로 끝낸다
 stop() {
-  if [ -n "$part" ]; then rm -f "$part"; fi
+  # 받는 중이던 백업은 지운다. 이름을 바꾼 바로 뒤에 멈췄으면(끝까지 받은 백업) 기록에 남긴다
+  if [ -n "$part" ]; then
+    if [ -e "${part%.part}" ]; then B=${part%.part}; else rm -f "$part"; fi
+  fi
   if [ -n "$U" ]; then
     record "띄운 뒤 멈춤$note"
     if [ "$kind" = 배포 ]; then
@@ -84,8 +91,8 @@ stop() {
   exit 1
 }
 
-# Ctrl-C 등으로 끊겨도 기록을 남긴다. 받는 중이던 백업 파일은 지운다
-trap 'trap - INT TERM HUP; echo "중단 신호를 받았습니다" >&2; note="(중단)"; stop' INT TERM HUP
+# Ctrl-C 등으로 끊겨도 기록을 남긴다
+trap 'trap - INT TERM; echo "중단 신호를 받았습니다" >&2; note="(중단)"; stop' INT TERM
 
 if [ "$kind" = 배포 ]; then
   branch=$(git symbolic-ref -q --short HEAD)
@@ -136,7 +143,7 @@ D=$(docker compose exec -T nginx printenv DOMAIN) || { echo "Nginx 컨테이너�
 curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
   || { echo "https://$D/api/docs 가 3분 안에 응답하지 않았습니다"; stop; }
 
-trap - INT TERM HUP
+trap - INT TERM
 record 성공
 if [ "$kind" = 배포 ]; then
   echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)"
@@ -147,13 +154,11 @@ fi
 # 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지운다. 배포는 백업을 최근 10개만 남기고,
 # 되돌리기는 되살려야 할 백업이 지워지지 않게 백업을 그대로 둔다
 step "앞 이미지와 오래된 백업을 정리합니다"
+{ docker image prune -f && docker builder prune -f --filter until=168h; } \
+  || echo "${kind}는 끝났고, 앞 이미지 정리만 실패했습니다. 디스크가 차면 위 출력을 봅니다"
 if [ "$kind" = 배포 ]; then
   # shellcheck disable=SC2012 # 지울 파일 이름은 이 스크립트가 만드는 mwt-<시각>.sql 꼴뿐이다
-  { docker image prune -f && docker builder prune -f --filter until=168h \
-    && ls -1t "$HOME"/mwt-*.sql | tail -n +11 | while IFS= read -r f; do rm -- "$f" || exit 1; done; } \
-    || echo "배포는 끝났고, 앞 이미지·오래된 백업 정리만 실패했습니다. 디스크가 차면 위 출력을 봅니다"
-else
-  { docker image prune -f && docker builder prune -f --filter until=168h; } \
-    || echo "되돌리기는 끝났고, 앞 이미지 정리만 실패했습니다"
+  ls -1t "$HOME"/mwt-*.sql | tail -n +11 | while IFS= read -r f; do rm -- "$f" || exit 1; done \
+    || echo "배포는 끝났고, 오래된 백업 정리만 실패했습니다. 디스크가 차면 위 출력을 봅니다"
 fi
 exit 0
