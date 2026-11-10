@@ -73,7 +73,7 @@ API마다 한 줄 설명 끝 괄호에 부를 수 있는 사람(누구나·로�
 
 운영 서버의 Swagger(`https://<서버 주소>/api/swagger-ui.html`)에서 시험하면 운영 DB에 그대로 남습니다. 운영에서는 시험용 계정으로 `GET /api/v1/members/me`처럼 읽기만 하는 API로 시험합니다. 신청(`POST /api/v1/bookings`)을 실행하면 상품의 남은 자리가 줄고, 그 신청으로 상품이 확정되거나 이미 확정된 상품이면 실제 확정 문자가 나갑니다.
 
-API를 새로 만들면 `@Operation(summary = "<한 줄 설명> (<부를 수 있는 사람>)")`과 실패 응답마다 `@ApiResponse(responseCode = "...", description = "...")`를 답니다. 실패 응답의 본문은 `OpenApiConfig`가 한 번에 붙이고, 여러 API에서 같은 설명(로그인 필요 등)은 `OpenApiConfig`의 상수를 씁니다. 한 줄 설명이 없는 API가 있으면 `ApiDocsTest`가 실패합니다.
+API를 새로 만들면 `@Operation(summary = "<한 줄 설명> (<부를 수 있는 사람>)")`과 실패 응답마다 `@ApiResponse(responseCode = "...", description = "...")`를 답니다. 실패 응답의 본문은 `OpenApiConfig`가 한 번에 붙이고, 여러 곳에 같은 설명(로그인 필요, 상품 이름 등)은 `OpenApiConfig`의 상수를 씁니다. 한 줄 설명이나 끝 괄호가 없거나, 로그인이 필요한 API에 401·403 설명이 빠졌으면 `ApiDocsTest`가 실패합니다. 열거형에 값을 더하면 그 열거형의 `@Schema` 설명에도 뜻을 더합니다(빠지면 같은 테스트가 실패합니다).
 
 ## 오류 응답
 

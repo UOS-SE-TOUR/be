@@ -3,6 +3,8 @@ package com.mwt.tour;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
+import com.mwt.OpenApiConfig;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
@@ -11,9 +13,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
  */
 @Schema(description = "상품 목록의 한 줄(음성으로 고르기의 후보 상품도 이 모양)")
 public record TourSummary(Long tourId,
-		@Schema(description = "상품 이름(테마 이름·출발일·기간, 예: 허니문 낭만 투어 10/20 출발 5일)") String title,
+		@Schema(description = OpenApiConfig.TOUR_TITLE) String title,
 		LocalDate departureDate,
-		@Schema(description = "여행 기간(일)") int duration,
+		@Schema(description = OpenApiConfig.DURATION_DAYS) int duration,
 		@Schema(description = "남은 자리(명)") int remainingSeats,
 		TourStatus status) {
 

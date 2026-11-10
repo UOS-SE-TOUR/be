@@ -2,6 +2,7 @@ package com.mwt.booking;
 
 import java.time.LocalDate;
 
+import com.mwt.OpenApiConfig;
 import com.mwt.tour.Tour;
 import com.mwt.tour.TourLevel;
 import com.mwt.tour.TourSummary;
@@ -14,11 +15,11 @@ import io.swagger.v3.oas.annotations.media.Schema;
  */
 @Schema(description = "이전 여행 하나")
 public record PreviousTourResponse(Long bookingId, Long tourId,
-		@Schema(description = "상품 이름(테마 이름·출발일·기간, 예: 허니문 낭만 투어 10/20 출발 5일)") String title,
+		@Schema(description = OpenApiConfig.TOUR_TITLE) String title,
 		LocalDate departureDate,
-		@Schema(description = "여행 기간(일)") int duration,
+		@Schema(description = OpenApiConfig.DURATION_DAYS) int duration,
 		TourLevel level,
-		@Schema(description = "투어 등급의 화면 이름(예: 그랜드)") String levelName,
+		@Schema(description = OpenApiConfig.LEVEL_NAME) String levelName,
 		@Schema(description = "신청 인원(명)") int headcount,
 		@Schema(description = "신청할 때 정해진 최종 가격(원, 할인 뒤)") long finalPrice) {
 

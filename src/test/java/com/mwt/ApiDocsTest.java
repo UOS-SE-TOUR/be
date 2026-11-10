@@ -12,6 +12,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +27,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.jayway.jsonpath.JsonPath;
 import com.mwt.common.security.JwtTokenProvider;
+import com.mwt.member.MemberType;
+import com.mwt.tour.OptionCategory;
+import com.mwt.tour.Theme;
+import com.mwt.tour.TourLevel;
+import com.mwt.tour.TourStatus;
 
 import jakarta.servlet.http.Cookie;
 
@@ -36,6 +44,8 @@ import jakarta.servlet.http.Cookie;
 @SpringBootTest
 @AutoConfigureMockMvc
 class ApiDocsTest {
+
+	private static final Pattern SUMMARY = Pattern.compile(".+ \\((누구나|로그인한 회원|고객|직원)\\)");
 
 	@Autowired
 	MockMvc mockMvc;
@@ -74,18 +84,54 @@ class ApiDocsTest {
 			.andExpect(jsonPath("$.paths['/api/v1/bookings'].post.parameters").doesNotExist());
 	}
 
-	/** 새 API에 @Operation(summary)을 빠뜨리면 여기서 걸린다(CLAUDE.md 코딩 규칙). */
+	/**
+	 * 새 API에 @Operation(summary)이나 끝 괄호(부를 수 있는 사람)를 빠뜨리거나, 로그인이 필요한 API에 401·403 설명을
+	 * 빠뜨리면 여기서 걸린다(CLAUDE.md 코딩 규칙). 괄호의 말은 README "로그인과 권한" 표의 말이다.
+	 */
 	@Test
-	void 모든_API에_한_줄_설명이_있다() throws Exception {
+	void 모든_API에_한_줄_설명과_부를_수_있는_사람이_있다() throws Exception {
 		Map<String, Map<String, Map<String, Object>>> paths = JsonPath.read(apiDocs(), "$.paths");
-		List<String> missing = new ArrayList<>();
+		List<String> wrong = new ArrayList<>();
 		paths.forEach((path, operations) -> operations.forEach((method, operation) -> {
-			if (!(operation.get("summary") instanceof String summary) || summary.isBlank()) {
-				missing.add(method.toUpperCase(Locale.ROOT) + " " + path);
+			String where = method.toUpperCase(Locale.ROOT) + " " + path;
+			Matcher summary = SUMMARY.matcher(operation.get("summary") instanceof String s ? s : "");
+			if (!summary.matches()) {
+				wrong.add(where + " — summary가 \"<한 줄 설명> (누구나|로그인한 회원|고객|직원)\" 꼴이 아님");
+				return;
 			}
+			@SuppressWarnings("unchecked")
+			Set<String> codes = ((Map<String, Object>) operation.get("responses")).keySet();
+			List<String> needed = switch (summary.group(1)) {
+				case "로그인한 회원" -> List.of("401");
+				case "고객", "직원" -> List.of("401", "403");
+				default -> List.of();
+			};
+			needed.stream().filter(code -> !codes.contains(code))
+				.forEach(code -> wrong.add(where + " — " + code + " 실패 응답 설명이 없음"));
 		}));
 		assertThat(paths).isNotEmpty();
-		assertThat(missing).as("@Operation(summary)이 없는 API").isEmpty();
+		assertThat(wrong).isEmpty();
+	}
+
+	/** 열거형에 값을 더하고 @Schema 설명에 뜻을 빠뜨리거나, 화면 이름을 바꾸고 설명을 안 고치면 걸린다. */
+	@Test
+	void 열거값의_뜻이_모두_있고_테마와_투어_등급은_화면_이름과_같다() throws Exception {
+		String docs = apiDocs();
+		for (Class<? extends Enum<?>> type : List.<Class<? extends Enum<?>>>of(Theme.class, TourLevel.class,
+				TourStatus.class, MemberType.class, OptionCategory.class)) {
+			String description = JsonPath.read(docs, "$.components.schemas." + type.getSimpleName() + ".description");
+			for (Enum<?> value : type.getEnumConstants()) {
+				assertThat(description).as(type.getSimpleName()).contains(value.name() + "(");
+			}
+		}
+		String theme = JsonPath.read(docs, "$.components.schemas.Theme.description");
+		for (Theme value : Theme.values()) {
+			assertThat(theme).contains(value.name() + "(" + value.getDisplayName() + ")");
+		}
+		String level = JsonPath.read(docs, "$.components.schemas.TourLevel.description");
+		for (TourLevel value : TourLevel.values()) {
+			assertThat(level).contains(value.name() + "(" + value.getDisplayName() + ")");
+		}
 	}
 
 	@Test
@@ -109,6 +155,7 @@ class ApiDocsTest {
 		}));
 		assertThat(errorResponses).isNotEmpty();
 		assertThat(wrong).as("본문이 ErrorResponse 하나가 아닌 실패 응답").isEmpty();
+		assertThat(JsonPath.<String>read(docs, "$.components.schemas.ErrorResponse.type")).isEqualTo("object");
 		assertThat(JsonPath.<String>read(docs, "$.components.schemas.ErrorResponse.properties.message.type"))
 			.isEqualTo("string");
 	}
