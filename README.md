@@ -156,7 +156,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 
 배포한 뒤에는 `https://<DOMAIN>/api/swagger-ui.html`에서 API 문서가 열립니다. 화면 호스팅의 프록시는 `/api/*`를 `https://<DOMAIN>/api/*`로 넘기면 됩니다(위 "화면과 연결").
 
-아래 명령 가운데 `docker compose exec`·`run`에는 `< /dev/null`을 붙였습니다. 두 명령은 `-T`를 줘도 표준 입력을 컨테이너로 넘겨서, 붙이지 않으면 함께 붙여 넣은 다음 줄을 읽어 버려 그 줄이 돌지 않습니다. 명령을 새로 적을 때도 입력이 필요 없으면 붙입니다.
+아래 명령 가운데 `docker compose exec`·`run`에는 `< /dev/null`을 붙였습니다. 두 명령은 기본으로 표준 입력을 컨테이너에 붙여서(`-T`로 가상 터미널을 꺼도 마찬가지입니다), 붙이지 않으면 함께 붙여 넣은 다음 줄을 읽어 버려 그 줄이 돌지 않습니다. 명령을 새로 적을 때도 입력이 필요 없으면 붙이고, `logs -f`처럼 끝나지 않는 명령은 다른 명령과 한 블록에 두지 않습니다.
 
 ### 운영 값(`deploy/.env`)
 
@@ -281,9 +281,14 @@ git checkout <앞 커밋> && cd deploy
 ```bash
 cd ~/be/deploy
 docker compose ps             # 컨테이너 상태
-docker compose logs -f app    # 서버 로그(문자 발송 실패 등)
-# DB를 파일로 받아 둡니다(다시 배포도 배포 전에 같은 명령으로 받습니다). 파일에는 DB를 지우고 원래 문자셋으로 다시 만드는 문장까지 들어갑니다.
-# 이름에 받은 시각(서울, 서버 로그와 같은 시간대)을 넣어 앞서 받은 백업을 덮지 않고, 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
+```
+
+서버 로그(문자 발송 실패 등)는 `docker compose logs -f app`으로 봅니다. 끝나지 않고 계속 따라가므로 따로 치고 Ctrl-C로 멈춥니다 — 다른 명령과 함께 붙여 넣으면 그 뒤의 명령이 돌지 않습니다.
+
+DB는 아래 명령으로 파일로 받아 둡니다(다시 배포도 배포 전에 같은 명령으로 받습니다). 파일에는 DB를 지우고 원래 문자셋으로 다시 만드는 문장까지 들어갑니다. 이름에 받은 시각(서울, 서버 로그와 같은 시간대)을 넣어 앞서 받은 백업을 덮지 않고, 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다.
+
+```bash
+cd ~/be/deploy
 B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' < /dev/null > "$B") \
   && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } && echo "백업했습니다: $B" || echo "백업하지 못했습니다(덜 받은 파일은 지웠습니다). 위 출력을 봅니다"
 ```
