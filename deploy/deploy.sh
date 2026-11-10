@@ -70,6 +70,7 @@ B=     # 이번에 받아 끝까지 확인한 백업 파일
 part=  # 받는 중인 백업 파일(끝까지 받아진 것을 확인하면 B로 이름을 바꾼다)
 U=     # 새 버전을 띄우기 시작했으면 1
 note=  # 기록의 결과 칸에 덧붙일 말
+prev=  # 되돌리기 전에 서버의 코드가 있던 브랜치나 커밋
 
 step() { echo "== $*"; }
 
@@ -79,7 +80,6 @@ record() {
     || echo "배포 기록($log)을 남기지 못했습니다" >&2
 }
 
-# 단계가 실패했을 때: 어디서 멈췄는지 알리고 기록한 뒤 1로 끝낸다
 stop() {
   # 기록이 두 줄이 되지 않게, 멈추는 동안 들어온 Ctrl-C 등은 무시한다
   trap '' INT TERM
@@ -98,15 +98,17 @@ stop() {
     record "띄우기 전 멈춤$note"
     if [ "$kind" = 배포 ]; then
       echo "배포가 새 버전을 띄우기 전에 멈췄습니다. 운영은 앞 버전 그대로이니, 위 출력에서 멈춘 단계를 보고 고친 뒤 다시 돌립니다"
+    # 서버의 코드를 앞 커밋에 둔 채 두면, 그 뒤 ~/be/deploy에서 치는 docker compose 명령이 떠 있는 버전과 다른 설정을 쓴다
+    elif git checkout -q "$prev"; then
+      echo "되돌리기가 앞 버전을 띄우기 전에 멈췄습니다. 운영은 그대로이고, 서버의 코드도 되돌리기 전($prev)으로 돌려놓았습니다. 위 출력에서 멈춘 단계를 보고 고친 뒤 다시 돌립니다"
     else
-      echo "되돌리기가 앞 버전을 띄우기 전에 멈췄습니다. 운영은 그대로입니다. 위 출력에서 멈춘 단계를 보고 고친 뒤 다시 돌립니다(되돌리기를 그만둘 때는 따로 할 일이 없습니다 — 다음 배포가 main으로 돌아갑니다)"
+      echo "되돌리기가 앞 버전을 띄우기 전에 멈췄습니다. 운영은 그대로입니다. 서버의 코드는 앞 커밋에 남았으니 cd ~/be && git checkout $prev 로 돌려놓은 뒤, 위 출력에서 멈춘 단계를 보고 고칩니다"
     fi
   fi
   exit 1
 }
 
-# Ctrl-C 등으로 끊겨도 기록을 남긴다
-trap 'trap - INT TERM; echo "중단 신호를 받았습니다" >&2; note="(중단)"; stop' INT TERM
+trap 'trap "" INT TERM; echo "중단 신호를 받았습니다" >&2; note="(중단)"; stop' INT TERM
 
 if [ "$kind" = 배포 ]; then
   branch=$(git symbolic-ref -q --short HEAD)
@@ -118,6 +120,7 @@ if [ "$kind" = 배포 ]; then
   # pull 뒤 뒤에서 도는 git gc·maintenance가 잠금(9번)을 물려받아 배포가 끝난 뒤에도 쥐고 있지 않게 닫아 준다
   git pull --ff-only 9>&- || { echo "main을 받지 못했습니다(위 git 오류를 봅니다)"; stop; }
 else
+  prev=$(git symbolic-ref -q --short HEAD || git rev-parse --short HEAD)
   step "$1 커밋으로 옮깁니다"
   git checkout --detach "$target" || { echo "$1 커밋으로 옮기지 못했습니다(위 git 오류를 봅니다)"; stop; }
 fi
@@ -157,8 +160,9 @@ D=$(docker compose exec -T nginx printenv DOMAIN) || { echo "Nginx 컨테이너�
 curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
   || { echo "https://$D/api/docs 가 3분 안에 응답하지 않았습니다"; stop; }
 
-trap - INT TERM
+trap '' INT TERM
 record 성공
+trap - INT TERM
 if [ "$kind" = 배포 ]; then
   echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)"
 else

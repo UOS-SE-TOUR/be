@@ -57,7 +57,12 @@ jobs:
         run: |
           sed 's/^\([A-Z_][A-Z0-9_]*\)=[[:space:]]*$/\1=ci/' deploy/.env.example > "$RUNNER_TEMP/compose.env"
           docker compose -f deploy/compose.yaml --env-file "$RUNNER_TEMP/compose.env" config -q
-      # 배포 스크립트의 문법과 흔한 셸 실수를 본다(러너에 shellcheck가 깔려 있다)
+
+  # 배포 스크립트의 문법과 흔한 셸 실수를 본다(러너에 shellcheck가 깔려 있다). 이미지 빌드를 기다리지 않게 따로 돈다
+  deploy-script:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
       - name: 배포 스크립트 확인
-        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
         run: shellcheck deploy/deploy.sh
