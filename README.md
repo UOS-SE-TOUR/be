@@ -205,7 +205,7 @@ docker compose run --rm -p 80:80 --entrypoint sh certbot -c 'certbot certonly --
   && docker compose up -d --build
 ```
 
-인증서를 받지 못하면(서버 주소가 아직 이 서버를 가리키지 않는 등) 뒤의 `up`은 돌지 않습니다.
+인증서를 받지 못하면(서버 주소가 아직 이 서버를 가리키지 않는 등) 뒤의 `up`은 돌지 않습니다. 인증서는 받았는데 `up`이 실패했으면(빌드 실패 등) 이 블록을 다시 돌리지 말고 `docker compose up -d --build`만 다시 돌립니다 — 다시 돌리면 이미 뜬 Nginx가 80번 포트를 잡고 있어 인증서 받기에서 멈춥니다.
 
 인증서보다 `docker compose up`을 먼저 했다면 Nginx가 인증서를 못 찾아 다시 뜨기를 되풀이하며 80번 포트를 잡으니, `docker compose stop nginx` 뒤에 인증서를 받고 다시 `up` 합니다.
 
@@ -220,12 +220,19 @@ docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/
 
 ```bash
 cd ~/be/deploy
-docker compose up -d \
-  && curl -fs -o /dev/null --resolve "<새 주소>:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://<새 주소>/api/docs" \
+docker compose run --rm --entrypoint sh certbot -c 'test -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" || { echo "인증서가 없습니다: $DOMAIN"; exit 1; }' < /dev/null \
+  && docker compose up -d \
+  && curl -fsS -o /dev/null --resolve "<새 주소>:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://<새 주소>/api/docs" \
   && docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name <옛 주소> < /dev/null \
   && echo "새 주소로 바꾸고 옛 인증서를 지웠습니다" \
-  || echo "중간에 멈췄습니다. 새 주소로 열리지 않았으면(.env의 DOMAIN, 새 인증서를 봅니다) 옛 인증서는 지우지 않았습니다"
+  || echo "중간에 멈췄습니다. 아래 안내대로 합니다"
 ```
+
+중간에 멈췄을 때는 그 위에 찍힌 줄을 보고 다르게 합니다.
+
+- **"인증서가 없습니다"**: 아무것도 바꾸지 않았습니다. `.env`의 `DOMAIN` 철자를 보고, 받은 인증서의 이름은 `docker compose run --rm --entrypoint certbot certbot certificates < /dev/null`로 봅니다(새 주소와 이름이 같아야 합니다). 아직 받지 않았으면 위 블록으로 받습니다.
+- **`curl: (…)`**: Nginx가 새 주소로 뜨지 못했거나 열리지 않은 것입니다. `.env`의 `DOMAIN`을 옛 주소로 되돌리고 `docker compose up -d` 합니다. 옛 인증서는 지우지 않았으니 그대로 다시 뜹니다. 원인은 `docker compose logs nginx`로 봅니다.
+- **`No certificate found`**: 새 주소로는 이미 잘 돌고 있고, 옛 주소의 인증서 이름만 틀렸습니다. 위 `certificates` 명령으로 이름을 보고 마지막 줄의 지우기만 다시 돌립니다.
 
 첫 빌드는 Gradle과 의존성을 받느라 몇 분 걸립니다. 다 뜨면 확인합니다.
 
@@ -244,17 +251,18 @@ docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -
 
 main에 머지된 코드를 받아 다시 빌드합니다. 아래 명령 하나가 다음을 차례로 하고, 한 단계라도 실패하면 거기서 멈춘 뒤 마지막에 "배포가 중간에 멈췄습니다"를 찍습니다.
 
-0. main을 받습니다(`git pull --ff-only`). 받지 못하면 앞 버전을 다시 배포하지 않게 여기서 멈춥니다.
+0. main을 받습니다(`git pull --ff-only`). 받지 못하면 앞 버전을 다시 배포하지 않게 여기서 멈춥니다. 배포를 되돌린 뒤라 브랜치에 있지 않으면 여기서 `not currently on a branch`로 멈추니, 먼저 `cd ~/be && git checkout main` 합니다.
 1. Nginx·Certbot 이미지를 새로 받고, 받아 온 Nginx 설정(`nginx/templates`)에 틀린 곳이 없는지 그 새 이미지로 봅니다.
 2. 서버 이미지를 베이스(JRE)까지 새로 받아 빌드합니다(보안 수정이 들어가게). 빌드하는 동안에는 앞의 서버가 그대로 응답합니다.
 3. 새 서버를 띄우기 바로 전에 DB를 백업하고 끝까지 받아졌는지 봅니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없기 때문입니다. 빌드 뒤에 받아야 빌드하는 몇 분 동안 들어온 가입·신청도 백업에 들어갑니다.
 4. 바뀐 컨테이너를 다시 만들고, Nginx는 늘 새로 만듭니다(Nginx 설정은 컨테이너가 시작할 때만 채워지기 때문입니다. 끊기는 것은 0.2초쯤입니다). 서버 컨테이너를 바꿔 띄우는 몇십 초 동안은 503(`{"message": "서버에 잠시 연결할 수 없습니다. …"}`)이 납니다.
 5. 서버가 뜰 때까지 서버 안에서 3분까지 기다려 봅니다(바깥 DNS를 거치지 않고 이 서버의 Nginx로 바로 묻습니다).
 6. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고, 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다.
+7. 배포한 커밋을 `~/mwt-deploys.log`에 남깁니다(배포를 되돌릴 때 앞 배포를 찾는 데 씁니다).
 
 ```bash
-cd ~/be/deploy && git pull --ff-only \
-  && docker compose pull nginx certbot \
+cd ~/be/deploy && git pull --ff-only && \
+docker compose pull nginx certbot \
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t < /dev/null \
   && docker compose build --pull app \
   && B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql && { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' < /dev/null > "$B") \
@@ -265,6 +273,7 @@ cd ~/be/deploy && git pull --ff-only \
   && curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
   && docker image prune -f && docker builder prune -f --filter until=168h \
   && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
+  && echo "$(TZ=Asia/Seoul date '+%F %T') $(git rev-parse --short HEAD)" >> ~/mwt-deploys.log \
   && echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)" \
   || echo "배포가 중간에 멈췄습니다. 위 출력에서 멈춘 단계를 보고, 서버가 문제면 docker compose logs app nginx 를 봅니다. 고칠 수 없으면 아래 '배포 되돌리기'로 갑니다"
 ```
@@ -276,10 +285,11 @@ MySQL 이미지는 다시 배포 때 받지 않습니다. 새 패치를 받으�
 새 버전에 문제가 있으면 앞 커밋을 다시 배포합니다. 서버만이 아니라 Nginx 설정과 compose 설정도 앞 버전으로 돌아갑니다.
 
 ```bash
-cd ~/be && git reflog -8             # 되돌아갈 커밋: 앞 배포가 끝날 때 "배포했습니다: <커밋>"으로 찍힌 것(reflog에서는 마지막 pull 바로 아래 줄)
+tail -n 5 ~/mwt-deploys.log          # 배포에 성공한 커밋 기록 — 맨 아래가 지금 돌고 있는 것, 그 위가 앞 배포
+cd ~/be/deploy && git checkout <앞 커밋>
 ```
 
-그다음 위 "다시 배포" 명령의 첫 줄에서 `git pull --ff-only`만 `git checkout <앞 커밋>`으로 바꿔 그대로 돌립니다. 이때 받는 백업은 되돌리기 직전의 DB입니다.
+그다음 위 "다시 배포" 명령을 **둘째 줄(`docker compose pull nginx certbot`)부터** 끝까지 붙여 넣습니다. 첫 줄까지 붙여 넣으면 브랜치에 있지 않아 `git pull`에서 멈추고 아무것도 바꾸지 않으니, 그때는 둘째 줄부터 다시 붙여 넣습니다. 이때 받는 백업은 되돌리기 직전의 DB입니다. `~/mwt-deploys.log`가 없으면(이 기록을 넣기 전의 배포) `git log --oneline -10`에서 앞서 배포했던 커밋을 고릅니다.
 
 새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 있었으면 그 파일을 보고 DB를 되돌릴지 정합니다. Flyway는 앞 버전이 모르는 새 마이그레이션이 적용돼 있어도 경고만 남기고 넘어가므로, 앞 버전 서버가 그 DB로 뜰 수는 있습니다.
 
@@ -290,7 +300,7 @@ cd ~/be && git reflog -8             # 되돌아갈 커밋: 앞 배포가 끝날
 
 백업을 넣으면 그 백업 뒤에 들어온 가입·신청이 사라집니다(확정 문자가 이미 나간 신청도). 넣기 전에 무엇이 사라지는지 되돌리기 직전의 백업과 견줘 봅니다.
 
-고친 버전이 main에 머지되면 `cd ~/be && git checkout main` 뒤 위 "다시 배포" 명령을 그대로 돌립니다(그 명령이 `git pull`부터 합니다).
+고친 버전이 main에 머지되면 `cd ~/be && git checkout main` 뒤 위 "다시 배포" 명령을 첫 줄부터 그대로 돌립니다(그 명령이 `git pull`부터 합니다).
 
 ### 로그와 백업
 
