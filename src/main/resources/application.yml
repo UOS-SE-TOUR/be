@@ -26,6 +26,8 @@ springdoc:
   swagger-ui:
     path: /api/swagger-ui.html
   paths-to-match: /api/v1/**
+  # 성공 응답의 본문 형식을 */* 대신 실제 형식(JSON)으로 적는다
+  default-produces-media-type: application/json
 
 # 솔라피 문자 발송(notification). 세 값이 모두 비어 있으면 문자를 보내지 않고 로그로만 남긴다
 solapi:
