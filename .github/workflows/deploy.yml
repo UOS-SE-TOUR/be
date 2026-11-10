@@ -27,17 +27,18 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    # 서버 빌드(몇 분)와 서버가 뜰 때까지의 확인(최대 3분)을 넉넉히 덮는다. 기본값 360분이면 접속이 멈췄을 때 무료 시간을 다 쓴다
-    timeout-minutes: 20
+    # 서버 빌드와 서버가 뜰 때까지의 확인(최대 3분)을 넉넉히 덮는다. 기본값 360분이면 접속이 멈췄을 때 무료 시간을 다 쓴다
+    timeout-minutes: 30
+    env:
+      ACTION: ${{ inputs.action }}
+      DEPLOY_BUTTON_KEY: ${{ secrets.DEPLOY_BUTTON_KEY }}
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
     steps:
       - name: 값 확인
-        env:
-          ACTION: ${{ inputs.action }}
-          DEPLOY_BUTTON_KEY: ${{ secrets.DEPLOY_BUTTON_KEY }}
-          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
-          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
-          echo "누른 사람: $GITHUB_ACTOR, 할 일: $ACTION"
+          # 다시 실행(Re-run)하면 GITHUB_ACTOR는 처음 누른 사람 그대로라, 이번에 누른 사람을 따로 찍는다
+          echo "누른 사람: $GITHUB_TRIGGERING_ACTOR (처음 실행한 사람: $GITHUB_ACTOR), 할 일: $ACTION"
           # 서버는 어느 브랜치에서 눌러도 main을 재배포한다. 다른 브랜치를 골랐으면 착각한 것이니 멈춘다
           if [ "$GITHUB_REF" != refs/heads/main ]; then
             echo "::error::버튼은 main에서 누릅니다(Run workflow의 Use workflow from에서 main을 고릅니다)"
@@ -53,11 +54,6 @@ jobs:
           fi
 
       - name: ${{ inputs.action }}
-        env:
-          ACTION: ${{ inputs.action }}
-          DEPLOY_BUTTON_KEY: ${{ secrets.DEPLOY_BUTTON_KEY }}
-          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
-          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
           case "$ACTION" in
             재배포) cmd=deploy ;;
@@ -67,20 +63,21 @@ jobs:
           key="$RUNNER_TEMP/deploy_button_key"
           (umask 077; printf '%s\n' "$DEPLOY_BUTTON_KEY" > "$key")
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
-          # 호스트 키는 미리 적어 둔 것만 믿는다(처음 보는 서버면 접속하지 않는다). 서버 계정은 Lightsail Ubuntu의 ubuntu다
+          # 호스트 키는 미리 적어 둔 것만 믿는다(처음 보는 서버면 접속하지 않는다). 서버 계정은 Lightsail Ubuntu의 ubuntu다.
+          # 빌드 중 스왑으로 서버가 느려져도 끊지 않게, 5분(30초×10) 동안 응답이 없을 때만 끊긴 것으로 본다
           set +e
           ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            -o "UserKnownHostsFile=$RUNNER_TEMP/known_hosts" -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
+            -o "UserKnownHostsFile=$RUNNER_TEMP/known_hosts" -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             "ubuntu@$DEPLOY_HOST" "$cmd"
           rc=$?
           rm -f "$key"
           # 종료 코드의 뜻은 README "재배포"의 표와 같다
           case $rc in
             0) ;;
-            1) echo "::error::배포가 단계 도중에 멈췄습니다. 위 출력의 마지막 문구(띄우기 전에/띄운 뒤에 멈췄습니다)를 보고, 필요하면 README \"배포 되돌리기\"를 따릅니다" ;;
-            2) echo "::error::배포 스크립트가 시작하기 전에 거절했습니다(위 문구를 봅니다). 아무것도 바꾸지 않았습니다" ;;
+            1) echo "::error::배포가 멈췄습니다. 위 출력 끝에 \"띄우기 전에 멈췄습니다\"나 \"띄운 뒤에 멈췄습니다\"가 있으면 그 안내를 따릅니다(띄운 뒤면 README \"배포 되돌리기\"). 그런 문구가 없으면 시작 준비(임시 사본·잠금 파일)에서 실패해 아무것도 바꾸지 않은 것입니다" ;;
+            2) echo "::error::서버가 시작하기 전에 거절했습니다(위 문구를 봅니다). 아무것도 바꾸지 않았습니다" ;;
             3) echo "::error::다른 배포나 백업 되살리기가 돌고 있어 아무것도 하지 않았습니다. 끝난 뒤 다시 누릅니다. 도는지는 \"결과 보기\"로 봅니다" ;;
-            127) echo "::error::서버에 버튼 스크립트(deploy/button.sh)가 없습니다. 그 스크립트가 없는 커밋으로 되돌린 상태면 서버에서 main을 먼저 받습니다(README \"버튼으로 재배포\")" ;;
+            127) echo "::error::서버의 코드에 버튼 스크립트(deploy/button.sh)가 없습니다. 버튼 설정 뒤 서버를 아직 재배포하지 않았거나 그 스크립트가 없는 커밋으로 되돌린 것이니, 서버에서 재배포합니다(README \"버튼으로 재배포\")" ;;
             255) echo "::error::서버에 접속하지 못했거나 접속이 끊겼습니다. 끊긴 것이면 서버의 배포는 이어 가니 \"결과 보기\"로 결과를 봅니다" ;;
             *) echo "::error::종료 코드 $rc 로 끝났습니다. 위 출력을 봅니다" ;;
           esac
