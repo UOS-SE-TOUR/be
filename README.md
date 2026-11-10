@@ -167,7 +167,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 | 자리 | 넣을 것 | 예 |
 | --- | --- | --- |
 | `<서버 주소>`·`<새 주소>`·`<지울 주소>` | `https://`와 `/` 없이 주소 이름만 | `abc.duckdns.org` |
-| `<앞 커밋>` | 배포가 끝날 때 "배포했습니다: …"에 찍힌 커밋 | `a1b2c3d` |
+| `<앞 커밋>` | 배포 기록(`~/mwt-deploys.log`)에서 고른 커밋(아래 "배포 되돌리기") | `a1b2c3d` |
 | `<받은 시각>` | 백업 파일 이름의 시각. `ls -1t ~/mwt-*.sql`로 목록을 봅니다 | `20261110-143000` |
 
 README에 명령을 새로 적을 때도 입력이 필요 없는 `exec`·`run`에는 `< /dev/null`을 붙입니다. `-T`는 가상 터미널만 끄고 입력은 그대로 넘기므로 이것으로는 막지 못합니다. 자리표시자는 따옴표 안에 둡니다. 따옴표 밖의 `<`·`>`는 셸이 파일 입출력으로 읽습니다. 여러 줄 사슬은 둘째 줄부터 `&&`나 `||`로 시작하게 씁니다. 터미널의 셸은 문법 오류가 난 줄만 버리고 다음 줄을 새 명령으로 돌리기 때문입니다.
@@ -243,31 +243,28 @@ docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -
 
 ### 다시 배포
 
-main에 머지된 코드를 받아 다시 빌드합니다. 아래 명령 하나가 다음을 차례로 하고, 다 되면 "배포했습니다: <커밋> (배포 전 백업: <파일>)"을 찍습니다. 배포를 되돌릴 때 이 줄로 앞 버전과 백업을 찾습니다. 한 단계라도 실패하면 거기서 멈추고, 새 버전을 띄우기 전에 멈췄는지(운영은 앞 버전 그대로) 띄운 뒤에 멈췄는지를 찍습니다.
+main에 머지된 코드를 받아 다시 빌드합니다. 운영 서버에서 아래 한 줄을 돌립니다.
 
-1. main을 받습니다(`git pull --ff-only`). 받지 못한 채 이어 가면 지금 있는 코드를 그대로 다시 배포하게 되므로 여기서 멈춥니다. 배포를 되돌린 뒤라 브랜치에 있지 않으면 `not currently on a branch`로 멈추니, 먼저 `cd ~/be && git checkout main` 합니다.
+```bash
+~/be/deploy/deploy.sh
+```
+
+배포 스크립트(`deploy/deploy.sh`)는 아래 단계를 차례로 하며 단계마다 `== …` 줄을 찍고, 다 되면 "배포했습니다: <커밋> (배포 전 백업: <파일>)"을 찍습니다. 한 단계라도 실패하면 거기서 멈추고, 새 버전을 띄우기 전에 멈췄는지(운영은 앞 버전 그대로) 띄운 뒤에 멈췄는지를 찍습니다. 성공이든 실패든 결과는 서버의 배포 기록(`~/mwt-deploys.log`)에 한 줄씩 남습니다. 배포를 되돌릴 때 이 기록으로 앞 버전과 백업을 찾습니다(아래 "배포 되돌리기").
+
+1. main을 받습니다(`git pull --ff-only`). 받지 못한 채 이어 가면 지금 있는 코드를 그대로 다시 배포하게 되므로 여기서 멈춥니다. 배포를 되돌린 뒤라 서버의 코드가 main에 있지 않으면, 그렇다고 알린 뒤 main으로 돌아가 받습니다.
 2. Nginx·Certbot 이미지를 새로 받고, 받아 온 Nginx 설정(`nginx/templates`)에 틀린 곳이 없는지 그 새 이미지로 봅니다.
 3. 서버 이미지를 베이스(JRE)까지 새로 받아 빌드합니다(보안 수정이 들어가게). 빌드하는 동안에는 앞의 서버가 그대로 응답합니다.
-4. 새 서버를 띄우기 바로 전에 DB를 백업하고 끝까지 받아졌는지 봅니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없기 때문입니다. 빌드 뒤에 받아야 빌드하는 몇 분 동안 들어온 가입·신청도 백업에 들어갑니다.
+4. 새 서버를 띄우기 바로 전에 DB를 백업하고 끝까지 받아졌는지 봅니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없기 때문입니다. 빌드 뒤에 받아야 빌드하는 몇 분 동안 들어온 가입·신청도 백업에 들어갑니다. 끝까지 받아진 것을 확인한 뒤에야 백업 파일에 `~/mwt-<받은 시각>.sql` 이름을 붙입니다.
 5. 바뀐 컨테이너를 다시 만들고, Nginx는 늘 새로 만듭니다. Nginx 설정은 컨테이너가 시작할 때만 채워지기 때문이고, 끊기는 것은 0.2초쯤입니다. 서버 컨테이너를 바꿔 띄우는 몇십 초 동안은 503(`{"message": "서버에 잠시 연결할 수 없습니다. …"}`)이 납니다.
 6. 서버(`app`)가 뜰 때까지 3분까지 기다려 봅니다. 바깥 DNS를 거치지 않고 이 서버의 Nginx로 바로 묻습니다.
 7. 다 됐으면 "배포했습니다"를 찍은 뒤, 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다. 이 정리만 실패하면 배포는 끝난 것이라 따로 알립니다.
 
-```bash
-B= U= && cd ~/be/deploy && { git pull --ff-only || { echo "main을 받지 못했습니다(위 git 오류를 봅니다). 'not currently on a branch'면 먼저 cd ~/be && git checkout main 합니다"; false; }; } \
-  && docker compose pull nginx certbot \
-  && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t < /dev/null \
-  && docker compose build --pull app \
-  && B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql && { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' < /dev/null > "$B") \
-  && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } \
-  && U=1 && docker compose up -d --remove-orphans \
-  && docker compose up -d --force-recreate nginx \
-  && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) \
-  && curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
-  && echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)" \
-  && { docker image prune -f && docker builder prune -f --filter until=168h && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } || echo "배포는 끝났고, 앞 이미지·오래된 백업 정리만 실패했습니다. 디스크가 차면 위 출력을 봅니다"; } \
-  || if [ -n "$U" ]; then echo "배포가 새 버전을 띄운 뒤에 멈췄습니다(배포 전 백업: $B). 서버가 문제면 docker compose logs app nginx 를 보고, 고칠 수 없으면 GitHub의 README '배포 되돌리기'로 갑니다"; else echo "배포가 새 버전을 띄우기 전에 멈췄습니다. 운영은 앞 버전 그대로이니, 위 출력에서 멈춘 단계를 보고 고친 뒤 다시 돌립니다"; fi
-```
+알아 둘 것:
+
+- 다른 배포가 돌고 있으면 "다른 배포가 돌고 있습니다"를 찍고 아무것도 하지 않습니다. 그 배포가 끝난 뒤 다시 돌립니다.
+- 스크립트는 시작할 때 자신을 임시 파일로 복사해 그 사본으로 끝까지 돕니다. 그래서 1번에서 받은 코드가 배포 스크립트를 바꿨어도 이번 배포는 받기 전의 스크립트로 돌고, 바뀐 스크립트는 다음 배포부터 씁니다.
+- 서버에 `deploy/deploy.sh`가 없다고 나오면(이 스크립트가 들어오기 전의 코드에 있을 때) 먼저 `cd ~/be && git checkout main && git pull --ff-only`로 main을 받은 뒤 다시 돌립니다.
+- 스크립트는 단계 하나라도 실패하면 1로, 사용법이 틀렸으면 2로 끝납니다. 성공했으면(정리만 실패했어도) 0입니다.
 
 MySQL 이미지는 다시 배포 때 받지 않습니다. 새 패치를 받으면 배포 도중에 DB가 다시 켜지며 그동안 서버가 500을 내기 때문입니다. MySQL 보안 수정을 넣을 때는 쓰는 사람이 적은 때에 백업(아래 "DB 백업")을 받은 뒤 `docker compose pull mysql && docker compose up -d mysql`을 따로 돌립니다. 다시 켜지는 동안(보통 몇십 초) 서버는 DB에 못 붙다가 저절로 다시 붙습니다.
 
@@ -275,15 +272,31 @@ MySQL 이미지는 다시 배포 때 받지 않습니다. 새 패치를 받으�
 
 새 버전에 문제가 있으면 앞 버전을 다시 배포합니다. 서버만이 아니라 Nginx 설정과 compose 설정도 앞 버전으로 돌아갑니다. 아래 순서대로 합니다.
 
-**1. 되돌아갈 커밋을 고릅니다.** 문제가 생긴 버전 바로 앞에 운영에서 잘 돌던 버전입니다. 배포 명령은 성공하면 "배포했습니다: <커밋>"을, 실패하면 "배포가 … 멈췄습니다"를 찍으니 터미널에 남은 출력에서 찾습니다.
+**1. 되돌아갈 커밋을 고릅니다.** 문제가 생긴 버전 바로 앞에 운영에서 잘 돌던 버전입니다. 배포 기록의 끝을 봅니다.
 
-| 문제가 생긴 배포가 찍은 문구 | 되돌아갈 커밋 |
+```bash
+tail -n 20 ~/mwt-deploys.log
+```
+
+한 줄이 배포나 되돌리기 한 번입니다. 칸은 탭으로 나뉘고, 차례로 시각(서울), 배포/되돌리기, 커밋, 결과, 배포 전 백업입니다.
+
+```
+2026-11-12 14:30:05  배포      a1b2c3d  성공            /home/ubuntu/mwt-20261112-142950.sql
+2026-11-13 10:02:11  배포      d4e5f6a  띄우기 전 멈춤  -
+2026-11-13 10:20:40  배포      d4e5f6a  성공            /home/ubuntu/mwt-20261113-102012.sql
+```
+
+| 결과 칸 | 뜻 |
 | --- | --- |
-| "배포했습니다: …" | 그보다 하나 앞에 찍힌 "배포했습니다: …"의 커밋 |
-| "배포가 새 버전을 띄운 뒤에 멈췄습니다…" | 가장 마지막에 찍힌 "배포했습니다: …"의 커밋 |
-| "배포가 새 버전을 띄우기 전에 멈췄습니다…" | 되돌리지 않습니다. 운영은 앞 버전 그대로입니다 |
+| `성공` | 그 커밋이 운영에 떴습니다 |
+| `띄운 뒤 멈춤` | 그 커밋을 띄우다 멈췄습니다. 반쯤 떠 있을 수 있습니다 |
+| `띄우기 전 멈춤` | 운영은 바뀌지 않았습니다 |
 
-출력이 남아 있지 않으면(앞 배포를 다른 사람이 했거나 터미널을 닫았으면) `cd ~/be && git reflog -10`을 봅니다. `pull`이나 `checkout`이라고 적힌 줄이 코드가 그 커밋으로 옮겨 간 기록입니다. 받기만 하고 배포는 멈춘 커밋도 섞여 있으니, 운영에서 잘 돌았던 커밋인지는 그 배포를 한 사람에게 확인합니다.
+결과 끝에 `(중단)`이 붙은 줄은 Ctrl-C 등으로 끊긴 배포입니다. 뜻은 같습니다.
+
+되돌아갈 커밋은 문제가 생긴 줄(`성공`이나 `띄운 뒤 멈춤`)보다 위에 있는 줄 가운데 가장 가까운 `성공` 줄의 커밋입니다. 되돌리기 줄도 똑같이 봅니다. 위 예에서 d4e5f6a에 문제가 있으면 a1b2c3d로 되돌립니다. 문제가 생긴 배포가 `띄우기 전 멈춤`이면 운영은 앞 버전 그대로이니 되돌리지 않습니다.
+
+기록에 그 배포가 없으면(배포 스크립트가 들어오기 전의 배포) `cd ~/be && git reflog -10`을 봅니다. `pull`이나 `checkout`이라고 적힌 줄이 코드가 그 커밋으로 옮겨 간 기록입니다. 받기만 하고 배포는 멈춘 커밋도 섞여 있으니, 운영에서 잘 돌았던 커밋인지는 그 배포를 한 사람에게 확인합니다.
 
 **2. 새 버전에 DB 테이블 변경이 있었는지 봅니다.** 앞 커밋과, 다시 배포가 받아 둔 새 버전(`main`)을 견줍니다. 3번 뒤에 다시 봐도 결과는 같습니다.
 
@@ -301,35 +314,26 @@ cd ~/be && git diff --name-only "<앞 커밋>" main -- src/main/resources/db/mig
 | 새 버전의 마이그레이션이 중간에 실패함(새 버전 서버 로그에 `Migration … failed`) | MySQL은 테이블 변경을 중간에 되돌리지 않아 반쯤 바뀐 테이블과 실패 기록이 남고, 앞 버전도 그 때문에 뜨지 못하거나 쓰기가 실패할 수 있습니다 | 바로 위 줄과 같이 3번 뒤에 새 버전 배포 때 받은 백업을 되살립니다 |
 | 판단이 서지 않음 | | 3번 뒤에 가입이나 신청을 한 번 해 봅니다 |
 
-"새 버전 배포 때 받은 백업"은 문제가 생긴 배포가 "배포했습니다"나 "띄운 뒤에 멈췄습니다" 문구에 "배포 전 백업: <파일>"로 찍은 파일입니다. 출력이 남아 있지 않으면 `ls -lt ~/mwt-*.sql`에서 파일 이름의 시각이 새 버전을 배포한 때와 맞는 것을 고릅니다(목록의 몇째 줄인지로 고르지 않습니다 — 그 사이에 받은 백업이 있으면 줄이 밀립니다). 3번 명령이 받는 "되돌리기 전 백업"에는 새 버전의 테이블이 이미 들어 있어, 넣어도 소용이 없습니다. 되살리는 법은 아래 "백업 되살리기"에 있습니다.
+"새 버전 배포 때 받은 백업"은 배포 기록에서 문제가 생긴 줄의 마지막 칸(배포 전 백업) 파일입니다. 기록에 없으면 `ls -lt ~/mwt-*.sql`에서 파일 이름의 시각이 새 버전을 배포한 때와 맞는 것을 고릅니다(목록의 몇째 줄인지로 고르지 않습니다 — 그 사이에 받은 백업이 있으면 줄이 밀립니다). 3번 명령이 받는 "되돌리기 전 백업"에는 새 버전의 테이블이 이미 들어 있어, 넣어도 소용이 없습니다. 되살리는 법은 아래 "백업 되살리기"에 있습니다.
 
 백업을 넣으면 그 백업 뒤에 들어온 가입·신청이 사라집니다(확정 문자가 이미 나간 신청도). 사라질 기록은 3번 명령이 받은 "되돌리기 전 백업"에만 남으니, 넣기 전에 그 파일을 `mwt-`로 시작하지 않는 이름으로 복사해 둡니다(다시 배포가 `mwt-*.sql`을 최근 10개만 남깁니다).
 
-**3. 앞 버전을 다시 배포합니다.** `"<앞 커밋>"`을 채워 붙여 넣습니다. "다시 배포" 명령에서 첫 줄의 main 받기를 앞 커밋으로 옮기기로 바꾸고, 되살릴 백업이 지워지지 않게 오래된 백업 정리를 뺀 것입니다. 이때 받는 백업은 되돌리기 직전의 DB입니다.
+**3. 앞 버전을 다시 배포합니다.** `"<앞 커밋>"`을 채워 돌립니다.
 
 ```bash
-B= U= && cd ~/be/deploy && git checkout "<앞 커밋>" \
-  && docker compose pull nginx certbot \
-  && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t < /dev/null \
-  && docker compose build --pull app \
-  && B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql && { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' < /dev/null > "$B") \
-  && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } \
-  && U=1 && docker compose up -d --remove-orphans \
-  && docker compose up -d --force-recreate nginx \
-  && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) \
-  && curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
-  && echo "배포했습니다: $(git rev-parse --short HEAD) (앞 버전으로 되돌림, 되돌리기 전 백업: $B)" \
-  && { docker image prune -f && docker builder prune -f --filter until=168h || echo "되돌리기는 끝났고, 앞 이미지 정리만 실패했습니다"; } \
-  || if [ -n "$U" ]; then echo "되돌리기가 앞 버전을 띄운 뒤에 멈췄습니다(되돌리기 전 백업: $B). 앞 버전 서버가 뜨지 못했으면 GitHub의 README '배포 되돌리기' 2번 표를 봅니다(서버의 README는 앞 버전입니다)"; else echo "되돌리기가 앞 버전을 띄우기 전에 멈췄습니다. 운영은 그대로입니다. 코드는 앞 커밋으로 옮겨졌을 수 있으니, 위 출력에서 멈춘 단계를 보고 되돌리기를 그만두려면 cd ~/be && git checkout main 합니다"; fi
+~/be/deploy/deploy.sh "<앞 커밋>"
 ```
 
-고친 버전이 main에 머지되면 `cd ~/be && git checkout main` 뒤 위 "다시 배포" 명령을 그대로 돌립니다.
+"다시 배포"와 같은 단계를 거치되, 1번에서 main 대신 그 커밋으로 옮기고 되살릴 백업이 지워지지 않게 오래된 백업은 정리하지 않습니다. 이때 받는 백업은 되돌리기 직전의 DB입니다. 다 되면 "배포했습니다: <커밋> (앞 버전으로 되돌림, 되돌리기 전 백업: <파일>)"을 찍고, 멈추면 "되돌리기가 앞 버전을 띄우기 전에/띄운 뒤에 멈췄습니다"를 찍습니다. 배포 스크립트가 들어오기 전의 커밋으로 되돌려도 끝까지 돕니다.
+
+고친 버전이 main에 머지되면 `~/be/deploy/deploy.sh`를 그대로 돌립니다. 서버의 코드가 앞 커밋에 있어도 main으로 돌아가 배포합니다. 그러니 고친 버전이 머지되기 전에는 돌리지 않습니다 — 문제가 있는 main이 다시 배포됩니다. 앞 커밋에 배포 스크립트가 없어 `No such file`이 나오면 위 "다시 배포"의 알아 둘 것대로 main을 먼저 받습니다.
 
 ### 상태와 로그
 
 ```bash
 cd ~/be/deploy
 docker compose ps             # 컨테이너 상태
+tail -n 5 ~/mwt-deploys.log   # 최근 배포 결과(위 "배포 되돌리기")
 ```
 
 서버 로그(문자 발송 실패 등)는 `docker compose logs -f app`으로 봅니다. 끝나지 않고 계속 따라가므로 따로 치고 Ctrl-C로 멈춥니다. 다른 명령과 함께 붙여 넣으면 그 뒤의 명령이 돌지 않습니다.
@@ -423,5 +427,5 @@ F="$HOME/mwt-<받은 시각>.sql" \
 ## 작업 규칙
 
 - main이 깨지지 않도록 모두 브랜치를 만들어 PR로만 올립니다. 무료 조직 플랜이라 GitHub이 비공개 레포의 main 직접 push를 막아 주지 않으니 서로 지킵니다.
-- PR은 CI가 통과한 뒤 "Squash and merge"로 머지합니다. CI는 모든 PR에서 `./gradlew build`를 돌리고, 운영 이미지나 운영 구성에 들어가는 파일(`Dockerfile`·`.dockerignore`·Gradle 빌드 설정·`deploy/`)을 바꾼 PR에서는 운영 이미지 빌드(`docker build .`)와 운영 Compose 확인도 돌립니다.
+- PR은 CI가 통과한 뒤 "Squash and merge"로 머지합니다. CI는 모든 PR에서 `./gradlew build`를 돌리고, 운영 이미지나 운영 구성에 들어가는 파일(`Dockerfile`·`.dockerignore`·Gradle 빌드 설정·`deploy/`)을 바꾼 PR에서는 운영 이미지 빌드(`docker build .`)와 운영 Compose 확인, 배포 스크립트 확인(`shellcheck`)도 돌립니다.
 - API 키와 비밀번호는 커밋하지 않습니다.
