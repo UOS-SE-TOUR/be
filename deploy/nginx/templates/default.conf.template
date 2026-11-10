@@ -30,7 +30,9 @@ server {
     resolver 127.0.0.11 valid=10s;
     set $tour_server http://app:8080;
 
-    # 서버 API와 API 문서. 주소 뒤에 경로를 붙이지 않아 /api로 시작하는 경로를 떼지 않고 그대로 넘긴다(README 화면과 연결)
+    # 서버 API와 API 문서. 주소 뒤에 경로를 붙이지 않아 /api로 시작하는 경로를 떼지 않고 그대로 넘긴다(README 화면과 연결).
+    # Swagger는 이 앞단이 https인지 몰라도 된다 — 문서의 서버 주소는 OpenApiConfig가 상대 주소 "/"로 두고 리다이렉트도 상대 주소다.
+    # X-Forwarded-Proto는 springdoc이 절대 주소(oauth2RedirectUrl)를 https로 만들 때 읽는다
     location /api/ {
         proxy_pass $tour_server;
         proxy_set_header Host $host;

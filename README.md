@@ -220,7 +220,8 @@ cd ~/be && git pull && cd deploy
 # 받아 온 Nginx 설정(nginx/templates)에 틀린 곳이 없는지 먼저 봅니다. "test is successful"이 나와야 합니다
 docker compose run --rm --no-deps --entrypoint /docker-entrypoint.sh nginx nginx -t
 docker compose up -d --build
-# Nginx 설정은 컨테이너가 시작할 때만 채워지므로, 끊지 않고 다시 채워 읽게 합니다
+# Nginx 설정은 컨테이너가 시작할 때만 채워지므로, 끊지 않고 다시 채워 읽게 합니다.
+# 여기서 nginx -t가 실패하면 틀린 설정이 파일에 남아 Nginx가 다시 켜질 때 뜨지 않으니, 고친 뒤 이 줄을 다시 돌립니다
 docker compose exec nginx sh -c '/docker-entrypoint.d/20-envsubst-on-templates.sh && nginx -t && nginx -s reload'
 # 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지워 디스크가 차지 않게 합니다
 docker image prune -f && docker builder prune -f --filter until=168h
@@ -248,8 +249,14 @@ tail -n 1 "$F" | grep -q '^-- Dump completed' \
   && docker compose stop app \
   && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER"' < "$F" \
   && docker compose start app \
-  || echo "되살리지 못했습니다. 위 출력을 봅니다. 서버를 멈춘 뒤에 실패했으면 DB가 지워졌거나 반쯤 들어갔을 수 있으니, 서버를 띄우지 말고 원인을 고쳐 이 명령을 다시 돌립니다"
+  || echo "되살리지 못했습니다. 위 출력에서 어느 단계가 실패했는지 봅니다"
 ```
+
+실패했을 때는 어느 단계였는지에 따라 다르게 합니다.
+
+- 첫 확인(`-- Dump completed`)에서 멈췄으면 DB와 서버는 그대로입니다. 백업 파일을 다시 받습니다.
+- 넣기(`mysql`)가 실패했으면 DB가 지워졌거나 반쯤 들어갔을 수 있습니다. 서버를 띄우지 말고 원인을 고친 뒤 같은 명령을 다시 돌립니다(파일이 DB를 처음부터 다시 만듭니다).
+- 마지막 `docker compose start app`만 실패했으면 되살리기는 끝난 것이니 그 명령만 다시 칩니다.
 
 서버가 다시 켜지면 컨테이너도 저절로 다시 뜹니다. `docker compose down`은 컨테이너만 지우고 DB와 인증서(볼륨)는 남깁니다. `docker compose down -v`는 운영 DB까지 지우니 쓰지 않습니다.
 
