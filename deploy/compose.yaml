@@ -34,6 +34,8 @@ services:
 
   app:
     build: ..
+    # 배포 스크립트(deploy.sh)가 이 이름으로 이미지를 찾는다. 이름을 바꾸면 deploy.sh도 고친다
+    image: mwt-app
     restart: unless-stopped
     # 끌 때 스프링이 처리 중인 요청을 30초까지 마저 끝내므로(graceful shutdown) 그보다 넉넉히 기다린 뒤 강제로 끈다
     stop_grace_period: 40s

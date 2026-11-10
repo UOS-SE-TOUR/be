@@ -1,0 +1,31 @@
+name: 배포 스크립트
+
+# 배포 스크립트(deploy/deploy.sh)의 문법과 흔한 셸 실수를 본다. 러너에 shellcheck가 깔려 있다.
+# 몇 초면 끝나서, 이 스크립트만 바뀐 PR에서 운영 이미지 빌드(image.yml)를 기다리지 않게 따로 둔다.
+# 아래 두 paths 목록은 같게 둔다(PR과 main push가 같은 파일을 보게)
+on:
+  pull_request:
+    paths:
+      - deploy/deploy.sh
+      - .github/workflows/deploy-script.yml
+  push:
+    branches: [main]
+    paths:
+      - deploy/deploy.sh
+      - .github/workflows/deploy-script.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: 배포 스크립트 확인
+        run: shellcheck deploy/deploy.sh
