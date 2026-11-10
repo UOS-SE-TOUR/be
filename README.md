@@ -180,11 +180,16 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
    sudo usermod -aG docker "$USER"   # 한 번 나갔다가 다시 접속하면 sudo 없이 docker를 씁니다
    ```
 
-4. 레포를 받습니다. 비공개 레포라 서버 전용 키를 만들어, 공개 키를 GitHub 레포의 Settings → Deploy keys에 붙여 넣습니다("Allow write access"는 켜지 않습니다).
+4. 레포를 받습니다. 비공개 레포라 서버 전용 키를 만들고, 찍힌 공개 키를 GitHub 레포의 Settings → Deploy keys에 붙여 넣습니다("Allow write access"는 켜지 않습니다).
 
    ```bash
    test -f ~/.ssh/id_ed25519 || ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519   # 이미 있으면 덮어쓸지 묻느라 다음 줄을 읽어 버리므로 건너뜁니다
    cat ~/.ssh/id_ed25519.pub
+   ```
+
+   공개 키를 등록한 뒤에 레포를 받습니다(처음 붙을 때 GitHub 서버를 믿을지 물으면 `yes`):
+
+   ```bash
    git clone git@github.com:UOS-SE-TOUR/be.git ~/be
    ```
 
@@ -204,18 +209,22 @@ docker compose run --rm -p 80:80 --entrypoint sh certbot -c 'certbot certonly --
 
 인증서보다 `docker compose up`을 먼저 했다면 Nginx가 인증서를 못 찾아 다시 뜨기를 되풀이하며 80번 포트를 잡으니, `docker compose stop nginx` 뒤에 인증서를 받고 다시 `up` 합니다.
 
-`DOMAIN`을 바꿀 때는 Nginx를 띄운 채 새 주소의 인증서를 받습니다. 80번 포트의 Nginx가 어느 주소로 오든 인증서 확인 파일을 내주기 때문입니다. 받은 뒤 `.env`의 `DOMAIN`을 고치고 `docker compose up -d`로 Nginx를 새 주소로 다시 만듭니다. 옛 주소의 인증서는 지웁니다. 남겨 두면 갱신할 때가 됐을 때 12시간마다 갱신에 실패합니다.
+`DOMAIN`을 바꿀 때는 Nginx를 띄운 채 새 주소의 인증서부터 받습니다. 80번 포트의 Nginx가 어느 주소로 오든 인증서 확인 파일을 내주기 때문입니다. 옛 주소의 인증서는 남겨 두면 갱신할 때가 됐을 때 12시간마다 갱신에 실패하니 마지막에 지웁니다.
 
 ```bash
+cd ~/be/deploy
 docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot --non-interactive --agree-tos --register-unsafely-without-email -d <새 주소> < /dev/null
 ```
 
 인증서를 받았으면 `.env`의 `DOMAIN`을 새 주소로 고친 뒤 아래 명령을 돌립니다. Nginx를 새 주소로 다시 만들고, 새 주소로 열리는 것을 본 뒤에만 옛 주소의 인증서를 지웁니다 — 먼저 지우면 지금 Nginx가 쓰는 인증서가 사라져 다음에 다시 뜰 때 HTTPS가 멈춥니다.
 
 ```bash
+cd ~/be/deploy
 docker compose up -d \
-  && curl -fs -o /dev/null --resolve "<새 주소>:443:127.0.0.1" --max-time 10 --retry 10 --retry-delay 3 --retry-all-errors "https://<새 주소>/api/docs" \
-  && docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name <옛 주소> < /dev/null
+  && curl -fs -o /dev/null --resolve "<새 주소>:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://<새 주소>/api/docs" \
+  && docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name <옛 주소> < /dev/null \
+  && echo "새 주소로 바꾸고 옛 인증서를 지웠습니다" \
+  || echo "중간에 멈췄습니다. 새 주소로 열리지 않았으면(.env의 DOMAIN, 새 인증서를 봅니다) 옛 인증서는 지우지 않았습니다"
 ```
 
 첫 빌드는 Gradle과 의존성을 받느라 몇 분 걸립니다. 다 뜨면 확인합니다.
@@ -233,8 +242,9 @@ docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -
 
 ### 다시 배포
 
-main에 머지된 코드를 받아 다시 빌드합니다. 두 줄을 한꺼번에 붙여 넣지 말고, 첫 줄의 `git pull`이 성공한 것을 본 뒤 두 번째 명령을 돌립니다 — 실패했는데 돌리면 앞 버전을 다시 배포하고도 "배포했습니다"를 찍습니다(찍히는 커밋으로 알 수 있습니다). 두 번째 명령은 다음을 차례로 하고, 한 단계라도 실패하면 거기서 멈춘 뒤 마지막에 "배포가 중간에 멈췄습니다"를 찍습니다.
+main에 머지된 코드를 받아 다시 빌드합니다. 아래 명령 하나가 다음을 차례로 하고, 한 단계라도 실패하면 거기서 멈춘 뒤 마지막에 "배포가 중간에 멈췄습니다"를 찍습니다.
 
+0. main을 받습니다(`git pull --ff-only`). 받지 못하면 앞 버전을 다시 배포하지 않게 여기서 멈춥니다.
 1. Nginx·Certbot 이미지를 새로 받고, 받아 온 Nginx 설정(`nginx/templates`)에 틀린 곳이 없는지 그 새 이미지로 봅니다.
 2. 서버 이미지를 베이스(JRE)까지 새로 받아 빌드합니다(보안 수정이 들어가게). 빌드하는 동안에는 앞의 서버가 그대로 응답합니다.
 3. 새 서버를 띄우기 바로 전에 DB를 백업하고 끝까지 받아졌는지 봅니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없기 때문입니다. 빌드 뒤에 받아야 빌드하는 몇 분 동안 들어온 가입·신청도 백업에 들어갑니다.
@@ -243,8 +253,8 @@ main에 머지된 코드를 받아 다시 빌드합니다. 두 줄을 한꺼번�
 6. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고, 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다.
 
 ```bash
-cd ~/be/deploy && git pull --ff-only
-docker compose pull nginx certbot \
+cd ~/be/deploy && git pull --ff-only \
+  && docker compose pull nginx certbot \
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t < /dev/null \
   && docker compose build --pull app \
   && B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql && { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' < /dev/null > "$B") \
@@ -267,10 +277,9 @@ MySQL 이미지는 다시 배포 때 받지 않습니다. 새 패치를 받으�
 
 ```bash
 cd ~/be && git reflog -8             # 되돌아갈 커밋: 앞 배포가 끝날 때 "배포했습니다: <커밋>"으로 찍힌 것(reflog에서는 마지막 pull 바로 아래 줄)
-git checkout <앞 커밋> && cd deploy
 ```
 
-그다음 위 "다시 배포"의 두 번째 명령(`docker compose pull nginx certbot`으로 시작하는 것)을 그대로 돌립니다. 이때 받는 백업은 되돌리기 직전의 DB입니다.
+그다음 위 "다시 배포" 명령의 첫 줄에서 `git pull --ff-only`만 `git checkout <앞 커밋>`으로 바꿔 그대로 돌립니다. 이때 받는 백업은 되돌리기 직전의 DB입니다.
 
 새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 있었으면 그 파일을 보고 DB를 되돌릴지 정합니다. Flyway는 앞 버전이 모르는 새 마이그레이션이 적용돼 있어도 경고만 남기고 넘어가므로, 앞 버전 서버가 그 DB로 뜰 수는 있습니다.
 
@@ -281,7 +290,7 @@ git checkout <앞 커밋> && cd deploy
 
 백업을 넣으면 그 백업 뒤에 들어온 가입·신청이 사라집니다(확정 문자가 이미 나간 신청도). 넣기 전에 무엇이 사라지는지 되돌리기 직전의 백업과 견줘 봅니다.
 
-고친 버전이 main에 머지되면 `cd ~/be && git checkout main && git pull` 뒤 위 "다시 배포"대로 합니다.
+고친 버전이 main에 머지되면 `cd ~/be && git checkout main` 뒤 위 "다시 배포" 명령을 그대로 돌립니다(그 명령이 `git pull`부터 합니다).
 
 ### 로그와 백업
 
