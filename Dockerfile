@@ -5,8 +5,9 @@ FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 COPY gradlew settings.gradle build.gradle ./
 COPY gradle gradle
-COPY src src
 # 테스트는 CI가 돌린다(DB 테스트는 Testcontainers가 Docker를 써야 해서 이미지 빌드 안에서는 돌 수 없다).
+# 그래서 src/main만 넣는다 — 테스트만 고친 커밋으로는 이미지를 다시 빌드하지 않는다
+COPY src/main src/main
 # Gradle 캐시를 빌드 사이에 남겨, 다시 배포할 때 Gradle과 의존성을 처음부터 받지 않는다
 RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon bootJar && mv build/libs/*.jar app.jar
 

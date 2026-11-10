@@ -210,12 +210,15 @@ main에 머지된 코드를 받아 다시 빌드합니다. DB 테이블 변경(F
 
 ```bash
 cd ~/be && git pull && cd deploy
+# 받아 온 Nginx 설정(nginx/templates)에 틀린 곳이 없는지 먼저 봅니다. "test is successful"이 나와야 합니다
+docker compose run --rm --no-deps --entrypoint /docker-entrypoint.sh nginx nginx -t
 docker compose up -d --build
-# Nginx 설정(nginx/templates)은 컨테이너가 시작할 때만 채워지므로, 바뀌었을 수 있게 늘 다시 띄웁니다
+# Nginx 설정은 컨테이너가 시작할 때만 채워지므로, 바뀌었을 수 있게 늘 다시 띄웁니다(잠깐 끊깁니다)
 docker compose restart nginx
-# 앞 배포의 이미지를 지워 디스크가 차지 않게 합니다
-docker image prune -f
-# 서버가 떴는지 봅니다. 200이 아니면 docker compose logs app 으로 이유를 봅니다(서버가 못 뜨면 계속 다시 뜨기를 되풀이합니다)
+# 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지워 디스크가 차지 않게 합니다
+docker image prune -f && docker builder prune -f --filter until=168h
+# 서버가 떴는지 봅니다. 200이 아니면 docker compose ps 와 docker compose logs app nginx 로 이유를 봅니다
+# (서버가 못 뜨면 다시 뜨기를 되풀이합니다)
 curl -I "https://<DOMAIN>/api/docs"
 ```
 
@@ -225,17 +228,20 @@ curl -I "https://<DOMAIN>/api/docs"
 cd ~/be/deploy
 docker compose ps             # 컨테이너 상태
 docker compose logs -f app    # 서버 로그(문자 발송 실패 등)
-# DB를 파일로 받아 둡니다. 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
-(umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction -u"$MYSQL_USER" mwt' > ~/mwt-$(date +%Y%m%d).sql)
+# DB를 파일로 받아 둡니다. 이름에 받은 시각을 넣어 앞서 받은 백업을 덮지 않고,
+# 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
+(umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction -u"$MYSQL_USER" mwt' > ~/mwt-$(date +%Y%m%d-%H%M%S).sql)
 ```
 
-받아 둔 파일로 되살릴 때는 서버를 멈추고 DB를 비운 뒤 넣습니다. 그냥 넣으면 백업 뒤에 생긴 테이블이 남아, 서버가 뜰 때 마이그레이션이 그 테이블을 다시 만들려다 실패합니다.
+받아 둔 파일로 되살릴 때는 서버를 멈추고 DB를 비운 뒤 넣습니다. 그냥 넣으면 백업 뒤에 생긴 테이블이 남아, 서버가 뜰 때 마이그레이션이 그 테이블을 다시 만들려다 실패합니다. 아래 명령은 백업 파일이 끝까지 받아진 것(마지막 줄 `-- Dump completed`)을 확인한 뒤에만 DB를 지우고, 넣기가 성공했을 때만 서버를 다시 띄웁니다.
 
 ```bash
-docker compose stop app
-docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -e "DROP DATABASE mwt; CREATE DATABASE mwt"'
-docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER" mwt' < ~/mwt-<날짜>.sql
-docker compose start app
+F=~/mwt-<받은 시각>.sql
+tail -n 1 "$F" | grep -q '^-- Dump completed' \
+  && docker compose stop app \
+  && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -e "DROP DATABASE mwt; CREATE DATABASE mwt CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"' \
+  && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER" mwt' < "$F" \
+  && docker compose start app
 ```
 
 서버가 다시 켜지면 컨테이너도 저절로 다시 뜹니다. `docker compose down`은 컨테이너만 지우고 DB와 인증서(볼륨)는 남깁니다. `docker compose down -v`는 운영 DB까지 지우니 쓰지 않습니다.

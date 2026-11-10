@@ -14,6 +14,8 @@ services:
   mysql:
     image: mysql:8.4
     restart: unless-stopped
+    # 끌 때(서버 재부팅·docker compose down) InnoDB가 정상 종료를 마치도록 기본 10초보다 넉넉히 기다린 뒤 강제로 끈다
+    stop_grace_period: 60s
     environment:
       MYSQL_DATABASE: mwt
       # MySQL은 이 세 값을 데이터 볼륨을 처음 만들 때만 쓴다(README 배포 절)
