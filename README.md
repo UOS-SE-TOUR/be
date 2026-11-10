@@ -45,7 +45,7 @@ grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 
 
 `OPENAI_API_KEY`가 비어 있어도 서버는 뜹니다. 그때는 음성으로 고르기만 503을 돌려주고, 화면에서 직접 고르는 흐름은 그대로 씁니다. 테스트는 OpenAI를 부르지 않습니다 — 셸에 이 값이 있어도 테스트 설정 파일이 비워 둡니다.
 
-API 키·서명 키·직원 코드 같은 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
+API 키·서명 키·직원 코드 같은 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다. 운영 서버에서는 이 값들을 `deploy/.env`에 넣습니다(아래 "배포").
 
 내 컴퓨터에서 값을 바꿀 때는 둘 중 하나를 씁니다. 둘 다 `.gitignore`에 들어 있어 커밋되지 않습니다.
 
@@ -83,6 +83,8 @@ API가 실패하면 상태 코드와 함께 본문을 늘 아래 모양 하나�
 | 404 | 없는 주소(권한 규칙에 없는 주소는 401·403 — 아래 "로그인과 권한") |
 | 409 | 가격 계산·신청에서 그 상품을 더는 신청할 수 없음(마감, 출발일이 오늘이거나 지남, 출발했거나 끝남). 화면은 상품 목록으로 돌아갑니다. 고른 내용만 고치면 되는 거부(남은 자리보다 많은 인원 등)는 400입니다 |
 | 500 | 서버 오류. 문구는 늘 "서버에 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요."이고 자세한 내용은 서버 로그에만 남습니다 |
+| 503 | 외부 서비스를 쓸 수 없음(음성으로 고르기에 OpenAI 키가 없음 등). 운영 서버에서는 서버가 잠시 멈췄을 때(다시 배포 중)도 앞단 Nginx가 같은 모양으로 503을 돌려줍니다 |
+| 504 | 운영 서버에서 서버 응답이 60초를 넘겨 앞단 Nginx가 끊었을 때. 요청이 이미 처리됐을 수 있으니 화면은 바로 다시 보내지 않고 결과(목록 등)를 다시 읽습니다 |
 
 업무에 따라 다른 4xx(409 등)를 쓰기도 합니다. 서버 코드는 이렇게 씁니다.
 
@@ -143,7 +145,167 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 
 ## 배포
 
-서버 한 대(Lightsail)에서 Docker Compose로 띄웁니다. Nginx(HTTPS 처리, `/api` 요청을 서버로 전달), 이 서버, MySQL 세 컨테이너입니다. HTTPS 인증서는 Certbot으로 Let's Encrypt에서 받고 갱신합니다. 배포 설정은 첫 기능을 만든 뒤 따로 PR로 올립니다.
+운영 서버는 Lightsail 한 대이고, `deploy/compose.yaml`로 컨테이너 네 개를 띄웁니다. 서버 이미지는 레포 맨 위의 `Dockerfile`로 운영 서버 안에서 빌드합니다.
+
+| 컨테이너 | 하는 일 |
+| --- | --- |
+| `nginx` | 80·443번 포트를 받습니다. HTTP는 HTTPS로 넘기고, `/api/`로 시작하는 요청만 경로를 떼지 않고 서버로 넘깁니다. 그 밖의 주소는 404입니다 |
+| `app` | 이 서버. 바깥에 포트를 열지 않습니다 |
+| `mysql` | MySQL 8.4. 바깥에 포트를 열지 않습니다 |
+| `certbot` | HTTPS 인증서(Let's Encrypt)를 12시간마다 확인해 만료가 가까우면 갱신합니다. Nginx도 12시간마다 설정을 다시 읽어 새 인증서를 씁니다 |
+
+배포한 뒤에는 `https://<DOMAIN>/api/swagger-ui.html`에서 API 문서가 열립니다. 화면 호스팅의 프록시는 `/api/*`를 `https://<DOMAIN>/api/*`로 넘기면 됩니다(위 "화면과 연결").
+
+### 운영 값(`deploy/.env`)
+
+`deploy/.env.example`을 같은 폴더의 `.env`로 복사해 채웁니다. 이름마다 설명이 붙어 있습니다. 레포 맨 위의 `.env`(내 컴퓨터용)와는 다른 파일이고, 둘 다 커밋되지 않습니다.
+
+- `DOMAIN`(서버 주소), `DB_USERNAME`·`DB_PASSWORD`·`MYSQL_ROOT_PASSWORD`, `JWT_SECRET`·`STAFF_CODE` 가운데 하나라도 비어 있으면 `docker compose`가 아무것도 띄우지 않고 어느 값이 비었는지 알려 줍니다.
+- `JWT_SECRET`·`STAFF_CODE`는 내 컴퓨터의 값을 옮기지 않고 새로 만듭니다. DB 비밀번호도 `openssl rand -hex 16`처럼 무작위로 만듭니다.
+- 확정 문자를 보내려면 솔라피 콘솔에서 그 API Key의 허용 IP에 서버 고정 IP를 더합니다.
+- MySQL은 데이터 볼륨을 처음 만들 때만 DB 계정을 만듭니다. 계정 값은 처음 정한 대로 둡니다 — 바꾸려면 운영 DB(볼륨)를 지워야 합니다.
+
+### 서버 준비 (처음 한 번)
+
+1. Lightsail에서 Ubuntu 24.04 LTS, 메모리 2GB 인스턴스를 만들고 고정 IP를 붙입니다. 인스턴스의 네트워킹 탭에서 IPv4 방화벽과 IPv6 방화벽 둘 다에 HTTPS(443)를 더합니다(SSH 22와 HTTP 80은 처음부터 열려 있습니다).
+2. DuckDNS 같은 곳에서 서버 주소(서브도메인)를 만들어 고정 IP를 가리키게 합니다.
+3. SSH로 접속해 스왑을 만들고 Docker를 설치합니다. 서버에서 이미지를 빌드할 때 메모리 2GB로는 모자랄 수 있어 스왑 2GB를 더합니다.
+
+   ```bash
+   sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+   curl -fsSL https://get.docker.com | sudo sh
+   sudo usermod -aG docker "$USER"   # 한 번 나갔다가 다시 접속하면 sudo 없이 docker를 씁니다
+   ```
+
+4. 레포를 받습니다. 비공개 레포라 서버 전용 키를 만들어, 공개 키를 GitHub 레포의 Settings → Deploy keys에 붙여 넣습니다("Allow write access"는 켜지 않습니다).
+
+   ```bash
+   ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+   cat ~/.ssh/id_ed25519.pub
+   git clone git@github.com:UOS-SE-TOUR/be.git ~/be
+   ```
+
+5. 운영 값을 채웁니다: `cd ~/be/deploy && cp .env.example .env && chmod 600 .env` 뒤 `.env`를 고칩니다(비밀 값이 든 파일이라 나만 읽게 합니다).
+
+### 처음 배포
+
+Nginx는 인증서가 있어야 뜨므로 인증서부터 받습니다. 아직 Nginx가 없으니 certbot이 80번 포트를 직접 엽니다. 서버 주소가 이 서버의 고정 IP를 가리키고 있어야 받을 수 있습니다.
+
+```bash
+cd ~/be/deploy
+docker compose run --rm -p 80:80 --entrypoint sh certbot -c 'certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$DOMAIN"'
+docker compose up -d --build
+```
+
+인증서보다 `docker compose up`을 먼저 했다면 Nginx가 인증서를 못 찾아 다시 뜨기를 되풀이하며 80번 포트를 잡으니, `docker compose stop nginx` 뒤에 인증서를 받고 다시 `up` 합니다.
+
+`DOMAIN`을 바꿀 때는 Nginx를 띄운 채 새 주소의 인증서를 받습니다. 80번 포트의 Nginx가 어느 주소로 오든 인증서 확인 파일을 내주기 때문입니다. 받은 뒤 `.env`의 `DOMAIN`을 고치고 `docker compose up -d`로 Nginx를 새 주소로 다시 만듭니다. 옛 주소의 인증서는 지웁니다. 남겨 두면 갱신할 때가 됐을 때 12시간마다 갱신에 실패합니다.
+
+```bash
+docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot --non-interactive --agree-tos --register-unsafely-without-email -d <새 주소>
+# .env의 DOMAIN을 새 주소로 고친 뒤
+docker compose up -d
+docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name <옛 주소>
+```
+
+첫 빌드는 Gradle과 의존성을 받느라 몇 분 걸립니다. 다 뜨면 확인합니다.
+
+```bash
+# 서버 안에서 서버가 뜰 때까지 3분까지 다시 물어보고, 마지막 상태 코드만 찍습니다(200이어야 합니다)
+D=$(docker compose exec -T nginx printenv DOMAIN); curl -s -o /dev/null -w '%{http_code}\n' --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs"
+# 인증서 갱신이 될지 미리 봅니다(실제로 갱신하지 않습니다). 갱신은 처음 받을 때와 달리 Nginx를 거쳐 확인합니다
+docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -w /var/www/certbot
+```
+
+바깥에서도 열리는지(서버 주소·방화벽)는 내 컴퓨터에서 `curl -I https://<서버 주소>/api/docs`로 봅니다(`HTTP/2 200`).
+
+인증서를 standalone으로 받았으므로 갱신 설정에도 standalone이 적혀 있습니다. 갱신을 손으로 돌릴 때는 위처럼 늘 `--webroot -w /var/www/certbot`을 붙입니다. 붙이지 않으면 certbot이 80번 포트를 직접 열려다 Nginx와 부딪쳐 실패합니다. `certbot` 컨테이너는 이 옵션을 붙여 돌고, 첫 갱신에 성공하면 설정도 webroot로 바뀝니다.
+
+### 다시 배포
+
+main에 머지된 코드를 받아 다시 빌드합니다. 첫 줄의 `git pull`이 실패하면 두 번째 명령을 돌리지 않습니다. 두 번째 명령은 다음을 차례로 하고, 한 단계라도 실패하면 거기서 멈춘 뒤 마지막에 "배포가 중간에 멈췄습니다"를 찍습니다.
+
+1. Nginx·Certbot 이미지를 새로 받고, 받아 온 Nginx 설정(`nginx/templates`)에 틀린 곳이 없는지 그 새 이미지로 봅니다.
+2. 서버 이미지를 베이스(JRE)까지 새로 받아 빌드합니다(보안 수정이 들어가게). 빌드하는 동안에는 앞의 서버가 그대로 응답합니다.
+3. 새 서버를 띄우기 바로 전에 DB를 백업하고 끝까지 받아졌는지 봅니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없기 때문입니다. 빌드 뒤에 받아야 빌드하는 몇 분 동안 들어온 가입·신청도 백업에 들어갑니다.
+4. 바뀐 컨테이너를 다시 만들고, Nginx는 늘 새로 만듭니다(Nginx 설정은 컨테이너가 시작할 때만 채워지기 때문입니다. 끊기는 것은 0.2초쯤입니다). 서버 컨테이너를 바꿔 띄우는 몇십 초 동안은 503(`{"message": "서버에 잠시 연결할 수 없습니다. …"}`)이 납니다.
+5. 서버가 뜰 때까지 서버 안에서 3분까지 기다려 봅니다(바깥 DNS를 거치지 않고 이 서버의 Nginx로 바로 묻습니다).
+6. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고, 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다.
+
+```bash
+cd ~/be/deploy && git pull --ff-only
+docker compose pull nginx certbot \
+  && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t \
+  && docker compose build --pull app \
+  && B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql && { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
+  && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } \
+  && docker compose up -d --remove-orphans \
+  && docker compose up -d --force-recreate nginx \
+  && D=$(docker compose exec -T nginx printenv DOMAIN) \
+  && curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
+  && docker image prune -f && docker builder prune -f --filter until=168h \
+  && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
+  && echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)" \
+  || echo "배포가 중간에 멈췄습니다. 위 출력에서 멈춘 단계를 보고, 서버가 문제면 docker compose logs app nginx 를 봅니다. 고칠 수 없으면 아래 '배포 되돌리기'로 갑니다"
+```
+
+MySQL 이미지는 다시 배포 때 받지 않습니다. 새 패치를 받으면 배포 도중에 DB가 다시 켜지며 그동안 서버가 500을 내기 때문입니다. MySQL 보안 수정을 넣을 때는 쓰는 사람이 적은 때에 백업(아래 "로그와 백업")을 받은 뒤 `docker compose pull mysql && docker compose up -d mysql`을 따로 돌립니다. 다시 켜지는 동안(보통 몇십 초) 서버는 DB에 못 붙다가 저절로 다시 붙습니다.
+
+### 배포 되돌리기
+
+새 버전에 문제가 있으면 앞 커밋을 다시 배포합니다. 서버만이 아니라 Nginx 설정과 compose 설정도 앞 버전으로 돌아갑니다.
+
+```bash
+cd ~/be && git reflog -8             # 되돌아갈 커밋: 앞 배포가 끝날 때 "배포했습니다: <커밋>"으로 찍힌 것(reflog에서는 마지막 pull 바로 아래 줄)
+git checkout <앞 커밋> && cd deploy
+```
+
+그다음 위 "다시 배포"의 두 번째 명령(`docker compose pull nginx certbot`으로 시작하는 것)을 그대로 돌립니다. 이때 받는 백업은 되돌리기 직전의 DB입니다.
+
+새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 있었으면 그 파일을 보고 DB를 되돌릴지 정합니다. Flyway는 앞 버전이 모르는 새 마이그레이션이 적용돼 있어도 경고만 남기고 넘어가므로, 앞 버전 서버가 그 DB로 뜰 수는 있습니다.
+
+- 테이블을 더했거나, 비어 있어도 되는(또는 기본값이 있는) 칸을 더하기만 했으면 앞 버전이 그 DB를 그대로 씁니다. DB는 그대로 둡니다.
+- 기본값 없는 `NOT NULL` 칸을 더했으면 앞 버전 서버는 뜨고 확인도 200이지만, 신청 같은 쓰기가 500이 납니다(서버 로그에 `Field '…' doesn't have a default value`). 새 버전을 배포하기 전에 받은 백업을 아래 "로그와 백업"의 되살리기 명령으로 넣습니다.
+- 앞 버전이 쓰는 칸·테이블의 이름을 바꿨거나 지웠으면 앞 버전 서버가 시작할 때 테이블 확인에 실패해 뜨지 않고(서버 로그에 `Schema validation: missing …`), 위 명령은 "배포가 중간에 멈췄습니다"로 끝납니다. 이때는 되돌리기를 다시 하지 말고 배포 전 백업을 되살리기 명령으로 넣습니다. 되살리기가 앞 버전 서버를 다시 띄웁니다.
+- 판단이 서지 않으면 되돌린 뒤 가입이나 신청을 한 번 해 봅니다.
+
+백업을 넣으면 그 백업 뒤에 들어온 가입·신청이 사라집니다(확정 문자가 이미 나간 신청도). 넣기 전에 무엇이 사라지는지 되돌리기 직전의 백업과 견줘 봅니다.
+
+고친 버전이 main에 머지되면 `cd ~/be && git checkout main && git pull` 뒤 위 "다시 배포"대로 합니다.
+
+### 로그와 백업
+
+```bash
+cd ~/be/deploy
+docker compose ps             # 컨테이너 상태
+docker compose logs -f app    # 서버 로그(문자 발송 실패 등)
+# DB를 파일로 받아 둡니다(다시 배포도 배포 전에 같은 명령으로 받습니다). 파일에는 DB를 지우고 원래 문자셋으로 다시 만드는 문장까지 들어갑니다.
+# 이름에 받은 시각(서울, 서버 로그와 같은 시간대)을 넣어 앞서 받은 백업을 덮지 않고, 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
+B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
+  && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } && echo "백업했습니다: $B" || echo "백업하지 못했습니다(덜 받은 파일은 지웠습니다). 위 출력을 봅니다"
+```
+
+받아 둔 파일로 되살릴 때는 서버를 멈추고 넣습니다. 파일이 DB를 통째로 지우고 다시 만들므로 백업 뒤에 생긴 테이블은 남지 않습니다(남으면 서버가 뜰 때 마이그레이션이 그 테이블을 다시 만들려다 실패합니다). 아래 명령은 백업 파일이 끝까지 받아진 것(마지막 줄 `-- Dump completed`)을 확인한 뒤에만 넣고, 넣기가 성공했을 때만 서버를 다시 띄웁니다.
+
+```bash
+F=~/mwt-<받은 시각>.sql
+tail -n 1 "$F" | grep -q '^-- Dump completed' \
+  && docker compose stop app \
+  && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER"' < "$F" \
+  && docker compose up -d app \
+  || echo "되살리지 못했습니다. 위 출력에서 어느 단계가 실패했는지 봅니다"
+```
+
+마지막 줄이 `start`가 아니라 `up -d`인 것은, 서버 컨테이너가 지금 빌드된 이미지와 다르면(앞 버전을 빌드해 둔 경우 등) 그 이미지로 새로 만들기 위해서입니다. 같으면 그대로 띄웁니다.
+
+실패했을 때는 어느 단계였는지에 따라 다르게 합니다.
+
+- 첫 확인(`-- Dump completed`)에서 멈췄으면 DB와 서버는 그대로입니다. 백업 파일을 다시 받습니다.
+- 넣기(`mysql`)가 실패했으면 DB가 지워졌거나 반쯤 들어갔을 수 있습니다. 서버를 띄우지 말고 원인을 고친 뒤 같은 명령을 다시 돌립니다(파일이 DB를 처음부터 다시 만듭니다).
+- 마지막 `docker compose up -d app`만 실패했으면 되살리기는 끝난 것이니 그 명령만 다시 칩니다.
+
+서버(Lightsail)가 다시 켜지면 컨테이너도 저절로 다시 뜹니다. 이때는 서버(app)가 MySQL보다 먼저 떠서 DB에 못 붙으면 꺼졌다가 다시 뜨기를 몇 번 되풀이한 뒤 붙고, 그동안은 503이 납니다. `docker compose down`은 컨테이너만 지우고 DB와 인증서(볼륨)는 남깁니다. `docker compose down -v`는 운영 DB까지 지우니 쓰지 않습니다.
 
 ## 작업 규칙
 

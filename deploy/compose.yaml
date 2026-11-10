@@ -1,0 +1,102 @@
+# 운영 서버(Lightsail)에서 띄우는 구성: Nginx(HTTPS, /api 전달)·서버·MySQL과 HTTPS 인증서 갱신(Certbot).
+# 이 폴더에서 docker compose up -d --build 로 띄우고, 값은 이 폴더의 .env에서 읽는다(README 배포 절).
+# 내 컴퓨터에서 개발할 때 쓰는 MySQL은 레포 맨 위의 compose.yaml이다.
+name: mwt
+
+# 컨테이너 로그가 서버 디스크를 채우지 않게 한다
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    # 끌 때(서버 재부팅·docker compose down) InnoDB가 정상 종료를 마치도록 기본 10초보다 넉넉히 기다린 뒤 강제로 끈다
+    stop_grace_period: 60s
+    environment:
+      MYSQL_DATABASE: mwt
+      # MySQL은 이 세 값을 데이터 볼륨을 처음 만들 때만 쓴다(README 배포 절)
+      MYSQL_USER: ${DB_USERNAME:?.env에 DB_USERNAME을 넣으세요}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?.env에 DB_PASSWORD를 넣으세요}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?.env에 MYSQL_ROOT_PASSWORD를 넣으세요}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+    logging: *logging
+
+  app:
+    build: ..
+    restart: unless-stopped
+    # 끌 때 스프링이 처리 중인 요청을 30초까지 마저 끝내므로(graceful shutdown) 그보다 넉넉히 기다린 뒤 강제로 끈다
+    stop_grace_period: 40s
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/mwt
+      DB_USERNAME: ${DB_USERNAME:?.env에 DB_USERNAME을 넣으세요}
+      DB_PASSWORD: ${DB_PASSWORD:?.env에 DB_PASSWORD를 넣으세요}
+      JWT_SECRET: ${JWT_SECRET:?.env에 JWT_SECRET을 넣으세요}
+      STAFF_CODE: ${STAFF_CODE:?.env에 STAFF_CODE를 넣으세요}
+      SOLAPI_API_KEY: ${SOLAPI_API_KEY:-}
+      SOLAPI_API_SECRET: ${SOLAPI_API_SECRET:-}
+      SOLAPI_SENDER_NUMBER: ${SOLAPI_SENDER_NUMBER:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Nginx가 붙인 X-Forwarded-*를 믿어, 원래 요청이 https였다는 것과 사용자 주소를 서버가 안다
+      # (Tomcat은 같은 Docker 네트워크 같은 사설 주소에서 온 헤더만 믿는다)
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+      # 2GB 서버에서 MySQL과 함께 돌도록 힙을 묶는다. 메모리가 모자라면(OutOfMemoryError) 반쯤 죽은 채 남지 않고 꺼져 재시작 정책으로 다시 뜨게 한다
+      JAVA_TOOL_OPTIONS: -Xmx512m -XX:+ExitOnOutOfMemoryError
+      # 로그 시각과 JVM 기본 시간대를 서울로 맞춘다. 업무의 "오늘"은 ClockConfig가 정하고, 시각(Instant)은
+      # Hibernate가 이 값과 상관없이 UTC로 저장한다(이 구성에서 신청 시각이 UTC로 들어가는 것을 확인함)
+      TZ: Asia/Seoul
+    logging: *logging
+
+  nginx:
+    image: nginx:1.30-alpine
+    restart: unless-stopped
+    # 서버(app) 주소는 요청 때마다 찾으므로(템플릿의 resolver) 서버보다 먼저 떠도 되고, 서버에 기대지 않는다
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?.env에 DOMAIN을 넣으세요}
+      # 템플릿에서 이 이름의 환경변수만 채운다. 자리표시자를 더하면 여기에도 더한다 —
+      # 빠뜨리면 nginx -t가 unknown variable로 알려 주고, 필터가 없으면 이름이 겹친 환경변수가 조용히 들어간다
+      NGINX_ENVSUBST_FILTER: ^DOMAIN$$
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - certs:/etc/letsencrypt:ro
+      - acme:/var/www/certbot:ro
+    # certbot이 갱신한 인증서를 읽도록 12시간마다 설정을 다시 읽는다.
+    # 공식 이미지의 시작 스크립트(템플릿을 /etc/nginx/conf.d로 옮기며 DOMAIN 채우기)는 그대로 거친다
+    entrypoint: ["/bin/sh", "-c", "while :; do sleep 12h; nginx -s reload; done & exec /docker-entrypoint.sh nginx -g 'daemon off;'"]
+    logging: *logging
+
+  certbot:
+    image: certbot/certbot:v5.8.0
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?.env에 DOMAIN을 넣으세요}
+    volumes:
+      - certs:/etc/letsencrypt
+      - acme:/var/www/certbot
+    # 12시간마다 갱신할 때가 됐는지 보고, 됐으면 Nginx가 내주는 확인 파일로 갱신한다.
+    # 처음 발급은 Nginx가 뜨기 전에 README 배포 절의 명령으로 따로 한다
+    entrypoint: ["/bin/sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
+    logging: *logging
+
+volumes:
+  mysql-data:
+  # Let's Encrypt 인증서와 갱신 설정(/etc/letsencrypt)
+  certs:
+  # 갱신 때 Let's Encrypt가 http://<DOMAIN>/.well-known/acme-challenge/ 로 확인하는 파일
+  acme:
