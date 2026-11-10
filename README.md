@@ -45,7 +45,7 @@ grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 
 
 `OPENAI_API_KEY`가 비어 있어도 서버는 뜹니다. 그때는 음성으로 고르기만 503을 돌려주고, 화면에서 직접 고르는 흐름은 그대로 씁니다. 테스트는 OpenAI를 부르지 않습니다 — 셸에 이 값이 있어도 테스트 설정 파일이 비워 둡니다.
 
-API 키·서명 키·직원 코드 같은 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다.
+API 키·서명 키·직원 코드 같은 값은 코드나 커밋에 넣지 않고 환경변수로 받습니다. 운영 서버에서는 이 값들을 `deploy/.env`에 넣습니다(아래 "배포").
 
 내 컴퓨터에서 값을 바꿀 때는 둘 중 하나를 씁니다. 둘 다 `.gitignore`에 들어 있어 커밋되지 않습니다.
 
@@ -143,7 +143,88 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 
 ## 배포
 
-서버 한 대(Lightsail)에서 Docker Compose로 띄웁니다. Nginx(HTTPS 처리, `/api` 요청을 서버로 전달), 이 서버, MySQL 세 컨테이너입니다. HTTPS 인증서는 Certbot으로 Let's Encrypt에서 받고 갱신합니다. 배포 설정은 첫 기능을 만든 뒤 따로 PR로 올립니다.
+운영 서버는 Lightsail 한 대이고, `deploy/compose.yaml`로 컨테이너 네 개를 띄웁니다. 서버 이미지는 레포 맨 위의 `Dockerfile`로 운영 서버 안에서 빌드합니다.
+
+| 컨테이너 | 하는 일 |
+| --- | --- |
+| `nginx` | 80·443번 포트를 받습니다. HTTP는 HTTPS로 넘기고, `/api/`로 시작하는 요청만 경로를 떼지 않고 서버로 넘깁니다. 그 밖의 주소는 404입니다 |
+| `app` | 이 서버. 바깥에 포트를 열지 않습니다 |
+| `mysql` | MySQL 8.4. 바깥에 포트를 열지 않습니다 |
+| `certbot` | HTTPS 인증서(Let's Encrypt)를 12시간마다 확인해 만료가 가까우면 갱신합니다. Nginx도 12시간마다 설정을 다시 읽어 새 인증서를 씁니다 |
+
+배포한 뒤에는 `https://<DOMAIN>/api/swagger-ui.html`에서 API 문서가 열립니다. 화면 호스팅의 프록시는 `/api/*`를 `https://<DOMAIN>/api/*`로 넘기면 됩니다(위 "화면과 연결").
+
+### 운영 값(`deploy/.env`)
+
+`deploy/.env.example`을 같은 폴더의 `.env`로 복사해 채웁니다. 이름마다 설명이 붙어 있습니다. 레포 맨 위의 `.env`(내 컴퓨터용)와는 다른 파일이고, 둘 다 커밋되지 않습니다.
+
+- `DOMAIN`(서버 주소), `DB_USERNAME`·`DB_PASSWORD`·`MYSQL_ROOT_PASSWORD`, `JWT_SECRET`·`STAFF_CODE` 가운데 하나라도 비어 있으면 `docker compose`가 아무것도 띄우지 않고 어느 값이 비었는지 알려 줍니다.
+- `JWT_SECRET`·`STAFF_CODE`는 내 컴퓨터의 값을 옮기지 않고 새로 만듭니다. DB 비밀번호도 `openssl rand -hex 16`처럼 무작위로 만듭니다.
+- 확정 문자를 보내려면 솔라피 콘솔에서 그 API Key의 허용 IP에 서버 고정 IP를 더합니다.
+- MySQL은 데이터 볼륨을 처음 만들 때만 DB 계정을 만듭니다. 계정 값은 처음 정한 대로 둡니다 — 바꾸려면 운영 DB(볼륨)를 지워야 합니다.
+
+### 서버 준비 (처음 한 번)
+
+1. Lightsail에서 Ubuntu 24.04 LTS, 메모리 2GB 인스턴스를 만들고 고정 IP를 붙입니다. 인스턴스의 네트워킹 탭에서 IPv4 방화벽에 HTTPS(443)를 더합니다(SSH 22와 HTTP 80은 처음부터 열려 있습니다).
+2. DuckDNS 같은 곳에서 서버 주소(서브도메인)를 만들어 고정 IP를 가리키게 합니다.
+3. SSH로 접속해 스왑을 만들고 Docker를 설치합니다. 서버에서 이미지를 빌드할 때 메모리 2GB로는 모자랄 수 있어 스왑 2GB를 더합니다.
+
+   ```bash
+   sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+   curl -fsSL https://get.docker.com | sudo sh
+   sudo usermod -aG docker "$USER"   # 한 번 나갔다가 다시 접속하면 sudo 없이 docker를 씁니다
+   ```
+
+4. 레포를 받습니다. 비공개 레포라 서버 전용 키를 만들어, 공개 키를 GitHub 레포의 Settings → Deploy keys에 붙여 넣습니다("Allow write access"는 켜지 않습니다).
+
+   ```bash
+   ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+   cat ~/.ssh/id_ed25519.pub
+   git clone git@github.com:UOS-SE-TOUR/be.git ~/be
+   ```
+
+5. 운영 값을 채웁니다: `cd ~/be/deploy && cp .env.example .env` 뒤 `.env`를 고칩니다.
+
+### 처음 배포
+
+Nginx는 인증서가 있어야 뜨므로 인증서부터 받습니다. 아직 Nginx가 없으니 certbot이 80번 포트를 직접 엽니다. 서버 주소가 이 서버의 고정 IP를 가리키고 있어야 받을 수 있습니다.
+
+```bash
+cd ~/be/deploy
+docker compose run --rm -p 80:80 --entrypoint sh certbot -c 'certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$DOMAIN"'
+docker compose up -d --build
+```
+
+첫 빌드는 Gradle과 의존성을 받느라 몇 분 걸립니다. 다 뜨면 확인합니다.
+
+```bash
+curl -I "https://<DOMAIN>/api/docs"   # HTTP/2 200
+# 인증서 갱신이 될지 미리 봅니다(실제로 갱신하지 않습니다). 갱신은 처음 받을 때와 달리 Nginx를 거쳐 확인합니다
+docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -w /var/www/certbot
+```
+
+### 다시 배포
+
+main에 머지된 코드를 받아 다시 빌드합니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용됩니다. 빌드하는 동안에는 앞의 서버가 그대로 응답하고, 서버 컨테이너를 바꿔 띄우는 몇십 초 동안만 502가 납니다.
+
+```bash
+cd ~/be && git pull && cd deploy && docker compose up -d --build
+```
+
+### 로그와 백업
+
+```bash
+cd ~/be/deploy
+docker compose ps             # 컨테이너 상태
+docker compose logs -f app    # 서버 로그(문자 발송 실패 등)
+# DB를 파일로 받아 둡니다
+docker compose exec -T mysql sh -c 'exec mysqldump --no-tablespaces --single-transaction -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" mwt' > ~/mwt-$(date +%Y%m%d).sql
+# 받아 둔 파일로 되살립니다(지금 DB의 테이블을 그 파일의 내용으로 바꿉니다)
+docker compose exec -T mysql sh -c 'exec mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" mwt' < ~/mwt-<날짜>.sql
+```
+
+서버가 다시 켜지면 컨테이너도 저절로 다시 뜹니다. `docker compose down`은 컨테이너만 지우고 DB와 인증서(볼륨)는 남깁니다. `docker compose down -v`는 운영 DB까지 지우니 쓰지 않습니다.
 
 ## 작업 규칙
 
