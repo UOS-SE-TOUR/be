@@ -167,7 +167,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 
 ### 서버 준비 (처음 한 번)
 
-1. Lightsail에서 Ubuntu 24.04 LTS, 메모리 2GB 인스턴스를 만들고 고정 IP를 붙입니다. 인스턴스의 네트워킹 탭에서 IPv4 방화벽에 HTTPS(443)를 더합니다(SSH 22와 HTTP 80은 처음부터 열려 있습니다).
+1. Lightsail에서 Ubuntu 24.04 LTS, 메모리 2GB 인스턴스를 만들고 고정 IP를 붙입니다. 인스턴스의 네트워킹 탭에서 IPv4 방화벽과 IPv6 방화벽 둘 다에 HTTPS(443)를 더합니다(SSH 22와 HTTP 80은 처음부터 열려 있습니다).
 2. DuckDNS 같은 곳에서 서버 주소(서브도메인)를 만들어 고정 IP를 가리키게 합니다.
 3. SSH로 접속해 스왑을 만들고 Docker를 설치합니다. 서버에서 이미지를 빌드할 때 메모리 2GB로는 모자랄 수 있어 스왑 2GB를 더합니다.
 
@@ -238,12 +238,12 @@ B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; (umask 077; docker compose exe
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t \
   && docker compose pull mysql nginx certbot \
   && docker compose build --pull app \
-  && docker compose up -d \
+  && docker compose up -d --remove-orphans \
   && docker compose up -d --force-recreate nginx \
   && curl -fs -o /dev/null --retry 60 --retry-delay 3 --retry-all-errors "https://$(sed -n 's/^DOMAIN=//p' .env)/api/docs" \
   && docker image prune -f && docker builder prune -f --filter until=168h \
   && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
-  && echo "배포했습니다(배포 전 백업: $B)" \
+  && echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)" \
   || echo "배포가 중간에 멈췄습니다. 위 출력에서 멈춘 단계를 보고, 서버가 문제면 docker compose logs app nginx 를 봅니다. 고칠 수 없으면 아래 '배포 되돌리기'로 갑니다"
 ```
 
@@ -252,13 +252,19 @@ B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; (umask 077; docker compose exe
 새 버전에 문제가 있으면 앞 커밋을 다시 배포합니다. 서버만이 아니라 Nginx 설정과 compose 설정도 앞 버전으로 돌아갑니다.
 
 ```bash
-cd ~/be && git log --oneline -5      # 되돌아갈 커밋(배포 전 main)을 고릅니다
+cd ~/be && git reflog -8             # 되돌아갈 커밋: 앞 배포가 끝날 때 "배포했습니다: <커밋>"으로 찍힌 것(reflog에서는 마지막 pull 바로 아래 줄)
 git checkout <앞 커밋> && cd deploy
 ```
 
 그다음 위 "다시 배포"의 두 번째 명령(`B=…`로 시작하는 것)을 그대로 돌립니다. 이때 받는 백업은 되돌리기 직전의 DB입니다.
 
-새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 있었어도 DB는 먼저 그대로 둡니다. 마이그레이션이 테이블·칸을 더하기만 했으면 앞 버전 서버도 그 DB로 뜹니다(Flyway는 앞 버전이 모르는 새 마이그레이션이 적용돼 있어도 경고만 남기고 넘어갑니다). 앞 버전 서버가 DB 때문에 뜨지 않을 때만, 새 버전을 배포하기 전에 받은 백업을 아래 "로그와 백업"의 되살리기 명령으로 넣습니다. 그 백업 뒤에 들어온 가입·신청은 사라지니(확정 문자가 이미 나간 신청도), 넣기 전에 무엇이 사라지는지 되돌리기 직전의 백업과 견줘 봅니다.
+새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 있었으면 그 파일을 보고 DB를 되돌릴지 정합니다. Flyway는 앞 버전이 모르는 새 마이그레이션이 적용돼 있어도 경고만 남기고 넘어가므로, 앞 버전 서버가 그 DB로 뜰 수는 있습니다.
+
+- 테이블을 더했거나, 비어 있어도 되는(또는 기본값이 있는) 칸을 더하기만 했으면 앞 버전이 그 DB를 그대로 씁니다. DB는 그대로 둡니다.
+- 기본값 없는 `NOT NULL` 칸을 더했거나 칸·테이블을 바꾸거나 지웠으면, 앞 버전 서버가 떠도 신청 같은 쓰기가 실패합니다. 새 버전을 배포하기 전에 받은 백업을 아래 "로그와 백업"의 되살리기 명령으로 넣습니다.
+- 판단이 서지 않으면 되돌린 뒤 가입이나 신청을 한 번 해 봅니다.
+
+백업을 넣으면 그 백업 뒤에 들어온 가입·신청이 사라집니다(확정 문자가 이미 나간 신청도). 넣기 전에 무엇이 사라지는지 되돌리기 직전의 백업과 견줘 봅니다.
 
 고친 버전이 main에 머지되면 `cd ~/be && git checkout main && git pull` 뒤 위 "다시 배포"대로 합니다.
 

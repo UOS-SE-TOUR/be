@@ -50,8 +50,8 @@ services:
       SOLAPI_API_SECRET: ${SOLAPI_API_SECRET:-}
       SOLAPI_SENDER_NUMBER: ${SOLAPI_SENDER_NUMBER:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      # 2GB 서버에서 MySQL과 함께 돌도록 힙을 묶는다
-      JAVA_TOOL_OPTIONS: -Xmx512m
+      # 2GB 서버에서 MySQL과 함께 돌도록 힙을 묶는다. 메모리가 모자라면(OutOfMemoryError) 반쯤 죽은 채 남지 않고 꺼져 재시작 정책으로 다시 뜨게 한다
+      JAVA_TOOL_OPTIONS: -Xmx512m -XX:+ExitOnOutOfMemoryError
       # 로그 시각과 JVM 기본 시간대를 서울로 맞춘다. 업무의 "오늘"은 ClockConfig가 정하고, 시각(Instant)은
       # Hibernate가 이 값과 상관없이 UTC로 저장한다(이 구성에서 신청 시각이 UTC로 들어가는 것을 확인함)
       TZ: Asia/Seoul
