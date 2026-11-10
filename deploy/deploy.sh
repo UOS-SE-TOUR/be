@@ -61,8 +61,15 @@ if [ $# -eq 1 ]; then
   esac
   hash=$(printf '%s' "$1" | tr 'A-F' 'a-f')
   # 짧아서 여러 커밋에 걸리면 git이 그렇다고 알리므로 git의 오류를 그대로 보인다
+  # git은 같은 이름의 브랜치·태그를 해시보다 먼저 풀므로, 그런 이름이 있으면 받지 않는다
+  if git show-ref -q "$hash"; then
+    echo "$1 은 브랜치나 태그 이름이기도 해서 해시로 쓸 수 없습니다. 배포 기록의 해시를 더 길게 줍니다" >&2
+    exit 2
+  fi
   target=$(git rev-parse --verify "$hash^{commit}") \
     || { echo "커밋을 찾지 못했습니다: $1 (위 git 오류를 봅니다. 해시가 짧으면 배포 기록의 해시를 그대로 줍니다)" >&2; exit 2; }
+  git merge-base --is-ancestor "$target" main \
+    || { echo "그 커밋은 main에 없습니다(머지되지 않은 커밋). 배포 기록에 적힌 커밋으로 되돌립니다: $1" >&2; exit 2; }
   git cat-file -e "$target:deploy/compose.yaml" 2>/dev/null \
     || { echo "그 커밋에는 운영 배포 설정(deploy/compose.yaml)이 없어 되돌릴 수 없습니다: $1" >&2; exit 2; }
 else
@@ -95,6 +102,11 @@ note=
 # 그 뒤 ~/be/deploy에서 치는 docker compose 명령이 다른 설정을 쓴다
 start_branch=$(git symbolic-ref -q --short HEAD)
 start_commit=$(git rev-parse HEAD)
+# 서버 이미지 이름(compose.yaml의 app image)도 빌드 전 이미지로 되돌린다. 그러지 않으면 빌드 뒤에 멈췄을 때
+# README 되살리기의 docker compose up -d app 같은 명령이 배포하지 않은 새 이미지를 백업 없이 띄운다.
+# 빌드 전 이미지에는 두 번째 이름을 붙여 둔다 — containerd 이미지 저장소는 이름이 다 떨어진 이미지를 ID로도 찾지 못한다
+app_image=mwt-app
+saved_app_image=
 
 step() { echo "== $*"; }
 
@@ -121,6 +133,10 @@ stop() {
     exit 1
   fi
   record "띄우기 전 멈춤$note"
+  if [ -n "$saved_app_image" ]; then
+    docker tag "$app_image:before-deploy" "$app_image" \
+      || echo "서버 이미지($app_image)를 빌드 전 이미지로 되돌리지 못했습니다. 다시 배포하기 전에는 docker compose up 을 치지 않습니다"
+  fi
   # 시작한 브랜치가 그 커밋에 그대로 있으면 브랜치로, 아니면(main을 받아 앞으로 갔으면) 그 커밋으로 돌려놓는다
   back=$(git rev-parse --short "$start_commit")
   if [ -n "$start_branch" ] && [ "$(git rev-parse "$start_branch")" = "$start_commit" ]; then back=$start_branch; fi
@@ -140,7 +156,17 @@ stop() {
   exit 1
 }
 
-trap 'trap "" INT TERM; echo "중단 신호를 받았습니다" >&2; note="(중단)"; stop' INT TERM
+# shellcheck disable=SC2317,SC2329 # 아래 trap이 부른다
+on_signal() {
+  # 서버가 뜬 것을 확인한 뒤면 무시하고 성공으로 마저 기록한다
+  [ -n "$healthy" ] && return
+  trap '' INT TERM
+  echo "중단 신호를 받았습니다" >&2
+  note="(중단)"
+  stop
+}
+healthy=
+trap on_signal INT TERM
 
 if [ "$kind" = 배포 ]; then
   if [ "$start_branch" != main ]; then
@@ -161,6 +187,10 @@ docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t || sto
 
 # 베이스(JRE)까지 새로 받아 보안 수정이 들어가게 한다. 빌드하는 동안 앞 서버가 그대로 응답한다
 step "서버 이미지를 빌드합니다"
+if docker image inspect "$app_image" >/dev/null 2>&1; then
+  docker tag "$app_image" "$app_image:before-deploy" || stop
+  saved_app_image=1
+fi
 docker compose build --pull app || stop
 
 # DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되고, 중간에 실패하면 되돌릴 수 없어서 띄우기 바로 전에 받는다.
@@ -190,6 +220,7 @@ domain=$(docker compose exec -T nginx printenv DOMAIN) \
 [ -n "$domain" ] || { echo "Nginx 컨테이너의 서버 주소(DOMAIN)가 비어 있습니다"; stop; }
 curl -fs -o /dev/null --resolve "$domain:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$domain/api/docs" \
   || { echo "https://$domain/api/docs 가 3분 안에 응답하지 않았습니다"; stop; }
+healthy=1
 
 trap '' INT TERM
 record 성공
@@ -203,6 +234,7 @@ fi
 
 # 되돌리기는 되살려야 할 백업이 지워지지 않게 백업을 정리하지 않는다
 step "앞 이미지와 오래된 백업을 정리합니다"
+if [ -n "$saved_app_image" ]; then docker rmi "$app_image:before-deploy" >/dev/null; fi
 { docker image prune -f && docker builder prune -f --filter until=168h; } \
   || echo "${kind}는 끝났고, 앞 이미지 정리만 실패했습니다. 디스크가 차면 위 출력을 봅니다"
 if [ "$kind" = 배포 ]; then
