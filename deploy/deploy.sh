@@ -22,7 +22,8 @@ tee_pid=
 # shellcheck disable=SC2317,SC2329 # 아래 trap이 부른다(shellcheck 0.10 이하는 SC2317, 0.11은 SC2329로 알린다)
 finish() {
   if [ -n "$tee_pid" ]; then
-    exec >&- 2>&-
+    # 잠금을 먼저 놓는다 — 출력을 물고 있는 자손이 남아 tee가 끝나지 않아도 다음 배포가 막히지 않게
+    exec 9>&- >&- 2>&-
     wait "$tee_pid"
   fi
   rm -f "$MWT_DEPLOY_COPY"
@@ -57,7 +58,7 @@ if [ $# -eq 1 ]; then
   kind=되돌리기
   # main 같은 브랜치 이름을 주면 받지 않은 로컬 브랜치로 "되돌리기"가 되므로 커밋 해시만 받는다
   case $1 in
-    *[!0-9a-fA-F]*) echo "되돌릴 커밋은 배포 기록에 적힌 커밋 해시(예: a1b2c3d4e5f6)로 줍니다: $1" >&2; exit 2 ;;
+    '' | *[!0-9a-fA-F]*) echo "되돌릴 커밋은 배포 기록에 적힌 커밋 해시(예: a1b2c3d4e5f6)로 줍니다: $1" >&2; exit 2 ;;
   esac
   hash=$(printf '%s' "$1" | tr 'A-F' 'a-f')
   # 짧아서 여러 커밋에 걸리면 git이 그렇다고 알리므로 git의 오류를 그대로 보인다
@@ -138,12 +139,13 @@ stop() {
       || echo "서버 이미지($app_image)를 빌드 전 이미지로 되돌리지 못했습니다. 다시 배포하기 전에는 docker compose up 을 치지 않습니다"
   fi
   # 시작한 브랜치가 그 커밋에 그대로 있으면 브랜치로, 아니면(main을 받아 앞으로 갔으면) 그 커밋으로 돌려놓는다
-  back=$(git rev-parse --short "$start_commit")
-  if [ -n "$start_branch" ] && [ "$(git rev-parse "$start_branch")" = "$start_commit" ]; then back=$start_branch; fi
+  back=$start_commit
+  shown=$(git rev-parse --short=12 "$start_commit")
+  if [ -n "$start_branch" ] && [ "$(git rev-parse "$start_branch")" = "$start_commit" ]; then back=$start_branch; shown=$start_branch; fi
   moved_back=
   if [ "$(git rev-parse HEAD)" != "$start_commit" ] || [ "$(git symbolic-ref -q --short HEAD)" != "$start_branch" ]; then
     if git checkout -q "$back"; then
-      moved_back=" 서버의 코드도 시작할 때 있던 자리($back)로 돌려놓았습니다."
+      moved_back=" 서버의 코드도 시작할 때 있던 자리($shown)로 돌려놓았습니다."
     else
       moved_back=" 서버의 코드는 옮겨 간 커밋에 남았으니 cd ~/be && git checkout $back 로 돌려놓습니다."
     fi
