@@ -11,12 +11,23 @@
 # 배포 도중 git pull·checkout이 이 파일을 바꾸거나 지워도 처음 시작한 내용으로 끝까지 돌도록 임시 사본으로 다시 실행한다.
 # 그래서 이 파일을 고친 커밋은 그 커밋을 받은 다음 배포부터 적용된다
 if [ "${MWT_DEPLOY_COPY:-}" != "$0" ]; then
-  deploy_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 1
+  deploy_dir=$(cd "$(dirname "$(readlink -f "$0")")" && pwd -P) || exit 1
   copy=$(mktemp "${TMPDIR:-/tmp}/mwt-deploy.XXXXXX") || exit 1
   cp "$0" "$copy" || { rm -f "$copy"; exit 1; }
   MWT_DEPLOY_COPY=$copy MWT_DEPLOY_DIR=$deploy_dir exec bash "$copy" "$@"
 fi
-trap 'rm -f "$MWT_DEPLOY_COPY"' EXIT
+
+tee_pid=
+# 끝날 때 tee가 마지막 줄까지 쓰기를 기다려, 프롬프트보다 먼저 찍히고 출력 파일에도 다 남게 한다
+# shellcheck disable=SC2329 # 아래 trap이 부른다
+finish() {
+  if [ -n "$tee_pid" ]; then
+    exec >&- 2>&-
+    wait "$tee_pid"
+  fi
+  rm -f "$MWT_DEPLOY_COPY"
+}
+trap finish EXIT
 set -u
 
 # 함께 붙여 넣은 다음 줄이나 SSH 입력을 docker compose exec·run이 입력으로 가져가지 않게 한다
@@ -53,8 +64,8 @@ else
   kind=배포
 fi
 
-# 배포가 두 번 겹쳐 돌지 않게 잠근다. 잠금은 이 스크립트가 끝나면(죽어도) 풀린다
-exec 9>"$HOME/.mwt-deploy.lock" || exit 1
+# 배포가 두 번 겹쳐 돌지 않게 잠근다. 잠금은 이 스크립트가 끝나면(죽어도) 풀린다. README 백업 되살리기도 같은 잠금을 쥔다
+exec 9>>"$HOME/.mwt-deploy.lock" || exit 1
 flock -n 9 || { echo "다른 배포가 돌고 있습니다. 그 배포가 끝난 뒤 다시 돌립니다" >&2; exit 3; }
 
 # 서버가 꺼지는 등으로 강제로 끝난 배포가 남긴, 받다 만 백업(회원 정보가 든다)을 지운다
@@ -64,19 +75,28 @@ rm -f "$HOME"/mwt-*.sql.part
 # tee가 파일에는 계속 써서, 명령이 출력 실패로 멈추지 않는다. tee는 Ctrl-C에 같이 죽지 않게 하고
 # (죽으면 멈췄다는 문구와 기록을 남기기 전에 이 스크립트가 출력 실패로 죽는다), 잠금(9번)은 물려받지 않게 닫는다
 exec > >(trap '' INT TERM; exec tee "$HOME/mwt-deploy-output.log" 9>&-) 2>&1
+tee_pid=${!:-}  # bash 4.4 아래는 프로세스 치환의 pid를 알 수 없어 기다리지 않는다
 
 log=$HOME/mwt-deploys.log
-B=     # 이번에 받아 끝까지 확인한 백업 파일
-part=  # 받는 중인 백업 파일(끝까지 받아진 것을 확인하면 B로 이름을 바꾼다)
-U=     # 새 버전을 띄우기 시작했으면 1
-note=  # 기록의 결과 칸에 덧붙일 말
-prev=  # 되돌리기 전에 서버의 코드가 있던 브랜치나 커밋
+backup=
+backup_part=
+launched=
+note=
+
+# 띄우기 전에 멈추면 서버의 코드를 시작 전 자리로 돌려놓는다. 코드를 떠 있는 버전과 다른 커밋에 두면
+# 그 뒤 ~/be/deploy에서 치는 docker compose 명령이 다른 설정을 쓴다.
+# main에서 시작한 배포는 받은 main에 그대로 둔다(다음 배포가 이어 받는다)
+branch=$(git symbolic-ref -q --short HEAD)
+prev=
+if [ "$kind" = 되돌리기 ] || [ "$branch" != main ]; then
+  prev=${branch:-$(git rev-parse --short HEAD)}
+fi
 
 step() { echo "== $*"; }
 
 # 시각, 배포/되돌리기, 커밋, 결과, 배포 전 백업을 한 줄로 남긴다(README "배포 되돌리기")
 record() {
-  printf '%s\t%s\t%s\t%s\t%s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')" "$kind" "$(git rev-parse --short HEAD)" "$1" "${B:--}" >>"$log" \
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')" "$kind" "$(git rev-parse --short HEAD)" "$1" "${backup:--}" >>"$log" \
     || echo "배포 기록($log)을 남기지 못했습니다" >&2
 }
 
@@ -84,26 +104,31 @@ stop() {
   # 기록이 두 줄이 되지 않게, 멈추는 동안 들어온 Ctrl-C 등은 무시한다
   trap '' INT TERM
   # 받는 중이던 백업은 지운다. 이름을 바꾼 바로 뒤에 멈췄으면(끝까지 받은 백업) 기록에 남긴다
-  if [ -n "$part" ]; then
-    if [ -e "${part%.part}" ]; then B=${part%.part}; else rm -f "$part"; fi
+  if [ -n "$backup_part" ]; then
+    if [ -e "${backup_part%.part}" ]; then backup=${backup_part%.part}; else rm -f "$backup_part"; fi
   fi
-  if [ -n "$U" ]; then
+  if [ -n "$launched" ]; then
     record "띄운 뒤 멈춤$note"
     if [ "$kind" = 배포 ]; then
-      echo "배포가 새 버전을 띄운 뒤에 멈췄습니다(배포 전 백업: $B). 서버가 문제면 docker compose logs app nginx 를 보고, 고칠 수 없으면 GitHub의 README '배포 되돌리기'로 갑니다"
+      echo "배포가 새 버전을 띄운 뒤에 멈췄습니다(배포 전 백업: $backup). 서버가 문제면 docker compose logs app nginx 를 보고, 고칠 수 없으면 GitHub의 README '배포 되돌리기'로 갑니다"
     else
-      echo "되돌리기가 앞 버전을 띄운 뒤에 멈췄습니다(되돌리기 전 백업: $B). 앞 버전 서버가 뜨지 못했으면 GitHub의 README '배포 되돌리기' 2번 표를 봅니다(서버의 README는 앞 버전입니다)"
+      echo "되돌리기가 앞 버전을 띄운 뒤에 멈췄습니다(되돌리기 전 백업: $backup). 앞 버전 서버가 뜨지 못했으면 GitHub의 README '배포 되돌리기' 2번 표를 봅니다(서버의 README는 앞 버전입니다)"
     fi
+    exit 1
+  fi
+  record "띄우기 전 멈춤$note"
+  moved_back=
+  if [ -n "$prev" ]; then
+    if git checkout -q "$prev"; then
+      moved_back=" 서버의 코드도 시작 전 자리($prev)로 돌려놓았습니다."
+    else
+      moved_back=" 서버의 코드는 옮겨 간 커밋에 남았으니 cd ~/be && git checkout $prev 로 돌려놓습니다."
+    fi
+  fi
+  if [ "$kind" = 배포 ]; then
+    echo "배포가 새 버전을 띄우기 전에 멈췄습니다. 운영은 앞 버전 그대로입니다.$moved_back 위 출력에서 멈춘 단계를 보고 고친 뒤 다시 돌립니다"
   else
-    record "띄우기 전 멈춤$note"
-    if [ "$kind" = 배포 ]; then
-      echo "배포가 새 버전을 띄우기 전에 멈췄습니다. 운영은 앞 버전 그대로이니, 위 출력에서 멈춘 단계를 보고 고친 뒤 다시 돌립니다"
-    # 서버의 코드를 앞 커밋에 둔 채 두면, 그 뒤 ~/be/deploy에서 치는 docker compose 명령이 떠 있는 버전과 다른 설정을 쓴다
-    elif git checkout -q "$prev"; then
-      echo "되돌리기가 앞 버전을 띄우기 전에 멈췄습니다. 운영은 그대로이고, 서버의 코드도 되돌리기 전($prev)으로 돌려놓았습니다. 위 출력에서 멈춘 단계를 보고 고친 뒤 다시 돌립니다"
-    else
-      echo "되돌리기가 앞 버전을 띄우기 전에 멈췄습니다. 운영은 그대로입니다. 서버의 코드는 앞 커밋에 남았으니 cd ~/be && git checkout $prev 로 돌려놓은 뒤, 위 출력에서 멈춘 단계를 보고 고칩니다"
-    fi
+    echo "되돌리기가 앞 버전을 띄우기 전에 멈췄습니다. 운영은 그대로입니다.$moved_back 위 출력에서 멈춘 단계를 보고 고친 뒤 다시 돌립니다"
   fi
   exit 1
 }
@@ -111,16 +136,14 @@ stop() {
 trap 'trap "" INT TERM; echo "중단 신호를 받았습니다" >&2; note="(중단)"; stop' INT TERM
 
 if [ "$kind" = 배포 ]; then
-  branch=$(git symbolic-ref -q --short HEAD)
-  if [ "$branch" != main ]; then
-    echo "서버의 코드가 main이 아니라 ${branch:-커밋 $(git rev-parse --short HEAD)}에 있습니다(배포를 되돌린 뒤 등). main으로 돌아가 배포합니다"
+  if [ -n "$prev" ]; then
+    echo "서버의 코드가 main이 아니라 $prev 에 있습니다(배포를 되돌린 뒤 등). main으로 돌아가 배포합니다"
     git checkout main || { echo "main으로 돌아가지 못했습니다(위 git 오류를 봅니다)"; stop; }
   fi
   step "main을 받습니다"
   # pull 뒤 뒤에서 도는 git gc·maintenance가 잠금(9번)을 물려받아 배포가 끝난 뒤에도 쥐고 있지 않게 닫아 준다
   git pull --ff-only 9>&- || { echo "main을 받지 못했습니다(위 git 오류를 봅니다)"; stop; }
 else
-  prev=$(git symbolic-ref -q --short HEAD || git rev-parse --short HEAD)
   step "$1 커밋으로 옮깁니다"
   git checkout --detach "$target" || { echo "$1 커밋으로 옮기지 못했습니다(위 git 오류를 봅니다)"; stop; }
 fi
@@ -134,39 +157,40 @@ step "서버 이미지를 빌드합니다"
 docker compose build --pull app || stop
 
 # DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되고, 중간에 실패하면 되돌릴 수 없어서 띄우기 바로 전에 받는다.
-# 빌드 뒤에 받아야 빌드하는 몇 분 동안 들어온 가입·신청도 들어간다
+# 빌드 뒤에 받아야 빌드하는 몇 분 동안 들어온 가입·신청도 들어간다. 끝까지 받아진 것을 확인한 뒤에야 이름을 붙인다
 step "DB를 백업합니다"
-part=$HOME/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql.part
+backup_part=$HOME/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql.part
 # shellcheck disable=SC2016 # $MYSQL_*는 mysql 컨테이너 안의 셸이 채운다
-if ! { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' >"$part") \
-  && tail -n 1 "$part" | grep -q '^-- Dump completed' \
-  && mv "$part" "${part%.part}"; }; then
+if ! { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' >"$backup_part") \
+  && tail -n 1 "$backup_part" | grep -q '^-- Dump completed' \
+  && mv "$backup_part" "${backup_part%.part}"; }; then
   echo "DB를 백업하지 못했습니다"
   stop
 fi
-B=${part%.part}
-part=
+backup=${backup_part%.part}
+backup_part=
 
 # Nginx는 늘 새로 만든다. 설정(nginx/templates)은 컨테이너가 시작할 때만 채워지기 때문이다
 step "새 버전을 띄웁니다"
-U=1
+launched=1
 docker compose up -d --remove-orphans || stop
 docker compose up -d --force-recreate nginx || stop
 
 # 바깥 DNS를 거치지 않고 이 서버의 Nginx로 바로 묻는다
 step "서버가 뜰 때까지 3분까지 기다립니다"
-D=$(docker compose exec -T nginx printenv DOMAIN) || { echo "Nginx 컨테이너에서 서버 주소(DOMAIN)를 읽지 못했습니다"; stop; }
-[ -n "$D" ] || { echo "Nginx 컨테이너의 서버 주소(DOMAIN)가 비어 있습니다"; stop; }
-curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
-  || { echo "https://$D/api/docs 가 3분 안에 응답하지 않았습니다"; stop; }
+domain=$(docker compose exec -T nginx printenv DOMAIN) \
+  || { echo "Nginx 컨테이너에서 서버 주소(DOMAIN)를 읽지 못했습니다. Nginx가 뜨지 못했을 수 있으니 docker compose ps 와 docker compose logs nginx 를 봅니다"; stop; }
+[ -n "$domain" ] || { echo "Nginx 컨테이너의 서버 주소(DOMAIN)가 비어 있습니다"; stop; }
+curl -fs -o /dev/null --resolve "$domain:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$domain/api/docs" \
+  || { echo "https://$domain/api/docs 가 3분 안에 응답하지 않았습니다"; stop; }
 
 trap '' INT TERM
 record 성공
 trap - INT TERM
 if [ "$kind" = 배포 ]; then
-  echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)"
+  echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $backup)"
 else
-  echo "배포했습니다: $(git rev-parse --short HEAD) (앞 버전으로 되돌림, 되돌리기 전 백업: $B)"
+  echo "배포했습니다: $(git rev-parse --short HEAD) (앞 버전으로 되돌림, 되돌리기 전 백업: $backup)"
 fi
 
 # 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지운다. 배포는 백업을 최근 10개만 남기고,
