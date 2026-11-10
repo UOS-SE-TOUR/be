@@ -84,6 +84,7 @@ API가 실패하면 상태 코드와 함께 본문을 늘 아래 모양 하나�
 | 409 | 가격 계산·신청에서 그 상품을 더는 신청할 수 없음(마감, 출발일이 오늘이거나 지남, 출발했거나 끝남). 화면은 상품 목록으로 돌아갑니다. 고른 내용만 고치면 되는 거부(남은 자리보다 많은 인원 등)는 400입니다 |
 | 500 | 서버 오류. 문구는 늘 "서버에 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요."이고 자세한 내용은 서버 로그에만 남습니다 |
 | 503 | 외부 서비스를 쓸 수 없음(음성으로 고르기에 OpenAI 키가 없음 등). 운영 서버에서는 서버가 잠시 멈췄을 때(다시 배포 중)도 앞단 Nginx가 같은 모양으로 503을 돌려줍니다 |
+| 504 | 운영 서버에서 서버 응답이 60초를 넘겨 앞단 Nginx가 끊었을 때. 요청이 이미 처리됐을 수 있으니 화면은 바로 다시 보내지 않고 결과(목록 등)를 다시 읽습니다 |
 
 업무에 따라 다른 4xx(409 등)를 쓰기도 합니다. 서버 코드는 이렇게 씁니다.
 
@@ -202,11 +203,13 @@ docker compose up -d --build
 첫 빌드는 Gradle과 의존성을 받느라 몇 분 걸립니다. 다 뜨면 확인합니다.
 
 ```bash
-# 서버가 뜰 때까지 1분 남짓 다시 물어보고, 마지막 상태 코드만 찍습니다(200이어야 합니다)
-curl -s -o /dev/null -w '%{http_code}\n' --retry 30 --retry-delay 2 --retry-all-errors "https://<DOMAIN>/api/docs"
+# 서버가 뜰 때까지 3분까지 다시 물어보고, 마지막 상태 코드만 찍습니다(200이어야 합니다)
+curl -s -o /dev/null -w '%{http_code}\n' --retry 60 --retry-delay 3 --retry-all-errors "https://<DOMAIN>/api/docs"
 # 인증서 갱신이 될지 미리 봅니다(실제로 갱신하지 않습니다). 갱신은 처음 받을 때와 달리 Nginx를 거쳐 확인합니다
 docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -w /var/www/certbot
 ```
+
+인증서를 standalone으로 받았으므로 갱신 설정에도 standalone이 적혀 있습니다. 갱신을 손으로 돌릴 때는 위처럼 늘 `--webroot -w /var/www/certbot`을 붙입니다. 붙이지 않으면 certbot이 80번 포트를 직접 열려다 Nginx와 부딪쳐 실패합니다. `certbot` 컨테이너는 이 옵션을 붙여 돌고, 첫 갱신에 성공하면 설정도 webroot로 바뀝니다.
 
 ### 다시 배포
 
@@ -223,7 +226,7 @@ docker compose exec nginx sh -c '/docker-entrypoint.d/20-envsubst-on-templates.s
 docker image prune -f && docker builder prune -f --filter until=168h
 # 서버가 떴는지 봅니다(200이어야 합니다). 아니면 docker compose ps 와 docker compose logs app nginx 로 이유를 봅니다
 # (서버가 못 뜨면 다시 뜨기를 되풀이합니다)
-curl -s -o /dev/null -w '%{http_code}\n' --retry 30 --retry-delay 2 --retry-all-errors "https://<DOMAIN>/api/docs"
+curl -s -o /dev/null -w '%{http_code}\n' --retry 60 --retry-delay 3 --retry-all-errors "https://<DOMAIN>/api/docs"
 ```
 
 ### 로그와 백업
@@ -233,8 +236,8 @@ cd ~/be/deploy
 docker compose ps             # 컨테이너 상태
 docker compose logs -f app    # 서버 로그(문자 발송 실패 등)
 # DB를 파일로 받아 둡니다. 파일에는 DB를 지우고 원래 문자셋으로 다시 만드는 문장까지 들어갑니다.
-# 이름에 받은 시각을 넣어 앞서 받은 백업을 덮지 않고, 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
-(umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > ~/mwt-$(date +%Y%m%d-%H%M%S).sql)
+# 이름에 받은 시각(서울, 서버 로그와 같은 시간대)을 넣어 앞서 받은 백업을 덮지 않고, 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
+(umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > ~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql)
 ```
 
 받아 둔 파일로 되살릴 때는 서버를 멈추고 넣습니다. 파일이 DB를 통째로 지우고 다시 만들므로 백업 뒤에 생긴 테이블은 남지 않습니다(남으면 서버가 뜰 때 마이그레이션이 그 테이블을 다시 만들려다 실패합니다). 아래 명령은 백업 파일이 끝까지 받아진 것(마지막 줄 `-- Dump completed`)을 확인한 뒤에만 넣고, 넣기가 성공했을 때만 서버를 다시 띄웁니다.
@@ -245,7 +248,7 @@ tail -n 1 "$F" | grep -q '^-- Dump completed' \
   && docker compose stop app \
   && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER"' < "$F" \
   && docker compose start app \
-  || echo "되살리지 못했습니다. 위 출력을 보고, 서버가 멈춰 있으면 docker compose start app 으로 다시 띄웁니다"
+  || echo "되살리지 못했습니다. 위 출력을 봅니다. 서버를 멈춘 뒤에 실패했으면 DB가 지워졌거나 반쯤 들어갔을 수 있으니, 서버를 띄우지 말고 원인을 고쳐 이 명령을 다시 돌립니다"
 ```
 
 서버가 다시 켜지면 컨테이너도 저절로 다시 뜹니다. `docker compose down`은 컨테이너만 지우고 DB와 인증서(볼륨)는 남깁니다. `docker compose down -v`는 운영 DB까지 지우니 쓰지 않습니다.
