@@ -24,7 +24,6 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?.env에 MYSQL_ROOT_PASSWORD를 넣으세요}
     volumes:
       - mysql-data:/var/lib/mysql
-    # 바깥에 포트를 열지 않는다. 서버(app)는 같은 Compose 네트워크에서 mysql 이름으로 붙는다
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
       interval: 3s

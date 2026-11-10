@@ -11,8 +11,9 @@ server {
         root /var/www/certbot;
     }
 
+    # 308이라 POST도 GET으로 바뀌지 않고, 보낸 Host가 아니라 정해 둔 서버 주소로 넘긴다
     location / {
-        return 301 https://$host$request_uri;
+        return 308 https://${DOMAIN}$request_uri;
     }
 }
 
@@ -23,7 +24,6 @@ server {
 
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
 
     # Docker 내장 DNS로 서버 컨테이너 주소를 그때그때 찾는다. 다시 배포해 서버 컨테이너의 주소가 바뀌어도
     # Nginx를 다시 띄우지 않아도 되고, 서버가 아직 안 떠 있어도 Nginx는 뜬다
