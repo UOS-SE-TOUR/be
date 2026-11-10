@@ -156,7 +156,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 
 배포한 뒤에는 `https://<DOMAIN>/api/swagger-ui.html`에서 API 문서가 열립니다. 화면 호스팅의 프록시는 `/api/*`를 `https://<DOMAIN>/api/*`로 넘기면 됩니다(위 "화면과 연결").
 
-아래 명령 가운데 `docker compose exec`·`run`에는 `< /dev/null`을 붙였습니다. 두 명령은 기본으로 표준 입력을 컨테이너에 붙여서(`-T`로 가상 터미널을 꺼도 마찬가지입니다), 붙이지 않으면 함께 붙여 넣은 다음 줄을 읽어 버려 그 줄이 돌지 않습니다. 명령을 새로 적을 때도 입력이 필요 없으면 붙이고, `logs -f`처럼 끝나지 않는 명령은 다른 명령과 한 블록에 두지 않습니다.
+아래 명령 가운데 입력이 필요 없는 `docker compose exec`·`run`에는 `< /dev/null`을 붙였습니다(되살리기처럼 입력이 필요한 명령은 그 파일을 넣습니다). 두 명령은 기본으로 표준 입력을 컨테이너에 붙여서(`-T`로 가상 터미널을 꺼도 마찬가지입니다), 붙이지 않으면 함께 붙여 넣은 다음 줄을 읽어 버려 그 줄이 돌지 않습니다. 명령을 새로 적을 때도 입력이 필요 없으면 붙이고, `logs -f`처럼 끝나지 않는 명령은 다른 명령과 한 블록에 두지 않습니다.
 
 ### 운영 값(`deploy/.env`)
 
@@ -183,7 +183,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 4. 레포를 받습니다. 비공개 레포라 서버 전용 키를 만들어, 공개 키를 GitHub 레포의 Settings → Deploy keys에 붙여 넣습니다("Allow write access"는 켜지 않습니다).
 
    ```bash
-   ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+   test -f ~/.ssh/id_ed25519 || ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519   # 이미 있으면 덮어쓸지 묻느라 다음 줄을 읽어 버리므로 건너뜁니다
    cat ~/.ssh/id_ed25519.pub
    git clone git@github.com:UOS-SE-TOUR/be.git ~/be
    ```
@@ -196,9 +196,11 @@ Nginx는 인증서가 있어야 뜨므로 인증서부터 받습니다. 아직 N
 
 ```bash
 cd ~/be/deploy
-docker compose run --rm -p 80:80 --entrypoint sh certbot -c 'certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$DOMAIN"' < /dev/null
-docker compose up -d --build
+docker compose run --rm -p 80:80 --entrypoint sh certbot -c 'certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$DOMAIN"' < /dev/null \
+  && docker compose up -d --build
 ```
+
+인증서를 받지 못하면(서버 주소가 아직 이 서버를 가리키지 않는 등) 뒤의 `up`은 돌지 않습니다.
 
 인증서보다 `docker compose up`을 먼저 했다면 Nginx가 인증서를 못 찾아 다시 뜨기를 되풀이하며 80번 포트를 잡으니, `docker compose stop nginx` 뒤에 인증서를 받고 다시 `up` 합니다.
 
@@ -206,9 +208,14 @@ docker compose up -d --build
 
 ```bash
 docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot --non-interactive --agree-tos --register-unsafely-without-email -d <새 주소> < /dev/null
-# .env의 DOMAIN을 새 주소로 고친 뒤
-docker compose up -d
-docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name <옛 주소> < /dev/null
+```
+
+인증서를 받았으면 `.env`의 `DOMAIN`을 새 주소로 고친 뒤 아래 명령을 돌립니다. Nginx를 새 주소로 다시 만들고, 새 주소로 열리는 것을 본 뒤에만 옛 주소의 인증서를 지웁니다 — 먼저 지우면 지금 Nginx가 쓰는 인증서가 사라져 다음에 다시 뜰 때 HTTPS가 멈춥니다.
+
+```bash
+docker compose up -d \
+  && curl -fs -o /dev/null --resolve "<새 주소>:443:127.0.0.1" --max-time 10 --retry 10 --retry-delay 3 --retry-all-errors "https://<새 주소>/api/docs" \
+  && docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name <옛 주소> < /dev/null
 ```
 
 첫 빌드는 Gradle과 의존성을 받느라 몇 분 걸립니다. 다 뜨면 확인합니다.
@@ -226,7 +233,7 @@ docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -
 
 ### 다시 배포
 
-main에 머지된 코드를 받아 다시 빌드합니다. 첫 줄의 `git pull`이 실패하면 두 번째 명령을 돌리지 않습니다. 두 번째 명령은 다음을 차례로 하고, 한 단계라도 실패하면 거기서 멈춘 뒤 마지막에 "배포가 중간에 멈췄습니다"를 찍습니다.
+main에 머지된 코드를 받아 다시 빌드합니다. 두 줄을 한꺼번에 붙여 넣지 말고, 첫 줄의 `git pull`이 성공한 것을 본 뒤 두 번째 명령을 돌립니다 — 실패했는데 돌리면 앞 버전을 다시 배포하고도 "배포했습니다"를 찍습니다(찍히는 커밋으로 알 수 있습니다). 두 번째 명령은 다음을 차례로 하고, 한 단계라도 실패하면 거기서 멈춘 뒤 마지막에 "배포가 중간에 멈췄습니다"를 찍습니다.
 
 1. Nginx·Certbot 이미지를 새로 받고, 받아 온 Nginx 설정(`nginx/templates`)에 틀린 곳이 없는지 그 새 이미지로 봅니다.
 2. 서버 이미지를 베이스(JRE)까지 새로 받아 빌드합니다(보안 수정이 들어가게). 빌드하는 동안에는 앞의 서버가 그대로 응답합니다.
@@ -296,6 +303,7 @@ B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; { (umask 077; docker compose e
 받아 둔 파일로 되살릴 때는 서버를 멈추고 넣습니다. 파일이 DB를 통째로 지우고 다시 만들므로 백업 뒤에 생긴 테이블은 남지 않습니다(남으면 서버가 뜰 때 마이그레이션이 그 테이블을 다시 만들려다 실패합니다). 아래 명령은 백업 파일이 끝까지 받아진 것(마지막 줄 `-- Dump completed`)을 확인한 뒤에만 넣고, 넣기가 성공했을 때만 서버를 다시 띄웁니다.
 
 ```bash
+cd ~/be/deploy
 F=~/mwt-<받은 시각>.sql
 tail -n 1 "$F" | grep -q '^-- Dump completed' \
   && docker compose stop app \
