@@ -23,9 +23,13 @@ tee_pid=
 # shellcheck disable=SC2317,SC2329 # 아래 trap이 부른다(shellcheck 0.10 이하는 SC2317, 0.11은 SC2329로 알린다)
 finish() {
   if [ -n "$tee_pid" ]; then
-    # 잠금을 먼저 놓는다 — 출력을 물고 있는 자손이 남아 tee가 끝나지 않아도 다음 배포가 막히지 않게
+    # 잠금을 먼저 놓는다 — 출력을 물고 있는 자손이 남아 tee가 끝나지 않아도 다음 배포가 막히지 않게.
+    # 그런 자손이 있어도 스크립트가 끝나도록 10초까지만 기다린다
     exec 9>&- >&- 2>&-
+    (sleep 10; kill "$tee_pid" 2>/dev/null) &
+    watchdog=$!
     wait "$tee_pid"
+    kill "$watchdog" 2>/dev/null
   fi
   rm -f "$MWT_DEPLOY_COPY"
 }
@@ -64,13 +68,12 @@ if [ $# -eq 1 ]; then
   esac
   hash=$(printf '%s' "$1" | tr 'A-F' 'a-f')
   # 짧아서 여러 커밋에 걸리면 git이 그렇다고 알리므로 git의 오류를 그대로 보인다
-  # git은 같은 이름의 브랜치·태그를 해시보다 먼저 풀므로, git이 먼저 보는 이름이 있으면 받지 않는다
-  for ref in "refs/$hash" "refs/tags/$hash" "refs/heads/$hash" "refs/remotes/$hash" "refs/remotes/$hash/HEAD"; do
-    if git show-ref --verify -q "$ref"; then
+  # git은 같은 이름의 브랜치·태그를 해시보다 먼저 풀므로, git이 그 이름을 ref로 풀면 받지 않는다
+  case $(git rev-parse --symbolic-full-name "$hash" 2>/dev/null) in
+    refs/*)
       echo "$1 은 브랜치나 태그 이름이기도 해서 해시로 쓸 수 없습니다. 배포 기록의 12자리 해시를 그대로 줍니다. 아무것도 바꾸지 않았습니다" >&2
-      exit 2
-    fi
-  done
+      exit 2 ;;
+  esac
   target=$(git rev-parse --verify "$hash^{commit}") \
     || { echo "커밋 $1 을 찾지 못했습니다(위 git 오류를 봅니다). 배포 기록의 12자리 해시를 그대로 줍니다. 아무것도 바꾸지 않았습니다" >&2; exit 2; }
   git merge-base --is-ancestor "$target" main \
@@ -119,7 +122,8 @@ step() { echo "== $*"; }
 
 # 칸 순서와 결과 문구는 README "배포 되돌리기"가 읽는 방법과 맞춰 둔다
 record() {
-  printf '%s\t%s\t%s\t%s\t%s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')" "$kind" "$(git rev-parse --short=12 HEAD)" "$1" "${backup:--}" >>"$log" \
+  # 커밋 칸: 되돌리기는 되돌리려던 커밋, 재배포는 그때 서버의 코드가 있던 커밋(main을 받기 전에 멈췄으면 배포 전 커밋)
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')" "$kind" "$(git rev-parse --short=12 "${target:-HEAD}")" "$1" "${backup:--}" >>"$log" \
     || echo "배포 기록($log)을 남기지 못했습니다" >&2
 }
 
@@ -241,8 +245,8 @@ else
   # 되돌리기는 되살려야 할 백업이 지워지지 않게 백업을 정리하지 않는다
   step "7/7 앞 이미지를 정리합니다(백업은 지우지 않습니다)"
 fi
-if [ -n "$saved_app_image" ]; then docker rmi "$app_image:before-deploy" >/dev/null; fi
-{ docker image prune -f && docker builder prune -f --filter until=168h; } \
+{ { [ -z "$saved_app_image" ] || docker rmi "$app_image:before-deploy" >/dev/null; } \
+  && docker image prune -f && docker builder prune -f --filter until=168h; } \
   || echo "${kind}는 끝났고, 앞 이미지 정리만 실패했습니다. 디스크가 차면 위 출력을 봅니다"
 if [ "$kind" = 배포 ]; then
   # shellcheck disable=SC2012 # 지울 파일 이름은 이 스크립트가 만드는 mwt-<시각>.sql 꼴뿐이다
