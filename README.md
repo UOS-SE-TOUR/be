@@ -423,5 +423,5 @@ F="$HOME/mwt-<받은 시각>.sql" \
 ## 작업 규칙
 
 - main이 깨지지 않도록 모두 브랜치를 만들어 PR로만 올립니다. 무료 조직 플랜이라 GitHub이 비공개 레포의 main 직접 push를 막아 주지 않으니 서로 지킵니다.
-- PR은 CI(`./gradlew build`)가 통과한 뒤 "Squash and merge"로 머지합니다.
+- PR은 CI가 통과한 뒤 "Squash and merge"로 머지합니다. CI는 모든 PR에서 `./gradlew build`를 돌리고, 운영 이미지나 운영 구성에 들어가는 파일(`Dockerfile`·`.dockerignore`·Gradle 빌드 설정·`deploy/`)을 바꾼 PR에서는 운영 이미지 빌드(`docker build .`)와 운영 Compose 확인도 돌립니다.
 - API 키와 비밀번호는 커밋하지 않습니다.
