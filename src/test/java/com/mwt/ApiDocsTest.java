@@ -2,6 +2,7 @@ package com.mwt;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
@@ -21,8 +22,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.jayway.jsonpath.JsonPath;
@@ -113,17 +117,61 @@ class ApiDocsTest {
 		assertThat(wrong).isEmpty();
 	}
 
+	/**
+	 * 한 줄 설명 끝 괄호의 말이 실제 권한 규칙(common.security의 SecurityConfig)과 같은지 API마다 불러 본다 —
+	 * 로그인 없이 부르면 401인지, 고객·직원 계정으로 부르면 403인지. 본문은 빈 JSON이라 검증(400)에서 끝나 데이터를 바꾸지 않는다.
+	 */
+	@Test
+	void 끝_괄호의_부를_수_있는_사람은_실제_권한_규칙과_같다() throws Exception {
+		Cookie customer = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "CUSTOMER"));
+		Cookie staff = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "STAFF"));
+		Map<String, Map<String, Map<String, Object>>> paths = JsonPath.read(apiDocs(), "$.paths");
+		List<String> wrong = new ArrayList<>();
+		int checked = 0;
+		for (Map.Entry<String, Map<String, Map<String, Object>>> path : paths.entrySet()) {
+			for (Map.Entry<String, Map<String, Object>> operation : path.getValue().entrySet()) {
+				Matcher summary = SUMMARY.matcher(String.valueOf(operation.getValue().get("summary")));
+				if (!summary.matches()) {
+					continue;   // 꼴이 틀린 summary는 모든_API에_한_줄_설명과_부를_수_있는_사람이_있다가 잡는다
+				}
+				String caller = summary.group(1);
+				HttpMethod method = HttpMethod.valueOf(operation.getKey().toUpperCase(Locale.ROOT));
+				String url = path.getKey().replaceAll("\\{[^}]+}", "1");
+				String where = method + " " + path.getKey() + " (" + caller + ")";
+				if ((statusOf(method, url, null) == 401) == caller.equals("누구나")) {
+					wrong.add(where + " — 로그인 없이 부른 결과가 괄호와 다름");
+				}
+				if ((statusOf(method, url, customer) == 403) != caller.equals("직원")) {
+					wrong.add(where + " — 고객 계정으로 부른 결과가 괄호와 다름");
+				}
+				if ((statusOf(method, url, staff) == 403) != caller.equals("고객")) {
+					wrong.add(where + " — 직원 계정으로 부른 결과가 괄호와 다름");
+				}
+				checked++;
+			}
+		}
+		assertThat(checked).isPositive();
+		assertThat(wrong).isEmpty();
+	}
+
 	/** 열거형에 값을 더하고 @Schema 설명에 뜻을 빠뜨리거나, 화면 이름을 바꾸고 설명을 안 고치면 걸린다. */
 	@Test
 	void 열거값의_뜻이_모두_있고_테마와_투어_등급은_화면_이름과_같다() throws Exception {
 		String docs = apiDocs();
-		for (Class<? extends Enum<?>> type : List.<Class<? extends Enum<?>>>of(Theme.class, TourLevel.class,
-				TourStatus.class, MemberType.class, OptionCategory.class)) {
-			String description = JsonPath.read(docs, "$.components.schemas." + type.getSimpleName() + ".description");
-			for (Enum<?> value : type.getEnumConstants()) {
-				assertThat(description).as(type.getSimpleName()).contains(value.name() + "(");
+		Map<String, Map<String, Object>> schemas = JsonPath.read(docs, "$.components.schemas");
+		List<String> missing = new ArrayList<>();
+		schemas.forEach((name, schema) -> {
+			if (schema.get("enum") instanceof List<?> values) {
+				String description = schema.get("description") instanceof String d ? d : "";
+				// 값 이름 앞이 경계여야 한다 — 아니면 PROGRESS가 IN_PROGRESS(에 걸려 뜻이 있는 것처럼 보인다
+				values.stream().map(String::valueOf)
+					.filter(value -> !Pattern.compile("(^|[\\s,(])" + Pattern.quote(value) + "\\(").matcher(description).find())
+					.forEach(value -> missing.add(name + "." + value));
 			}
-		}
+		});
+		assertThat(schemas).containsKeys(Theme.class.getSimpleName(), TourLevel.class.getSimpleName(),
+				TourStatus.class.getSimpleName(), MemberType.class.getSimpleName(), OptionCategory.class.getSimpleName());
+		assertThat(missing).as("@Schema 설명에 뜻이 없는 열거값").isEmpty();
 		String theme = JsonPath.read(docs, "$.components.schemas.Theme.description");
 		for (Theme value : Theme.values()) {
 			assertThat(theme).contains(value.name() + "(" + value.getDisplayName() + ")");
@@ -172,12 +220,34 @@ class ApiDocsTest {
 		mockMvc.perform(get("/api/docs"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.components.schemas.TourOptionsResponse.properties.hotels.items['$ref']")
-				.value("#/components/schemas/TourOption"))
-			.andExpect(jsonPath("$.components.schemas.TourOption.properties.category").doesNotExist())
+				.value("#/components/schemas/TourOptionItem"))
+			.andExpect(jsonPath("$.components.schemas.TourOptionItem.properties.category").doesNotExist())
 			.andExpect(jsonPath("$.components.schemas.QuoteSummary.properties.options.items['$ref']")
 				.value("#/components/schemas/SelectedOption"))
 			.andExpect(jsonPath("$.components.schemas.SelectedOption.properties.category").exists())
 			.andExpect(jsonPath("$.components.schemas.Option").doesNotExist());
+	}
+
+	/** 음성으로 고르기에서 알아듣지 못한 조건은 null이 온다. 열거형 칸은 anyOf [열거형, null]이다(OpenApiConfig). */
+	@Test
+	void 음성으로_고르기의_조건은_null일_수_있다고_적는다() throws Exception {
+		String docs = apiDocs();
+		String properties = "$.components.schemas.TourSelection.properties.";
+		assertThat(JsonPath.<List<String>>read(docs, properties + "theme.anyOf[*]['$ref']"))
+			.containsExactly("#/components/schemas/Theme");
+		assertThat(JsonPath.<List<Object>>read(docs, properties + "theme.anyOf[*].type")).containsExactly("null");
+		assertThat(JsonPath.<List<String>>read(docs, properties + "level.anyOf[*]['$ref']"))
+			.containsExactly("#/components/schemas/TourLevel");
+		assertThat(JsonPath.<List<Object>>read(docs, properties + "level.anyOf[*].type")).containsExactly("null");
+		assertThat(JsonPath.<List<String>>read(docs, properties + "departureDate.type")).contains("string", "null");
+		assertThat(JsonPath.<List<String>>read(docs, properties + "headcount.type")).contains("integer", "null");
+	}
+
+	@Test
+	void 비밀번호의_최소_길이는_서버_규칙과_같다() throws Exception {
+		mockMvc.perform(get("/api/docs"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.components.schemas.SignUpRequest.properties.password.minLength").value(8));
 	}
 
 	@Test
@@ -193,6 +263,14 @@ class ApiDocsTest {
 		mockMvc.perform(get("/api/v1/nothing"))
 			.andExpect(status().isUnauthorized())
 			.andExpect(content().json("{\"message\": \"로그인이 필요합니다.\"}", JsonCompareMode.STRICT));
+	}
+
+	private int statusOf(HttpMethod method, String url, Cookie cookie) throws Exception {
+		MockHttpServletRequestBuilder request = request(method, url).contentType(MediaType.APPLICATION_JSON).content("{}");
+		if (cookie != null) {
+			request.cookie(cookie);
+		}
+		return mockMvc.perform(request).andReturn().getResponse().getStatus();
 	}
 
 	private String apiDocs() throws Exception {

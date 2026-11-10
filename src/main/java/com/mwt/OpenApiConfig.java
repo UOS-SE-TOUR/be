@@ -1,8 +1,10 @@
 package com.mwt;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springdoc.core.customizers.GlobalOpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -13,6 +15,7 @@ import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.SpecVersion;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.media.Content;
+import io.swagger.v3.oas.models.media.JsonSchema;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.servers.Server;
@@ -31,8 +34,7 @@ public class OpenApiConfig {
 	public static final String NOT_STAFF = "직원 계정이 아님";
 	public static final String TOUR_NOT_FOUND = "여행 상품이 없음";
 
-	/** 여러 응답에 같은 칸 설명. TourSummary.title의 이름 형식을 바꾸면 TOUR_TITLE도 고친다. */
-	public static final String TOUR_TITLE = "상품 이름(테마 이름·출발일·기간, 예: 허니문 낭만 투어 10/20 출발 5일)";
+	/** 여러 응답에 같은 칸 설명. 상품 이름의 설명은 이름을 만드는 TourSummary.TITLE_DESCRIPTION에 있다. */
 	public static final String DURATION_DAYS = "여행 기간(일)";
 	public static final String LEVEL_NAME = "투어 등급의 화면 이름(예: 그랜드)";
 
@@ -53,7 +55,7 @@ public class OpenApiConfig {
 	 * 실패 응답에 예시를 따로 달려면 이 덮어쓰기를 먼저 고친다.
 	 */
 	@Bean
-	OpenApiCustomizer errorResponseCustomizer() {
+	GlobalOpenApiCustomizer errorResponseCustomizer() {
 		return openApi -> {
 			// 다른 스키마와 같은 판(3.1)으로 만들어야 "type": "object"가 붙는다
 			ModelConverters.getInstance(openApi.getSpecVersion() == SpecVersion.V31).read(ErrorResponse.class)
@@ -67,9 +69,34 @@ public class OpenApiConfig {
 		};
 	}
 
+	/**
+	 * null일 수 있는 열거형 칸(@Schema(nullable = true))을 3.1 꼴인 anyOf [열거형, null]로 바꾼다.
+	 * springdoc은 그런 칸을 {"$ref": 열거형, "type": "null"}로 내는데, 이 꼴은 "열거형이면서 null"이라 어떤 값도 맞지 않는다.
+	 */
+	@Bean
+	GlobalOpenApiCustomizer nullableRefCustomizer() {
+		return openApi -> openApi.getComponents().getSchemas().values().forEach(schema -> {
+			@SuppressWarnings("rawtypes")
+			Map<String, Schema> properties = schema.getProperties();
+			if (properties != null) {
+				properties.replaceAll((name, property) -> isNullableRef(property) ? nullableRef(property) : property);
+			}
+		});
+	}
+
 	private static Content errorContent() {
 		return new Content().addMediaType(org.springframework.http.MediaType.APPLICATION_JSON_VALUE,
 				new MediaType().schema(new Schema<>().$ref("#/components/schemas/" + ERROR_RESPONSE)));
+	}
+
+	private static boolean isNullableRef(Schema<?> property) {
+		return property.get$ref() != null && property.getTypes() != null && property.getTypes().contains("null");
+	}
+
+	private static Schema<?> nullableRef(Schema<?> property) {
+		return new JsonSchema()
+			.anyOf(List.of(new JsonSchema().$ref(property.get$ref()), new JsonSchema().types(Set.of("null"))))
+			.description(property.getDescription());
 	}
 
 }

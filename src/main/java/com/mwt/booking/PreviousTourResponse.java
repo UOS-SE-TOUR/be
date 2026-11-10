@@ -15,7 +15,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
  */
 @Schema(description = "이전 여행 하나")
 public record PreviousTourResponse(Long bookingId, Long tourId,
-		@Schema(description = OpenApiConfig.TOUR_TITLE) String title,
+		@Schema(description = TourSummary.TITLE_DESCRIPTION) String title,
 		LocalDate departureDate,
 		@Schema(description = OpenApiConfig.DURATION_DAYS) int duration,
 		TourLevel level,

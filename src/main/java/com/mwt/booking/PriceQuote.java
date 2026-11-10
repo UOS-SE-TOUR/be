@@ -43,7 +43,7 @@ public record PriceQuote(@Schema(description = "고른 내용") Summary summary,
 	@Schema(name = "QuoteSummary",
 			description = "고른 내용. 고르지 않은 옵션 종류는 그 등급의 기본 제공(교통은 기본 교통)으로 계산한다")
 	public record Summary(Long tourId,
-			@Schema(description = OpenApiConfig.TOUR_TITLE) String title,
+			@Schema(description = TourSummary.TITLE_DESCRIPTION) String title,
 			LocalDate departureDate,
 			@Schema(description = OpenApiConfig.DURATION_DAYS) int duration,
 			TourLevel level,

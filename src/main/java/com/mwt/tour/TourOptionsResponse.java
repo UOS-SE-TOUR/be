@@ -15,7 +15,7 @@ public record TourOptionsResponse(List<Option> hotels, List<Option> transports, 
 	 * 옵션 하나. priceDiff는 받은 투어 등급을 기준으로 한 1인 요금 차이(Tour.optionPriceDiff)다.
 	 * 그 등급의 기본 호텔·식사, 기본 교통, 그 등급이 기본으로 주는 추가 옵션(프리미엄의 샴페인)은 0이다.
 	 */
-	@Schema(name = "TourOption", description = "옵션 하나")
+	@Schema(name = "TourOptionItem", description = "옵션 하나")
 	public record Option(Long optionId, String name,
 			@Schema(description = "받은 투어 등급을 기준으로 한 1인 요금 차이(원). 그 등급의 기본 호텔·식사, 기본 교통, "
 					+ "그 등급이 기본으로 주는 추가 옵션(프리미엄의 샴페인)은 0이고, 더 싼 호텔·식사면 음수")
