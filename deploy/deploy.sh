@@ -22,6 +22,8 @@ tee_pid=
 # 끝날 때 tee가 마지막 줄까지 쓰기를 기다려, 프롬프트보다 먼저 찍히고 출력 파일에도 다 남게 한다
 # shellcheck disable=SC2317,SC2329 # 아래 trap이 부른다(shellcheck 0.10 이하는 SC2317, 0.11은 SC2329로 알린다)
 finish() {
+  # 정리하는 도중 Ctrl-C로 끊겨 임시 사본과 감시가 남지 않게 한다
+  trap '' INT TERM
   if [ -n "$tee_pid" ]; then
     # 잠금을 먼저 놓는다 — 출력을 물고 있는 자손이 남아 tee가 끝나지 않아도 다음 배포가 막히지 않게.
     # 그런 자손이 있어도 스크립트가 끝나도록 10초까지만 기다린다
@@ -133,7 +135,7 @@ record() {
 stop() {
   # 기록이 두 줄이 되지 않게, 멈추는 동안 들어온 Ctrl-C 등은 무시한다
   trap '' INT TERM
-  # 받는 중이던 백업은 지운다. 이름을 바꾼 바로 뒤에 멈췄으면(끝까지 받은 백업) 기록에 남긴다
+  # 이름을 바꾼 바로 뒤에 멈췄으면 끝까지 받은 백업이다
   if [ -n "$backup_part" ]; then
     if [ -e "${backup_part%.part}" ]; then backup=${backup_part%.part}; else rm -f "$backup_part"; fi
   fi
@@ -147,11 +149,10 @@ stop() {
     exit 1
   fi
   record "띄우기 전 멈춤$note"
-  if [ -n "$saved_app_image" ]; then
+  if [ -n "$saved_app_image" ] && docker image inspect "$app_image:before-deploy" >/dev/null 2>&1; then
     { docker tag "$app_image:before-deploy" "$app_image" && docker rmi "$app_image:before-deploy" >/dev/null; } \
       || echo "서버 이미지($app_image)를 빌드 전 이미지로 되돌리지 못했습니다. 재배포하기 전에는 ~/be/deploy 에서 docker compose up 을 치지 않습니다"
   fi
-  # 시작한 브랜치가 그 커밋에 그대로 있으면 브랜치로, 아니면(main을 받아 앞으로 갔으면) 그 커밋으로 돌려놓는다
   back=$start_commit
   shown=$(git rev-parse --short=12 "$start_commit")
   if [ -n "$start_branch" ] && [ "$(git rev-parse "$start_branch")" = "$start_commit" ]; then back=$start_branch; shown=$start_branch; fi
@@ -203,9 +204,11 @@ docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t || sto
 
 # 베이스(JRE)까지 새로 받아 보안 수정이 들어가게 한다. 빌드하는 동안 앞 서버가 그대로 응답한다
 step "3/7 서버 이미지를 빌드합니다"
+# 강제로 끝난 앞 배포가 남긴 이름을 먼저 지운다. 표시를 이름 붙이기보다 먼저 해 두어, 그 사이 멈춰도 이 이름을 정리한다
+docker rmi "$app_image:before-deploy" >/dev/null 2>&1
 if docker image inspect "$app_image" >/dev/null 2>&1; then
-  docker tag "$app_image" "$app_image:before-deploy" || stop
   saved_app_image=1
+  docker tag "$app_image" "$app_image:before-deploy" || stop
 fi
 docker compose build --pull app || stop
 
