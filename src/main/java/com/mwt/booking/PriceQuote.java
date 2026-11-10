@@ -5,7 +5,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
-import com.mwt.OpenApiConfig;
+import com.mwt.common.docs.ApiDescriptions;
 import com.mwt.tour.OptionCategory;
 import com.mwt.tour.Tour;
 import com.mwt.tour.TourLevel;
@@ -43,11 +43,11 @@ public record PriceQuote(@Schema(description = "고른 내용") Summary summary,
 	@Schema(name = "QuoteSummary",
 			description = "고른 내용. 고르지 않은 옵션 종류는 그 등급의 기본 제공(교통은 기본 교통)으로 계산한다")
 	public record Summary(Long tourId,
-			@Schema(description = TourSummary.TITLE_DESCRIPTION) String title,
+			@Schema(description = ApiDescriptions.TOUR_TITLE) String title,
 			LocalDate departureDate,
-			@Schema(description = OpenApiConfig.DURATION_DAYS) int duration,
+			@Schema(description = ApiDescriptions.DURATION_DAYS) int duration,
 			TourLevel level,
-			@Schema(description = OpenApiConfig.LEVEL_NAME) String levelName,
+			@Schema(description = ApiDescriptions.LEVEL_NAME) String levelName,
 			@Schema(description = "인원(명)") int headcount,
 			@Schema(description = "요청의 optionIds를 종류 순(호텔, 교통, 식사, 추가)으로 담은 것. 고르지 않았으면 빈 목록")
 			List<Option> options) {

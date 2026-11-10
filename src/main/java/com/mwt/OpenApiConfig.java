@@ -1,5 +1,7 @@
 package com.mwt;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -26,19 +28,10 @@ import io.swagger.v3.oas.models.servers.Server;
  * API 문서(Swagger)의 제목과 서버 주소. 주소는 application.yml의 springdoc 절에 있다.
  * 서버 주소를 "/"로 두어 Swagger UI의 "Try it out"이 문서를 연 주소로 요청을 보내게 한다
  * (기본값은 서버가 받은 요청 주소라 프록시 뒤에서는 안쪽 주소가 적힌다).
- * Controller의 @ApiResponse가 여러 API에서 같은 실패를 설명할 때는 아래 상수를 쓴다.
+ * 여러 곳에 같은 설명 문구는 common.docs의 ApiDescriptions에 있다.
  */
 @Configuration(proxyBeanMethods = false)
 public class OpenApiConfig {
-
-	public static final String UNAUTHORIZED = "로그인하지 않았거나 로그인이 만료됨";
-	public static final String NOT_CUSTOMER = "고객 계정이 아님";
-	public static final String NOT_STAFF = "직원 계정이 아님";
-	public static final String TOUR_NOT_FOUND = "여행 상품이 없음";
-
-	/** 여러 응답에 같은 칸 설명. 상품 이름의 설명은 이름을 만드는 TourSummary.TITLE_DESCRIPTION에 있다. */
-	public static final String DURATION_DAYS = "여행 기간(일)";
-	public static final String LEVEL_NAME = "투어 등급의 화면 이름(예: 그랜드)";
 
 	private static final String ERROR_RESPONSE = "ErrorResponse";
 
@@ -135,7 +128,9 @@ public class OpenApiConfig {
 			schema.set$ref(null);
 			schema.setType(null);
 			schema.setTypes(null);
-			schema.setAnyOf(List.of(new JsonSchema().$ref(ref), new JsonSchema().types(Set.of("null"))));
+			// 뒤에 도는 설정이 더 넣을 수 있게 바꿀 수 있는 목록으로 둔다
+			schema.setAnyOf(new ArrayList<>(List.of(new JsonSchema().$ref(ref),
+					new JsonSchema().types(new LinkedHashSet<>(Set.of("null"))))));
 		}
 		Map<String, Schema> properties = schema.getProperties();
 		if (properties != null) {

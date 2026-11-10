@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.mwt.OpenApiConfig;
+import com.mwt.common.docs.ApiDescriptions;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -29,8 +29,8 @@ public class WarehouseController {
 
 	@Operation(summary = "창고 물품 목록 (직원)")
 	@ApiResponse(responseCode = "200", description = "물품과 현재 수량 목록. 없으면 빈 목록")
-	@ApiResponse(responseCode = "401", description = OpenApiConfig.UNAUTHORIZED)
-	@ApiResponse(responseCode = "403", description = OpenApiConfig.NOT_STAFF)
+	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
+	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_STAFF)
 	@GetMapping
 	public List<ItemResponse> getItems() {
 		return warehouseService.getItems().stream().map(ItemResponse::from).toList();
@@ -40,8 +40,8 @@ public class WarehouseController {
 			description = "이름과 테마가 같은 물품이 있으면 수량만 더하고, 없으면 새로 만든다. 어느 쪽이든 200이다.")
 	@ApiResponse(responseCode = "200", description = "추가한 뒤의 물품과 현재 수량")
 	@ApiResponse(responseCode = "400", description = "입력 오류(이름 길이, 1개보다 적은 수량, 창고에 둘 수 있는 수량을 넘김 등)")
-	@ApiResponse(responseCode = "401", description = OpenApiConfig.UNAUTHORIZED)
-	@ApiResponse(responseCode = "403", description = OpenApiConfig.NOT_STAFF)
+	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
+	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_STAFF)
 	@PostMapping
 	public ItemResponse addItem(@Valid @RequestBody AddItemRequest request) {
 		return ItemResponse.from(warehouseService.addItem(request.itemName(), request.theme(), request.quantity()));

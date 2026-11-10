@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.mwt.OpenApiConfig;
+import com.mwt.common.docs.ApiDescriptions;
 import com.mwt.common.security.JwtTokenProvider;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -57,7 +57,7 @@ public class MemberController {
 
 	@Operation(summary = "내 정보 (로그인한 회원)", description = "새로고침 뒤 로그인 상태를 되살릴 때 부른다. 응답은 로그인과 같은 모양이다.")
 	@ApiResponse(responseCode = "200", description = "로그인한 회원의 구분과 이름")
-	@ApiResponse(responseCode = "401", description = OpenApiConfig.UNAUTHORIZED)
+	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED + ". 로그인 쿠키는 맞지만 그 회원이 없을 때(DB를 비운 뒤 등)도 401이다")
 	@GetMapping("/me")
 	public MemberResponse getMe(@AuthenticationPrincipal Long memberId) {
 		return MemberResponse.from(memberService.getMember(memberId));

@@ -14,7 +14,9 @@ import jakarta.validation.constraints.Size;
 @Schema(description = "회원가입 입력")
 public record SignUpRequest(
 		@NotBlank(message = "아이디를 입력해 주세요.") @Size(max = 50, message = "아이디는 50자까지 쓸 수 있습니다.") String loginId,
-		@Schema(description = "비밀번호. 8자 이상, 영문·숫자는 72자·한글은 24자까지", minLength = MemberService.MIN_PASSWORD_LENGTH)
+		@Schema(description = "비밀번호. " + MemberService.MIN_PASSWORD_LENGTH + "자 이상, UTF-8로 " + MemberService.MAX_PASSWORD_BYTES
+				+ "바이트까지(영문·숫자는 " + MemberService.MAX_PASSWORD_BYTES + "자, 한글은 " + MemberService.MAX_PASSWORD_BYTES / 3
+				+ "자)", minLength = MemberService.MIN_PASSWORD_LENGTH)
 		@NotBlank(message = "비밀번호를 입력해 주세요.") String password,
 		@NotBlank(message = "이름을 입력해 주세요.") @Size(max = 50, message = "이름은 50자까지 쓸 수 있습니다.") String name,
 		@NotBlank(message = "주소를 입력해 주세요.") @Size(max = 255, message = "주소는 255자까지 쓸 수 있습니다.") String address,

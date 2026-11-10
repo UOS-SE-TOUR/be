@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.mwt.OpenApiConfig;
+import com.mwt.common.docs.ApiDescriptions;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -35,8 +35,8 @@ public class BookingController {
 
 	@Operation(summary = "이전 여행 목록 (고객)", description = "완료(COMPLETED)된 상품의 내 신청을 출발일이 최근인 순서로 돌려준다.")
 	@ApiResponse(responseCode = "200", description = "이전 여행 목록. 없으면 빈 목록")
-	@ApiResponse(responseCode = "401", description = OpenApiConfig.UNAUTHORIZED)
-	@ApiResponse(responseCode = "403", description = OpenApiConfig.NOT_CUSTOMER)
+	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
+	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_CUSTOMER)
 	@GetMapping("/previous")
 	public List<PreviousTourResponse> getPreviousTours(@AuthenticationPrincipal Long memberId) {
 		return bookingService.getPreviousTours(memberId);
@@ -46,9 +46,9 @@ public class BookingController {
 			description = "고른 상품·투어 등급·인원·옵션으로 할인 전 총 가격, 단골 할인, 최종 가격을 계산한다. 신청하지는 않고 저장하지도 않는다.")
 	@ApiResponse(responseCode = "200", description = "고른 내용과 가격")
 	@ApiResponse(responseCode = "400", description = "입력 오류, 고른 내용이 맞지 않음(남은 자리보다 많은 인원, 그 테마에서 고를 수 없는 등급·인원, 그 상품의 것이 아닌 옵션 등)")
-	@ApiResponse(responseCode = "401", description = OpenApiConfig.UNAUTHORIZED)
-	@ApiResponse(responseCode = "403", description = OpenApiConfig.NOT_CUSTOMER)
-	@ApiResponse(responseCode = "404", description = OpenApiConfig.TOUR_NOT_FOUND)
+	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
+	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_CUSTOMER)
+	@ApiResponse(responseCode = "404", description = ApiDescriptions.TOUR_NOT_FOUND)
 	@ApiResponse(responseCode = "409", description = CANNOT_APPLY)
 	@PostMapping("/quote")
 	public PriceQuote quote(@AuthenticationPrincipal Long memberId, @Valid @RequestBody QuoteRequest request) {
@@ -59,9 +59,9 @@ public class BookingController {
 			description = "가격 계산과 같은 내용을 보내 신청한다. 이 신청으로 상품이 확정(신청 인원 3명 이상)되면 신청자 모두에게, 이미 확정된 상품이면 이 신청자에게 확정 문자를 보낸다.")
 	@ApiResponse(responseCode = "201", description = "신청 ID와 신청 뒤 상품 상태")
 	@ApiResponse(responseCode = "400", description = "입력 오류, 고른 내용이 맞지 않음(가격 계산과 같다)")
-	@ApiResponse(responseCode = "401", description = OpenApiConfig.UNAUTHORIZED)
-	@ApiResponse(responseCode = "403", description = OpenApiConfig.NOT_CUSTOMER)
-	@ApiResponse(responseCode = "404", description = OpenApiConfig.TOUR_NOT_FOUND)
+	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
+	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_CUSTOMER)
+	@ApiResponse(responseCode = "404", description = ApiDescriptions.TOUR_NOT_FOUND)
 	@ApiResponse(responseCode = "409", description = CANNOT_APPLY)
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)

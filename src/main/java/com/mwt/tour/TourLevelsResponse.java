@@ -2,7 +2,7 @@ package com.mwt.tour;
 
 import java.util.List;
 
-import com.mwt.OpenApiConfig;
+import com.mwt.common.docs.ApiDescriptions;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -19,8 +19,8 @@ public record TourLevelsResponse(@Schema(description = "테마 서비스(등급�
 	/** 투어 등급 하나. hotelGrade·meal·includesChampagne은 그 등급이 기본으로 주는 호텔 등급·식사·샴페인이다. */
 	@Schema(name = "LevelDetail", description = "투어 등급 하나와 그 등급의 1인 가격·기본 제공")
 	public record Level(TourLevel level,
-			@Schema(description = OpenApiConfig.LEVEL_NAME) String name,
-			@Schema(description = "1인 가격(원)") long price,
+			@Schema(description = ApiDescriptions.LEVEL_NAME) String name,
+			@Schema(description = ApiDescriptions.PRICE_PER_PERSON) long price,
 			@Schema(description = "기본 호텔 등급(4면 4등급 호텔)") int hotelGrade,
 			@Schema(description = "기본 식사(식사 옵션의 이름과 같다)") String meal,
 			@Schema(description = "샴페인을 기본으로 주는지") boolean includesChampagne) {
