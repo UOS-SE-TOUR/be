@@ -209,7 +209,9 @@ if docker image inspect "$app_image" >/dev/null 2>&1; then
   saved_app_image=1
   docker tag "$app_image" "$app_image:before-deploy" || stop
 fi
-docker compose build --pull app || stop
+# 출처 증명(provenance attestation)을 붙이지 않는다. 붙이면 내용이 같은 빌드도 이미지 ID가 빌드마다 바뀌는데, Compose는
+# 내용이 같다며 서버 컨테이너를 그대로 둬서, 7단계가 아직 쓰이는 앞 이미지의 이름을 지우려다 실패한다(#59)
+BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose build --pull app || stop
 
 # DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되고, 중간에 실패하면 되돌릴 수 없어서 띄우기 바로 전에 받는다.
 # 빌드 뒤에 받아야 빌드하는 몇 분 동안 들어온 가입·신청도 들어간다. 끝까지 받아진 것을 확인한 뒤에야 이름을 붙인다
