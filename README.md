@@ -213,7 +213,7 @@ docker compose run --rm --entrypoint certbot certbot delete --non-interactive --
 
 ```bash
 # 서버가 뜰 때까지 3분까지 다시 물어보고, 마지막 상태 코드만 찍습니다(200이어야 합니다)
-curl -s -o /dev/null -w '%{http_code}\n' --retry 60 --retry-delay 3 --retry-all-errors "https://$(sed -n 's/^DOMAIN=//p' .env)/api/docs"
+curl -s -o /dev/null -w '%{http_code}\n' --retry 60 --retry-delay 3 --retry-all-errors "https://$(docker compose exec -T nginx printenv DOMAIN)/api/docs"
 # 인증서 갱신이 될지 미리 봅니다(실제로 갱신하지 않습니다). 갱신은 처음 받을 때와 달리 Nginx를 거쳐 확인합니다
 docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -w /var/www/certbot
 ```
@@ -233,14 +233,14 @@ main에 머지된 코드를 받아 다시 빌드합니다. 아래 두 번째 명
 
 ```bash
 cd ~/be && git pull && cd deploy
-B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
-  && tail -n 1 "$B" | grep -q '^-- Dump completed' \
+B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
+  && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } \
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t \
   && docker compose pull mysql nginx certbot \
   && docker compose build --pull app \
   && docker compose up -d --remove-orphans \
   && docker compose up -d --force-recreate nginx \
-  && curl -fs -o /dev/null --retry 60 --retry-delay 3 --retry-all-errors "https://$(sed -n 's/^DOMAIN=//p' .env)/api/docs" \
+  && curl -fs -o /dev/null --retry 60 --retry-delay 3 --retry-all-errors "https://$(docker compose exec -T nginx printenv DOMAIN)/api/docs" \
   && docker image prune -f && docker builder prune -f --filter until=168h \
   && { ls -1t ~/mwt-*.sql | tail -n +11 | xargs -r rm --; } \
   && echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $B)" \
@@ -261,7 +261,8 @@ git checkout <앞 커밋> && cd deploy
 새 버전에 마이그레이션(`src/main/resources/db/migration`의 새 파일)이 있었으면 그 파일을 보고 DB를 되돌릴지 정합니다. Flyway는 앞 버전이 모르는 새 마이그레이션이 적용돼 있어도 경고만 남기고 넘어가므로, 앞 버전 서버가 그 DB로 뜰 수는 있습니다.
 
 - 테이블을 더했거나, 비어 있어도 되는(또는 기본값이 있는) 칸을 더하기만 했으면 앞 버전이 그 DB를 그대로 씁니다. DB는 그대로 둡니다.
-- 기본값 없는 `NOT NULL` 칸을 더했거나 칸·테이블을 바꾸거나 지웠으면, 앞 버전 서버가 떠도 신청 같은 쓰기가 실패합니다. 새 버전을 배포하기 전에 받은 백업을 아래 "로그와 백업"의 되살리기 명령으로 넣습니다.
+- 기본값 없는 `NOT NULL` 칸을 더했으면 앞 버전 서버는 뜨고 확인도 200이지만, 신청 같은 쓰기가 500이 납니다(서버 로그에 `Field '…' doesn't have a default value`). 새 버전을 배포하기 전에 받은 백업을 아래 "로그와 백업"의 되살리기 명령으로 넣습니다.
+- 앞 버전이 쓰는 칸·테이블의 이름을 바꿨거나 지웠으면 앞 버전 서버가 시작할 때 테이블 확인에 실패해 뜨지 않고(서버 로그에 `Schema validation: missing …`), 위 명령은 "배포가 중간에 멈췄습니다"로 끝납니다. 이때는 되돌리기를 다시 하지 말고 배포 전 백업을 되살리기 명령으로 넣습니다. 되살리기가 앞 버전 서버를 다시 띄웁니다.
 - 판단이 서지 않으면 되돌린 뒤 가입이나 신청을 한 번 해 봅니다.
 
 백업을 넣으면 그 백업 뒤에 들어온 가입·신청이 사라집니다(확정 문자가 이미 나간 신청도). 넣기 전에 무엇이 사라지는지 되돌리기 직전의 백업과 견줘 봅니다.
@@ -276,8 +277,8 @@ docker compose ps             # 컨테이너 상태
 docker compose logs -f app    # 서버 로그(문자 발송 실패 등)
 # DB를 파일로 받아 둡니다(다시 배포도 배포 전에 같은 명령으로 받습니다). 파일에는 DB를 지우고 원래 문자셋으로 다시 만드는 문장까지 들어갑니다.
 # 이름에 받은 시각(서울, 서버 로그와 같은 시간대)을 넣어 앞서 받은 백업을 덮지 않고, 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
-B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
-  && tail -n 1 "$B" | grep -q '^-- Dump completed' && echo "백업했습니다: $B" || echo "백업하지 못했습니다. 위 출력을 봅니다"
+B=~/mwt-$(TZ=Asia/Seoul date +%Y%m%d-%H%M%S).sql; { (umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > "$B") \
+  && tail -n 1 "$B" | grep -q '^-- Dump completed' || { rm -f "$B"; false; }; } && echo "백업했습니다: $B" || echo "백업하지 못했습니다(덜 받은 파일은 지웠습니다). 위 출력을 봅니다"
 ```
 
 받아 둔 파일로 되살릴 때는 서버를 멈추고 넣습니다. 파일이 DB를 통째로 지우고 다시 만들므로 백업 뒤에 생긴 테이블은 남지 않습니다(남으면 서버가 뜰 때 마이그레이션이 그 테이블을 다시 만들려다 실패합니다). 아래 명령은 백업 파일이 끝까지 받아진 것(마지막 줄 `-- Dump completed`)을 확인한 뒤에만 넣고, 넣기가 성공했을 때만 서버를 다시 띄웁니다.
