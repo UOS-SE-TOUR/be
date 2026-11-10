@@ -235,7 +235,7 @@ main에 머지된 코드를 받아 다시 빌드합니다. 아래 명령 하나�
 6. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고, 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다.
 
 ```bash
-cd ~/be/deploy && git pull --ff-only && \
+cd ~/be/deploy && { git pull --ff-only || { echo "main을 받지 못했습니다. 배포를 되돌리는 중이면 이 명령을 둘째 줄부터 붙여 넣고, main을 배포하려면 먼저 cd ~/be && git checkout main 합니다"; false; }; } && \
 docker compose pull nginx certbot \
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t < /dev/null \
   && docker compose build --pull app \
@@ -317,28 +317,32 @@ tail -n 1 "$F" | grep -q '^-- Dump completed' \
 
 ### 서버 주소 바꾸기
 
-`DOMAIN`을 바꿀 때는 Nginx를 띄운 채 새 주소의 인증서부터 받습니다. 80번 포트의 Nginx가 어느 주소로 오든 인증서 확인 파일을 내주기 때문입니다. 받은 인증서의 이름은 `docker compose run --rm --entrypoint certbot certbot certificates < /dev/null`로 봅니다(새 주소와 같아야 합니다).
+`DOMAIN`을 바꿀 때는 Nginx를 띄운 채 새 주소의 인증서부터 받습니다. 80번 포트의 Nginx가 어느 주소로 오든 인증서 확인 파일을 내주기 때문입니다. 새 주소가 먼저 이 서버의 고정 IP를 가리키고 있어야 받을 수 있습니다. 바꾼 뒤에는 화면 호스팅의 프록시가 넘기는 주소도 새 주소로 바꿉니다(위 "화면과 연결"). 받은 인증서의 이름은 `docker compose run --rm --entrypoint certbot certbot certificates < /dev/null`로 봅니다(새 주소와 같아야 합니다).
 
 ```bash
 cd ~/be/deploy
 docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot --non-interactive --agree-tos --register-unsafely-without-email -d <새 주소> < /dev/null
 ```
 
-받았으면 `.env`의 `DOMAIN`을 새 주소로 고친 뒤, Nginx를 새 주소로 다시 만들고 열리는지 봅니다(마지막에 200이 찍혀야 합니다).
+받았으면 `.env`의 `DOMAIN`을 새 주소로 고친 뒤, Nginx를 새 주소로 다시 만들고 열리는지 봅니다. 찍힌 주소가 새 주소이고 그 뒤에 200이 찍혀야 합니다.
 
 ```bash
 cd ~/be/deploy
-docker compose up -d
-D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null); curl -s -o /dev/null -w '%{http_code}\n' --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs"
+docker compose up -d \
+  && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) && echo "Nginx가 쓰는 주소: $D" \
+  && curl -s -o /dev/null -w '%{http_code}\n' --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs"
 ```
 
-200이 아니면 `.env`의 `DOMAIN`을 옛 주소로 되돌리고 `docker compose up -d` 합니다. 옛 인증서는 아직 있으니 그대로 다시 뜹니다. 원인은 `docker compose logs nginx`로 봅니다.
+주소가 옛 주소로 찍히거나, 200이 아니거나, 아무것도 찍히지 않으면(`up`이 실패) `.env`의 `DOMAIN`을 옛 주소로 되돌리고 `docker compose up -d` 합니다. 옛 인증서는 아직 있으니 그대로 다시 뜹니다. 원인은 `docker compose logs nginx`로 봅니다.
 
-200을 본 뒤에 옛 주소의 인증서를 지웁니다. 남겨 두면 갱신할 때가 됐을 때 12시간마다 갱신에 실패합니다. 200을 보기 전에 지우면 되돌아갈 곳이 없어지고, 지금 쓰는 주소를 넣으면 지우지 않고 멈춥니다.
+새 주소와 200을 본 뒤에 옛 주소의 인증서를 지웁니다(첫 줄의 `<옛 주소>`를 채웁니다). 남겨 두면 갱신할 때가 됐을 때 12시간마다 갱신에 실패합니다. 지금 떠 있는 Nginx가 쓰는 주소를 넣으면 지우지 않고 멈춥니다.
 
 ```bash
 cd ~/be/deploy
-docker compose run --rm --entrypoint sh certbot -c '[ "$1" != "$DOMAIN" ] || { echo "지금 쓰는 주소라 지우지 않습니다: $1"; exit 1; }; certbot delete --non-interactive --cert-name "$1"' sh <옛 주소> < /dev/null
+OLD=<옛 주소> && D=$(docker compose exec -T nginx printenv DOMAIN < /dev/null) \
+  && [ -n "$OLD" ] && [ "$OLD" != "$D" ] \
+  && docker compose run --rm --entrypoint certbot certbot delete --non-interactive --cert-name "$OLD" < /dev/null \
+  || echo "지우지 않았습니다(지울 주소: ${OLD:-비어 있음}, Nginx가 쓰는 주소: ${D:-알 수 없음})"
 ```
 
 `Another instance of Certbot is already running`이 나오면 새로 만든 `certbot` 컨테이너가 시작하며 갱신할 때가 됐는지 보는 중이니 잠시 뒤 다시 돌립니다. `No certificate found`면 이름이 틀린 것이니 위 `certificates` 명령으로 이름을 봅니다.
