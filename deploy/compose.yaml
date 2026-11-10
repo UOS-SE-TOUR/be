@@ -67,6 +67,9 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN:?.env에 DOMAIN을 넣으세요}
+      # 템플릿에서 이 이름의 환경변수만 채운다. 자리표시자를 더하면 여기에도 더한다 —
+      # 빠뜨리면 nginx -t가 unknown variable로 알려 주고, 필터가 없으면 이름이 겹친 환경변수가 조용히 들어간다
+      NGINX_ENVSUBST_FILTER: ^DOMAIN$$
     volumes:
       - ./nginx/templates:/etc/nginx/templates:ro
       - certs:/etc/letsencrypt:ro

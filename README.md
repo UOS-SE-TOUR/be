@@ -83,6 +83,7 @@ API가 실패하면 상태 코드와 함께 본문을 늘 아래 모양 하나�
 | 404 | 없는 주소(권한 규칙에 없는 주소는 401·403 — 아래 "로그인과 권한") |
 | 409 | 가격 계산·신청에서 그 상품을 더는 신청할 수 없음(마감, 출발일이 오늘이거나 지남, 출발했거나 끝남). 화면은 상품 목록으로 돌아갑니다. 고른 내용만 고치면 되는 거부(남은 자리보다 많은 인원 등)는 400입니다 |
 | 500 | 서버 오류. 문구는 늘 "서버에 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요."이고 자세한 내용은 서버 로그에만 남습니다 |
+| 503 | 외부 서비스를 쓸 수 없음(음성으로 고르기에 OpenAI 키가 없음 등). 운영 서버에서는 서버가 잠시 멈췄을 때(다시 배포 중)도 앞단 Nginx가 같은 모양으로 503을 돌려줍니다 |
 
 업무에 따라 다른 4xx(409 등)를 쓰기도 합니다. 서버 코드는 이렇게 씁니다.
 
@@ -184,7 +185,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
    git clone git@github.com:UOS-SE-TOUR/be.git ~/be
    ```
 
-5. 운영 값을 채웁니다: `cd ~/be/deploy && cp .env.example .env` 뒤 `.env`를 고칩니다.
+5. 운영 값을 채웁니다: `cd ~/be/deploy && cp .env.example .env && chmod 600 .env` 뒤 `.env`를 고칩니다(비밀 값이 든 파일이라 나만 읽게 합니다).
 
 ### 처음 배포
 
@@ -196,30 +197,33 @@ docker compose run --rm -p 80:80 --entrypoint sh certbot -c 'certbot certonly --
 docker compose up -d --build
 ```
 
+인증서보다 `docker compose up`을 먼저 했다면 Nginx가 인증서를 못 찾아 다시 뜨기를 되풀이하며 80번 포트를 잡으니, `docker compose stop nginx` 뒤에 인증서를 받고 다시 `up` 합니다. `DOMAIN`을 바꿀 때도 같은 순서로 새 주소의 인증서를 받습니다.
+
 첫 빌드는 Gradle과 의존성을 받느라 몇 분 걸립니다. 다 뜨면 확인합니다.
 
 ```bash
-curl -I "https://<DOMAIN>/api/docs"   # HTTP/2 200
+# 서버가 뜰 때까지 1분 남짓 다시 물어보고, 마지막 상태 코드만 찍습니다(200이어야 합니다)
+curl -s -o /dev/null -w '%{http_code}\n' --retry 30 --retry-delay 2 --retry-all-errors "https://<DOMAIN>/api/docs"
 # 인증서 갱신이 될지 미리 봅니다(실제로 갱신하지 않습니다). 갱신은 처음 받을 때와 달리 Nginx를 거쳐 확인합니다
 docker compose run --rm --entrypoint certbot certbot renew --dry-run --webroot -w /var/www/certbot
 ```
 
 ### 다시 배포
 
-main에 머지된 코드를 받아 다시 빌드합니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용됩니다. 빌드하는 동안에는 앞의 서버가 그대로 응답하고, 서버 컨테이너를 바꿔 띄우는 몇십 초 동안만 502가 납니다.
+main에 머지된 코드를 받아 다시 빌드합니다. DB 테이블 변경(Flyway)은 서버가 뜰 때 저절로 적용되는데, 마이그레이션이 중간에 실패하면 되돌릴 수 없으니 **배포 전에 아래 "로그와 백업"의 백업 명령으로 DB를 받아 둡니다.** 빌드하는 동안에는 앞의 서버가 그대로 응답하고, 서버 컨테이너를 바꿔 띄우는 몇십 초 동안만 503(`{"message": "서버에 잠시 연결할 수 없습니다. …"}`)이 납니다.
 
 ```bash
 cd ~/be && git pull && cd deploy
 # 받아 온 Nginx 설정(nginx/templates)에 틀린 곳이 없는지 먼저 봅니다. "test is successful"이 나와야 합니다
 docker compose run --rm --no-deps --entrypoint /docker-entrypoint.sh nginx nginx -t
 docker compose up -d --build
-# Nginx 설정은 컨테이너가 시작할 때만 채워지므로, 바뀌었을 수 있게 늘 다시 띄웁니다(잠깐 끊깁니다)
-docker compose restart nginx
+# Nginx 설정은 컨테이너가 시작할 때만 채워지므로, 끊지 않고 다시 채워 읽게 합니다
+docker compose exec nginx sh -c '/docker-entrypoint.d/20-envsubst-on-templates.sh && nginx -t && nginx -s reload'
 # 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지워 디스크가 차지 않게 합니다
 docker image prune -f && docker builder prune -f --filter until=168h
-# 서버가 떴는지 봅니다. 200이 아니면 docker compose ps 와 docker compose logs app nginx 로 이유를 봅니다
+# 서버가 떴는지 봅니다(200이어야 합니다). 아니면 docker compose ps 와 docker compose logs app nginx 로 이유를 봅니다
 # (서버가 못 뜨면 다시 뜨기를 되풀이합니다)
-curl -I "https://<DOMAIN>/api/docs"
+curl -s -o /dev/null -w '%{http_code}\n' --retry 30 --retry-delay 2 --retry-all-errors "https://<DOMAIN>/api/docs"
 ```
 
 ### 로그와 백업
@@ -228,20 +232,20 @@ curl -I "https://<DOMAIN>/api/docs"
 cd ~/be/deploy
 docker compose ps             # 컨테이너 상태
 docker compose logs -f app    # 서버 로그(문자 발송 실패 등)
-# DB를 파일로 받아 둡니다. 이름에 받은 시각을 넣어 앞서 받은 백업을 덮지 않고,
-# 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
-(umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction -u"$MYSQL_USER" mwt' > ~/mwt-$(date +%Y%m%d-%H%M%S).sql)
+# DB를 파일로 받아 둡니다. 파일에는 DB를 지우고 원래 문자셋으로 다시 만드는 문장까지 들어갑니다.
+# 이름에 받은 시각을 넣어 앞서 받은 백업을 덮지 않고, 회원 정보가 든 파일이라 나만 읽을 수 있게(600) 만듭니다
+(umask 077; docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --no-tablespaces --single-transaction --add-drop-database --databases mwt -u"$MYSQL_USER"' > ~/mwt-$(date +%Y%m%d-%H%M%S).sql)
 ```
 
-받아 둔 파일로 되살릴 때는 서버를 멈추고 DB를 비운 뒤 넣습니다. 그냥 넣으면 백업 뒤에 생긴 테이블이 남아, 서버가 뜰 때 마이그레이션이 그 테이블을 다시 만들려다 실패합니다. 아래 명령은 백업 파일이 끝까지 받아진 것(마지막 줄 `-- Dump completed`)을 확인한 뒤에만 DB를 지우고, 넣기가 성공했을 때만 서버를 다시 띄웁니다.
+받아 둔 파일로 되살릴 때는 서버를 멈추고 넣습니다. 파일이 DB를 통째로 지우고 다시 만들므로 백업 뒤에 생긴 테이블은 남지 않습니다(남으면 서버가 뜰 때 마이그레이션이 그 테이블을 다시 만들려다 실패합니다). 아래 명령은 백업 파일이 끝까지 받아진 것(마지막 줄 `-- Dump completed`)을 확인한 뒤에만 넣고, 넣기가 성공했을 때만 서버를 다시 띄웁니다.
 
 ```bash
 F=~/mwt-<받은 시각>.sql
 tail -n 1 "$F" | grep -q '^-- Dump completed' \
   && docker compose stop app \
-  && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -e "DROP DATABASE mwt; CREATE DATABASE mwt CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"' \
-  && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER" mwt' < "$F" \
-  && docker compose start app
+  && docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER"' < "$F" \
+  && docker compose start app \
+  || echo "되살리지 못했습니다. 위 출력을 보고, 서버가 멈춰 있으면 docker compose start app 으로 다시 띄웁니다"
 ```
 
 서버가 다시 켜지면 컨테이너도 저절로 다시 뜹니다. `docker compose down`은 컨테이너만 지우고 DB와 인증서(볼륨)는 남깁니다. `docker compose down -v`는 운영 DB까지 지우니 쓰지 않습니다.
