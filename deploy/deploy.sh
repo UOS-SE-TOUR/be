@@ -5,7 +5,7 @@
 #   deploy/deploy.sh <커밋>   그 커밋으로 되돌린다
 #
 # 단계 하나라도 실패하면 거기서 멈추고, 새 버전을 띄우기 전에 멈췄는지 띄운 뒤에 멈췄는지 찍은 뒤 1로 끝난다.
-# 사용법이 틀렸거나 되돌릴 커밋을 찾지 못하면 아무것도 하지 않고 2로 끝난다.
+# 사용법이 틀렸거나 되돌릴 커밋을 찾지 못했거나 root로 돌렸으면 2, 다른 배포가 돌고 있으면 3으로 아무것도 하지 않고 끝난다.
 # 배포·되돌리기마다 결과를 ~/mwt-deploys.log에 한 줄씩 남긴다.
 
 # 배포 도중 git pull·checkout이 이 파일을 바꾸거나 지워도 처음 시작한 내용으로 끝까지 돌도록 임시 사본으로 다시 실행한다.
@@ -30,6 +30,12 @@ usage() {
 [ $# -le 1 ] || usage
 case "${1:-}" in -*) usage ;; esac
 
+# root로 돌리면 잠금·배포 기록·백업이 /root 아래로 갈라져 서로 보지 못하고, 레포에 root 소유 파일이 생길 수 있다
+if [ "$(id -u)" -eq 0 ]; then
+  echo "root(sudo)로 돌리지 않습니다. 서버 계정으로 sudo 없이 돌립니다" >&2
+  exit 2
+fi
+
 cd "$MWT_DEPLOY_DIR" || exit 1
 
 if [ $# -eq 1 ]; then
@@ -41,7 +47,7 @@ fi
 
 # 배포가 두 번 겹쳐 돌지 않게 잠근다. 잠금은 이 스크립트가 끝나면(죽어도) 풀린다
 exec 9>"$HOME/.mwt-deploy.lock" || exit 1
-flock -n 9 || { echo "다른 배포가 돌고 있습니다. 그 배포가 끝난 뒤 다시 돌립니다" >&2; exit 1; }
+flock -n 9 || { echo "다른 배포가 돌고 있습니다. 그 배포가 끝난 뒤 다시 돌립니다" >&2; exit 3; }
 
 log=$HOME/mwt-deploys.log
 B=     # 이번에 받아 끝까지 확인한 백업 파일
@@ -88,7 +94,8 @@ if [ "$kind" = 배포 ]; then
     git checkout main || { echo "main으로 돌아가지 못했습니다(위 git 오류를 봅니다)"; stop; }
   fi
   step "main을 받습니다"
-  git pull --ff-only || { echo "main을 받지 못했습니다(위 git 오류를 봅니다)"; stop; }
+  # pull 뒤 뒤에서 도는 git gc·maintenance가 잠금(9번)을 물려받아 배포가 끝난 뒤에도 쥐고 있지 않게 닫아 준다
+  git pull --ff-only 9>&- || { echo "main을 받지 못했습니다(위 git 오류를 봅니다)"; stop; }
 else
   step "$1 커밋으로 옮깁니다"
   git checkout --detach "$target" || { echo "$1 커밋으로 옮기지 못했습니다(위 git 오류를 봅니다)"; stop; }
@@ -124,8 +131,8 @@ docker compose up -d --force-recreate nginx || stop
 
 # 바깥 DNS를 거치지 않고 이 서버의 Nginx로 바로 묻는다
 step "서버가 뜰 때까지 3분까지 기다립니다"
-D=$(docker compose exec -T nginx printenv DOMAIN) || stop
-[ -n "$D" ] || stop
+D=$(docker compose exec -T nginx printenv DOMAIN) || { echo "Nginx 컨테이너에서 서버 주소(DOMAIN)를 읽지 못했습니다"; stop; }
+[ -n "$D" ] || { echo "Nginx 컨테이너의 서버 주소(DOMAIN)가 비어 있습니다"; stop; }
 curl -fs -o /dev/null --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs" \
   || { echo "https://$D/api/docs 가 3분 안에 응답하지 않았습니다"; stop; }
 
