@@ -1,0 +1,11 @@
+# 이미지 빌드에 쓰는 것은 Dockerfile이 COPY하는 파일뿐이다. 비밀 값과 빌드 결과물은 빌드 컨텍스트로 보내지 않는다
+**/.env
+**/.env.*
+**/application-local.*
+.git
+.gradle
+build
+.idea
+.claude
+scratchpad
+deploy
