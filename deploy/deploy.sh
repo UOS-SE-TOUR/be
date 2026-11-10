@@ -146,6 +146,8 @@ stop() {
     else
       echo "되돌리기가 앞 버전을 띄운 뒤에 멈췄습니다(되돌리기 전 백업: $backup). 앞 버전 서버가 뜨지 못했으면 GitHub의 README '배포 되돌리기' 2번 표를 봅니다(서버의 README는 앞 버전입니다)"
     fi
+    # 새 버전을 띄우기 시작했으니 빌드 전 이미지에 붙여 둔 이름은 더 쓰지 않는다(남기면 다음 배포가 잘못 쓴다)
+    if [ -n "$saved_app_image" ]; then docker rmi "$app_image:before-deploy" >/dev/null 2>&1; fi
     exit 1
   fi
   record "띄우기 전 멈춤$note"
@@ -174,14 +176,11 @@ stop() {
 
 # shellcheck disable=SC2317,SC2329 # 아래 trap이 부른다
 on_signal() {
-  # 서버가 뜬 것을 확인한 뒤면 무시하고 성공으로 마저 기록한다
-  [ -n "$healthy" ] && return
   trap '' INT TERM
   echo "중단 신호를 받았습니다" >&2
   note="(중단)"
   stop
 }
-healthy=
 trap on_signal INT TERM
 
 if [ "$kind" = 배포 ]; then
@@ -238,7 +237,6 @@ domain=$(docker compose exec -T nginx printenv DOMAIN) \
 [ -n "$domain" ] || { echo "Nginx 컨테이너의 서버 주소(DOMAIN)가 비어 있습니다"; stop; }
 curl -fs -o /dev/null --resolve "$domain:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$domain/api/docs" \
   || { echo "https://$domain/api/docs 가 3분 안에 응답하지 않았습니다"; stop; }
-healthy=1
 
 trap '' INT TERM
 record 성공
