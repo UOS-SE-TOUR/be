@@ -57,7 +57,7 @@ if [ $# -eq 1 ]; then
   kind=되돌리기
   # main 같은 브랜치 이름을 주면 받지 않은 로컬 브랜치로 "되돌리기"가 되므로 커밋 해시만 받는다
   case $1 in
-    *[!0-9a-fA-F]*) echo "되돌릴 커밋은 배포 기록에 적힌 커밋 해시(예: a1b2c3d)로 줍니다: $1" >&2; exit 2 ;;
+    *[!0-9a-fA-F]*) echo "되돌릴 커밋은 배포 기록에 적힌 커밋 해시(예: a1b2c3d4e5f6)로 줍니다: $1" >&2; exit 2 ;;
   esac
   hash=$(printf '%s' "$1" | tr 'A-F' 'a-f')
   # 짧아서 여러 커밋에 걸리면 git이 그렇다고 알리므로 git의 오류를 그대로 보인다
@@ -112,7 +112,7 @@ step() { echo "== $*"; }
 
 # 칸 순서와 결과 문구는 README "배포 되돌리기"가 읽는 방법과 맞춰 둔다
 record() {
-  printf '%s\t%s\t%s\t%s\t%s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')" "$kind" "$(git rev-parse --short HEAD)" "$1" "${backup:--}" >>"$log" \
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')" "$kind" "$(git rev-parse --short=12 HEAD)" "$1" "${backup:--}" >>"$log" \
     || echo "배포 기록($log)을 남기지 못했습니다" >&2
 }
 
