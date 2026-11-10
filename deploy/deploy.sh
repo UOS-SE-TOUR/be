@@ -57,9 +57,12 @@ if [ $# -eq 1 ]; then
   kind=되돌리기
   # main 같은 브랜치 이름을 주면 받지 않은 로컬 브랜치로 "되돌리기"가 되므로 커밋 해시만 받는다
   case $1 in
-    *[!0-9a-f]*) echo "되돌릴 커밋은 배포 기록에 적힌 커밋 해시(예: a1b2c3d)로 줍니다: $1" >&2; exit 2 ;;
+    *[!0-9a-fA-F]*) echo "되돌릴 커밋은 배포 기록에 적힌 커밋 해시(예: a1b2c3d)로 줍니다: $1" >&2; exit 2 ;;
   esac
-  target=$(git rev-parse --verify --quiet "$1^{commit}") || { echo "커밋을 찾지 못했습니다: $1" >&2; exit 2; }
+  hash=$(printf '%s' "$1" | tr 'A-F' 'a-f')
+  # 짧아서 여러 커밋에 걸리면 git이 그렇다고 알리므로 git의 오류를 그대로 보인다
+  target=$(git rev-parse --verify "$hash^{commit}") \
+    || { echo "커밋을 찾지 못했습니다: $1 (위 git 오류를 봅니다. 해시가 짧으면 배포 기록의 해시를 그대로 줍니다)" >&2; exit 2; }
   git cat-file -e "$target:deploy/compose.yaml" 2>/dev/null \
     || { echo "그 커밋에는 운영 배포 설정(deploy/compose.yaml)이 없어 되돌릴 수 없습니다: $1" >&2; exit 2; }
 else
@@ -76,9 +79,10 @@ rm -f "$HOME"/mwt-*.sql.part
 # 출력을 ~/mwt-deploy-output.log에도 남긴다(마지막 배포 것만). SSH가 끊겨 터미널에 쓰지 못해도
 # tee가 파일에는 계속 써서, 명령이 출력 실패로 멈추지 않는다. tee가 Ctrl-C에 같이 죽으면 멈췄다는 문구와 기록을
 # 남기기 전에 이 스크립트가 출력 실패로 죽으므로, INT·TERM을 무시한 채 띄워 무시를 물려준다(프로세스 치환 안에서
-# 무시하면 bash 5.3에서는 tee가 그대로 죽었다). 잠금(9번)은 물려받지 않게 닫는다
+# 무시하면 bash 5.3에서는 tee가 그대로 죽었다). 잠금(9번)은 물려받지 않게 닫는다.
+# -p: 터미널 대신 파이프로 받던 쪽(pty 없는 ssh 등)이 사라져도 tee가 끝나지 않고 파일에 계속 쓴다
 trap '' INT TERM
-exec > >(exec tee "$HOME/mwt-deploy-output.log" 9>&-) 2>&1
+exec > >(exec tee -p "$HOME/mwt-deploy-output.log" 9>&-) 2>&1
 tee_pid=${!:-}  # bash 4.4 아래는 프로세스 치환의 pid를 알 수 없어 기다리지 않는다
 
 log=$HOME/mwt-deploys.log
@@ -94,7 +98,7 @@ start_commit=$(git rev-parse HEAD)
 
 step() { echo "== $*"; }
 
-# 시각, 배포/되돌리기, 커밋, 결과, 배포 전 백업을 한 줄로 남긴다(README "배포 되돌리기")
+# 칸 순서와 결과 문구는 README "배포 되돌리기"가 읽는 방법과 맞춰 둔다
 record() {
   printf '%s\t%s\t%s\t%s\t%s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')" "$kind" "$(git rev-parse --short HEAD)" "$1" "${backup:--}" >>"$log" \
     || echo "배포 기록($log)을 남기지 못했습니다" >&2
@@ -118,11 +122,10 @@ stop() {
   fi
   record "띄우기 전 멈춤$note"
   # 시작한 브랜치가 그 커밋에 그대로 있으면 브랜치로, 아니면(main을 받아 앞으로 갔으면) 그 커밋으로 돌려놓는다
-  back=$start_commit
+  back=$(git rev-parse --short "$start_commit")
   if [ -n "$start_branch" ] && [ "$(git rev-parse "$start_branch")" = "$start_commit" ]; then back=$start_branch; fi
   moved_back=
   if [ "$(git rev-parse HEAD)" != "$start_commit" ] || [ "$(git symbolic-ref -q --short HEAD)" != "$start_branch" ]; then
-    [ "$back" = "$start_commit" ] && back=$(git rev-parse --short "$start_commit")
     if git checkout -q "$back"; then
       moved_back=" 서버의 코드도 시작할 때 있던 자리($back)로 돌려놓았습니다."
     else
@@ -198,8 +201,7 @@ else
   echo "배포했습니다: $(git rev-parse --short HEAD) (앞 버전으로 되돌림, 되돌리기 전 백업: $backup)"
 fi
 
-# 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지운다. 배포는 백업을 최근 10개만 남기고,
-# 되돌리기는 되살려야 할 백업이 지워지지 않게 백업을 그대로 둔다
+# 되돌리기는 되살려야 할 백업이 지워지지 않게 백업을 정리하지 않는다
 step "앞 이미지와 오래된 백업을 정리합니다"
 { docker image prune -f && docker builder prune -f --filter until=168h; } \
   || echo "${kind}는 끝났고, 앞 이미지 정리만 실패했습니다. 디스크가 차면 위 출력을 봅니다"
