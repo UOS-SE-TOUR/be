@@ -67,6 +67,14 @@ API 키·서명 키·직원 코드 같은 값은 코드나 커밋에 넣지 않�
 
 `./gradlew bootRun`으로 서버를 띄운 뒤 브라우저에서 http://localhost:8080/api/swagger-ui.html 을 엽니다. 문서 원본(OpenAPI JSON)은 `/api/docs`이고, `/api/v1/...` 주소만 문서에 실립니다. 문서도 `/api` 아래에 두어서 화면 호스팅이나 Nginx 프록시를 거쳐도 같은 주소로 열립니다.
 
+API마다 한 줄 설명 끝 괄호에 부를 수 있는 사람(누구나·로그인한 회원·고객·직원)이 있고, 실패 응답의 상태 코드와 그 뜻이 적혀 있습니다. 실패 응답의 본문은 모두 아래 "오류 응답"의 `{"message"}` 한 가지입니다. 500과, 운영 서버 앞단 Nginx가 내는 503·504는 API마다 적지 않고 아래 표에 둡니다.
+
+**로그인한 채로 시험하기:** Swagger 화면에서 `POST /api/v1/members/login`을 "Try it out"으로 먼저 실행하면, 브라우저가 로그인 쿠키를 저장해 그 뒤 실행하는 API에 함께 실어 보냅니다. Swagger 화면과 서버가 같은 주소라서 따로 설정할 것은 없습니다. 로그아웃은 `POST /api/v1/members/logout`을 실행합니다. 쿠키는 HttpOnly라 Swagger 화면에도 보이지 않습니다. 로컬에서는 http://localhost 로 열어야 합니다(위 "화면과 연결"의 쿠키 이야기와 같습니다).
+
+운영 서버의 Swagger(`https://<서버 주소>/api/swagger-ui.html`)에서 시험하면 운영 DB에 그대로 남습니다. 운영에서는 시험용 계정으로 `GET /api/v1/members/me`처럼 읽기만 하는 API로 시험합니다. 신청(`POST /api/v1/bookings`)을 실행하면 상품의 남은 자리가 줄고, 그 신청으로 상품이 확정되거나 이미 확정된 상품이면 실제 확정 문자가 나갑니다.
+
+API를 새로 만들면 `@Operation(summary = "<한 줄 설명> (<부를 수 있는 사람>)")`과 실패 응답마다 `@ApiResponse(responseCode = "...", description = "...")`를 답니다. 실패 응답의 본문은 `OpenApiConfig`가 한 번에 붙이고, 여러 곳에 같은 설명(로그인 필요, 상품 이름 등)은 `common.docs`의 `ApiDescriptions` 상수를 씁니다. 한 줄 설명이나 끝 괄호가 없거나, 로그인이 필요한 API에 401·403 설명이 빠졌거나, 끝 괄호가 실제 권한 규칙(아래 "로그인과 권한")과 다르면 `ApiDocsTest`가 실패합니다. 응답·요청에 새로 쓰는 열거형에는 `@Schema(enumAsRef = true, description = "...")`로 값마다 뜻을 적고, 값을 더하면 설명에도 뜻을 더합니다(빠지면 같은 테스트가 실패합니다). 응답에 `null`이 올 수 있는 칸에는 `@Schema(nullable = true)`를 답니다.
+
 ## 오류 응답
 
 API가 실패하면 상태 코드와 함께 본문을 늘 아래 모양 하나로 돌려줍니다. 화면은 `message`를 그대로 보여 주면 됩니다.
@@ -122,6 +130,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 | `member` | 회원가입, 로그인, 로그아웃, 직원 코드 확인 | 4.2 |
 | `common.security` | 로그인 토큰(JWT) 만들기와 확인, API별 권한 검사, 비밀번호 암호화 | 4.3 |
 | `common.exception` | 오류 응답 형식(`{"message"}`)과 전역 예외 처리 | 4.9 |
+| `common.docs` | API 문서(Swagger)에 여러 번 쓰는 설명 문구 | — |
 | `tour` | 여행 상품, 등급별 가격, 옵션, 상품 기획, 매일 상품 상태 바꾸기 | 4.4 |
 | `booking` | 가격 계산, 단골 할인, 신청, 확정 문자 요청, 이전 여행 | 4.5 |
 | `notification` | 문자 발송과 실패 때 재시도 | 4.6 |
