@@ -19,7 +19,7 @@ fi
 
 tee_pid=
 # 끝날 때 tee가 마지막 줄까지 쓰기를 기다려, 프롬프트보다 먼저 찍히고 출력 파일에도 다 남게 한다
-# shellcheck disable=SC2329 # 아래 trap이 부른다
+# shellcheck disable=SC2317,SC2329 # 아래 trap이 부른다(shellcheck 0.10 이하는 SC2317, 0.11은 SC2329로 알린다)
 finish() {
   if [ -n "$tee_pid" ]; then
     exec >&- 2>&-
@@ -60,6 +60,8 @@ if [ $# -eq 1 ]; then
     *[!0-9a-f]*) echo "되돌릴 커밋은 배포 기록에 적힌 커밋 해시(예: a1b2c3d)로 줍니다: $1" >&2; exit 2 ;;
   esac
   target=$(git rev-parse --verify --quiet "$1^{commit}") || { echo "커밋을 찾지 못했습니다: $1" >&2; exit 2; }
+  git cat-file -e "$target:deploy/compose.yaml" 2>/dev/null \
+    || { echo "그 커밋에는 운영 배포 설정(deploy/compose.yaml)이 없어 되돌릴 수 없습니다: $1" >&2; exit 2; }
 else
   kind=배포
 fi
@@ -72,9 +74,11 @@ flock -n 9 || { echo "다른 배포가 돌고 있습니다. 그 배포가 끝난
 rm -f "$HOME"/mwt-*.sql.part
 
 # 출력을 ~/mwt-deploy-output.log에도 남긴다(마지막 배포 것만). SSH가 끊겨 터미널에 쓰지 못해도
-# tee가 파일에는 계속 써서, 명령이 출력 실패로 멈추지 않는다. tee는 Ctrl-C에 같이 죽지 않게 하고
-# (죽으면 멈췄다는 문구와 기록을 남기기 전에 이 스크립트가 출력 실패로 죽는다), 잠금(9번)은 물려받지 않게 닫는다
-exec > >(trap '' INT TERM; exec tee "$HOME/mwt-deploy-output.log" 9>&-) 2>&1
+# tee가 파일에는 계속 써서, 명령이 출력 실패로 멈추지 않는다. tee가 Ctrl-C에 같이 죽으면 멈췄다는 문구와 기록을
+# 남기기 전에 이 스크립트가 출력 실패로 죽으므로, INT·TERM을 무시한 채 띄워 무시를 물려준다(프로세스 치환 안에서
+# 무시하면 bash 5.3에서는 tee가 그대로 죽었다). 잠금(9번)은 물려받지 않게 닫는다
+trap '' INT TERM
+exec > >(exec tee "$HOME/mwt-deploy-output.log" 9>&-) 2>&1
 tee_pid=${!:-}  # bash 4.4 아래는 프로세스 치환의 pid를 알 수 없어 기다리지 않는다
 
 log=$HOME/mwt-deploys.log
@@ -83,14 +87,10 @@ backup_part=
 launched=
 note=
 
-# 띄우기 전에 멈추면 서버의 코드를 시작 전 자리로 돌려놓는다. 코드를 떠 있는 버전과 다른 커밋에 두면
-# 그 뒤 ~/be/deploy에서 치는 docker compose 명령이 다른 설정을 쓴다.
-# main에서 시작한 배포는 받은 main에 그대로 둔다(다음 배포가 이어 받는다)
-branch=$(git symbolic-ref -q --short HEAD)
-prev=
-if [ "$kind" = 되돌리기 ] || [ "$branch" != main ]; then
-  prev=${branch:-$(git rev-parse --short HEAD)}
-fi
+# 띄우기 전에 멈추면 서버의 코드를 시작할 때 있던 커밋으로 돌려놓는다. 코드를 떠 있는 버전과 다른 커밋에 두면
+# 그 뒤 ~/be/deploy에서 치는 docker compose 명령이 다른 설정을 쓴다
+start_branch=$(git symbolic-ref -q --short HEAD)
+start_commit=$(git rev-parse HEAD)
 
 step() { echo "== $*"; }
 
@@ -117,12 +117,16 @@ stop() {
     exit 1
   fi
   record "띄우기 전 멈춤$note"
+  # 시작한 브랜치가 그 커밋에 그대로 있으면 브랜치로, 아니면(main을 받아 앞으로 갔으면) 그 커밋으로 돌려놓는다
+  back=$start_commit
+  if [ -n "$start_branch" ] && [ "$(git rev-parse "$start_branch")" = "$start_commit" ]; then back=$start_branch; fi
   moved_back=
-  if [ -n "$prev" ]; then
-    if git checkout -q "$prev"; then
-      moved_back=" 서버의 코드도 시작 전 자리($prev)로 돌려놓았습니다."
+  if [ "$(git rev-parse HEAD)" != "$start_commit" ] || [ "$(git symbolic-ref -q --short HEAD)" != "$start_branch" ]; then
+    [ "$back" = "$start_commit" ] && back=$(git rev-parse --short "$start_commit")
+    if git checkout -q "$back"; then
+      moved_back=" 서버의 코드도 시작할 때 있던 자리($back)로 돌려놓았습니다."
     else
-      moved_back=" 서버의 코드는 옮겨 간 커밋에 남았으니 cd ~/be && git checkout $prev 로 돌려놓습니다."
+      moved_back=" 서버의 코드는 옮겨 간 커밋에 남았으니 cd ~/be && git checkout $back 로 돌려놓습니다."
     fi
   fi
   if [ "$kind" = 배포 ]; then
@@ -136,8 +140,8 @@ stop() {
 trap 'trap "" INT TERM; echo "중단 신호를 받았습니다" >&2; note="(중단)"; stop' INT TERM
 
 if [ "$kind" = 배포 ]; then
-  if [ -n "$prev" ]; then
-    echo "서버의 코드가 main이 아니라 $prev 에 있습니다(배포를 되돌린 뒤 등). main으로 돌아가 배포합니다"
+  if [ "$start_branch" != main ]; then
+    echo "서버의 코드가 main이 아니라 ${start_branch:-$(git rev-parse --short HEAD)} 에 있습니다(배포를 되돌렸거나 앞 배포가 띄우기 전에 멈춘 뒤 등). main으로 돌아가 배포합니다"
     git checkout main || { echo "main으로 돌아가지 못했습니다(위 git 오류를 봅니다)"; stop; }
   fi
   step "main을 받습니다"
@@ -186,7 +190,8 @@ curl -fs -o /dev/null --resolve "$domain:443:127.0.0.1" --max-time 10 --retry 60
 
 trap '' INT TERM
 record 성공
-trap - INT TERM
+# 이제 배포는 끝났으니 정리 도중 Ctrl-C로 끊어도 성공(0)으로 끝낸다
+trap 'echo "정리를 그만둡니다. ${kind}는 끝났습니다" >&2; exit 0' INT TERM
 if [ "$kind" = 배포 ]; then
   echo "배포했습니다: $(git rev-parse --short HEAD) (배포 전 백업: $backup)"
 else
