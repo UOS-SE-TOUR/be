@@ -235,7 +235,7 @@ main에 머지된 코드를 받아 다시 빌드합니다. 아래 명령 하나�
 6. 다 됐으면 앞 배포의 이미지와 일주일 넘게 안 쓴 빌드 캐시를 지우고, 백업 파일은 최근 10개만 남겨 디스크가 차지 않게 합니다.
 
 ```bash
-cd ~/be/deploy && { git pull --ff-only || { echo "main을 받지 못했습니다. 배포를 되돌리는 중이면 이 명령을 둘째 줄부터 붙여 넣고, main을 배포하려면 먼저 cd ~/be && git checkout main 합니다"; false; }; } && \
+cd ~/be/deploy && { git pull --ff-only || { echo "main을 받지 못했습니다(위 git 오류를 봅니다). 배포를 되돌리는 중이면 이 명령을 둘째 줄부터 붙여 넣고, 되돌린 뒤 main을 배포하려면 먼저 cd ~/be && git checkout main 합니다"; false; }; } && \
 docker compose pull nginx certbot \
   && docker compose run --rm --entrypoint /docker-entrypoint.sh nginx nginx -t < /dev/null \
   && docker compose build --pull app \
@@ -257,7 +257,7 @@ MySQL 이미지는 다시 배포 때 받지 않습니다. 새 패치를 받으�
 
 새 버전에 문제가 있으면 앞 커밋을 다시 배포합니다. 서버만이 아니라 Nginx 설정과 compose 설정도 앞 버전으로 돌아갑니다.
 
-되돌아갈 커밋은 앞 배포가 끝날 때 "배포했습니다: <커밋>"으로 찍힌 것입니다. 화면에 남아 있지 않으면 `cd ~/be && git reflog -10`에서 `pull`·`checkout`으로 옮겨 간 커밋을 후보로 봅니다. 받기만 하고 배포가 멈춘 커밋이나 되돌리기 전에 문제 있던 커밋도 섞여 있으니, 바로 아래 줄이라고 고르지 말고 `git log --oneline -1 <커밋>`으로 무엇인지 보고 앞서 잘 돌던 것을 고릅니다.
+되돌아갈 커밋은 문제가 생긴 지금 버전보다 한 번 앞의 배포가 끝날 때 찍힌 "배포했습니다: <커밋>"입니다 — 지금 버전의 배포가 "배포했습니다"로 끝났으면 화면에서 끝에서 두 번째 것, "중간에 멈췄습니다"로 끝났으면 마지막 것입니다. 화면에 남아 있지 않으면 `cd ~/be && git reflog -10`에서 `pull`·`checkout`으로 옮겨 간 커밋을 후보로 봅니다. 받기만 하고 배포가 멈춘 커밋이나 되돌리기 전에 문제 있던 커밋도 섞여 있으니, 바로 아래 줄이라고 고르지 말고 `git log --oneline -1 <커밋>`으로 무엇인지 보고 앞서 잘 돌던 것을 고릅니다.
 
 ```bash
 cd ~/be/deploy && git checkout <앞 커밋>
@@ -333,7 +333,7 @@ docker compose up -d \
   && curl -s -o /dev/null -w '%{http_code}\n' --resolve "$D:443:127.0.0.1" --max-time 10 --retry 60 --retry-delay 3 --retry-max-time 180 --retry-all-errors "https://$D/api/docs"
 ```
 
-주소가 옛 주소로 찍히거나, 200이 아니거나, 아무것도 찍히지 않으면(`up`이 실패) `.env`의 `DOMAIN`을 옛 주소로 되돌리고 `docker compose up -d` 합니다. 옛 인증서는 아직 있으니 그대로 다시 뜹니다. 원인은 `docker compose logs nginx`로 봅니다.
+주소가 옛 주소로 찍히거나, 200이 아니거나, 아무것도 찍히지 않으면(`up`이 실패했거나 Nginx가 뜨지 못함) `.env`의 `DOMAIN`을 옛 주소로 되돌리고 `docker compose up -d` 합니다. 옛 인증서는 아직 있으니 그대로 다시 뜹니다. 원인은 `docker compose logs nginx`로 봅니다. 새 주소를 쓰지 않기로 했으면 받아 둔 새 주소의 인증서도 아래 지우기 명령으로 지웁니다(`<옛 주소>` 자리에 새 주소) — 남겨 두면 그 주소가 이 서버를 가리키지 않게 된 뒤 갱신할 때가 되면 12시간마다 갱신에 실패합니다.
 
 새 주소와 200을 본 뒤에 옛 주소의 인증서를 지웁니다(첫 줄의 `<옛 주소>`를 채웁니다). 남겨 두면 갱신할 때가 됐을 때 12시간마다 갱신에 실패합니다. 지금 떠 있는 Nginx가 쓰는 주소를 넣으면 지우지 않고 멈춥니다.
 
