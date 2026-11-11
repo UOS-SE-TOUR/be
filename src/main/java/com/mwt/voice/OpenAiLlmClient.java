@@ -33,14 +33,14 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * OpenAI API(Responses API, POST /v1/responses)를 구조화 출력(JSON 스키마)으로 불러 테마, 출발일, 투어 등급, 인원을 뽑는다
- * (설계산출물 v0.5 4.7, 5.5 responses.create(prompt, schema)). 프롬프트 원본은 이 클래스 옆의 {@value #PROMPT_FILE} 하나다.
+ * (설계산출물 4.7, 5.5 responses.create(prompt, schema)). 프롬프트 원본은 이 클래스 옆의 {@value #PROMPT_FILE} 하나다.
  */
 @Slf4j
 class OpenAiLlmClient implements LlmClient {
 
 	static final String RESPONSES_URL = "https://api.openai.com/v1/responses";
 
-	/** 설계산출물 v0.5 4.7 model. */
+	/** 설계산출물 4.7 MODEL. */
 	static final String MODEL = "gpt-6-luna";
 
 	static final String PROMPT_FILE = "extract-selection-prompt.txt";

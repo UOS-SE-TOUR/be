@@ -34,7 +34,7 @@ import com.mwt.tour.TourSummary;
 import jakarta.servlet.http.Cookie;
 
 /**
- * POST /api/v1/voice/parse(설계산출물 v0.5 4.9 서버 API 표, 5.5)의 요청 검증과 응답 모양. VoiceService는 흉내 낸다.
+ * POST /api/v1/voice/parse(설계산출물 4.9 서버 API 표, 5.5)의 요청 검증과 응답 모양. VoiceService는 흉내 낸다.
  * 주소별 권한 규칙은 common.security의 SecurityConfigTest가 따로 본다.
  */
 @WebMvcTest(controllers = VoiceController.class)

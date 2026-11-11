@@ -34,7 +34,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 솔라피 문자 발송 API(POST /messages/v4/send-many/fast)로 문자를 보낸다.
- * 실패하면 한 번 더 보내고, 그래도 실패하면 서버 로그에 남긴다(설계산출물 v0.5 1.3 (8)). 다시 보내는 경우는 isRetryable에 있다.
+ * 실패하면 한 번 더 보내고, 그래도 실패하면 서버 로그에 남긴다(설계산출물 1.3 (8)). 다시 보내는 경우는 isRetryable에 있다.
  * 문자 종류(SMS·LMS)는 보내지 않아 솔라피가 내용 길이로 정한다.
  */
 @Slf4j
@@ -42,7 +42,7 @@ class SolapiSmsSender implements SmsSender {
 
 	static final String SEND_URL = "https://api.solapi.com/messages/v4/send-many/fast";
 
-	/** 처음 보낸 뒤 실패하면 더 보내는 횟수(설계산출물 v0.5 4.6 retryCount = 1). */
+	/** 처음 보낸 뒤 실패하면 더 보내는 횟수(설계산출물 4.6 RETRY_COUNT = 1). */
 	private static final int RETRY_COUNT = 1;
 
 	/**

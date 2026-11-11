@@ -1,6 +1,6 @@
 # be — MWT Tour Server
 
-미스터 월드 테마 여행 서비스(MWT)의 서버(Tour Server)입니다. Spring Boot 애플리케이션 하나로 배포하고, 그 안을 기능별 모듈(패키지)로 나눕니다(모듈러 모놀리스). 구조와 규칙은 [설계산출물](https://github.com/UOS-SE-TOUR/docs/tree/main/설계산출물) v0.5의 4장을 따릅니다.
+미스터 월드 테마 여행 서비스(MWT)의 서버(Tour Server)입니다. Spring Boot 애플리케이션 하나로 배포하고, 그 안을 기능별 모듈(패키지)로 나눕니다(모듈러 모놀리스). 구조와 규칙은 [설계산출물](https://github.com/UOS-SE-TOUR/docs/tree/main/설계산출물)의 4장을 따릅니다.
 
 ## 실행
 
@@ -125,7 +125,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 
 모든 코드는 `com.mwt` 아래에 있습니다. 모듈마다 `package-info.java`에 하는 일을 적어 두었습니다.
 
-| 패키지 | 하는 일 | 설계산출물 v0.5 |
+| 패키지 | 하는 일 | 설계산출물 |
 | --- | --- | --- |
 | `member` | 회원가입, 로그인, 로그아웃, 직원 코드 확인 | 4.2 |
 | `common.security` | 로그인 토큰(JWT) 만들기와 확인, API별 권한 검사, 비밀번호 암호화 | 4.3 |
