@@ -20,7 +20,7 @@ public record SignUpRequest(
 		@NotBlank(message = "비밀번호를 입력해 주세요.") String password,
 		@NotBlank(message = "이름을 입력해 주세요.") @Size(max = 50, message = "이름은 50자까지 쓸 수 있습니다.") String name,
 		@NotBlank(message = "주소를 입력해 주세요.") @Size(max = 255, message = "주소는 255자까지 쓸 수 있습니다.") String address,
-		@Schema(description = "휴대폰 번호(확정 문자를 받는다). 숫자 사이에 하이픈이나 공백이 있어도 된다(예: 010-1234-5678)")
+		@Schema(description = "휴대폰 번호(확정 문자를 받는다). 숫자 사이에 하이픈이나 공백이 있어도 되고, 국가 번호(+82)로 시작해도 된다(예: 010-1234-5678, +82 10-1234-5678)")
 		@NotBlank(message = "연락처를 입력해 주세요.") @Size(max = 20, message = "연락처는 20자까지 쓸 수 있습니다.") String phone,
 		@NotNull(message = "회원 구분을 골라 주세요.") MemberType memberType,
 		@Schema(description = "직원 코드. memberType이 STAFF일 때만 보며, 직원이 가입 화면에서 직접 입력한다") String staffCode) {
