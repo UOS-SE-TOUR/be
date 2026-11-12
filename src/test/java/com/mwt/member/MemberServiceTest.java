@@ -53,13 +53,14 @@ class MemberServiceTest {
 						"비밀번호가 너무 깁니다. 영문·숫자는 72자, 한글은 24자까지 쓸 수 있습니다."),
 				Arguments.of(signUp(PASSWORD, "02-123-4567", MemberType.CUSTOMER, null), MemberService.NOT_MOBILE_NUMBER),
 				Arguments.of(signUp(PASSWORD, "010-1234-5678-", MemberType.CUSTOMER, null), MemberService.NOT_MOBILE_NUMBER),
+				Arguments.of(signUp(PASSWORD, "+010-1234-5678", MemberType.CUSTOMER, null), MemberService.NOT_MOBILE_NUMBER),
 				Arguments.of(signUp(PASSWORD, "02-123-4567", MemberType.STAFF, STAFF_CODE), MemberService.NOT_MOBILE_NUMBER),
 				Arguments.of(signUp(PASSWORD, "010-1234-5678", MemberType.STAFF, "0123456789abcdeF"),
 						"직원 코드가 맞지 않아 직원으로 가입할 수 없습니다."));
 	}
 
 	@Test
-	void 규칙에_맞으면_비밀번호를_암호화해_저장한다() {
+	void 규칙에_맞으면_비밀번호를_암호화하고_연락처를_숫자만_남긴_국내_번호로_바꿔_저장한다() {
 		when(memberRepository.save(any(Member.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		memberService.signUp(signUp(PASSWORD, "+82 10-1234-5678", MemberType.STAFF, STAFF_CODE));
@@ -68,6 +69,7 @@ class MemberServiceTest {
 		verify(memberRepository).save(saved.capture());
 		assertThat(saved.getValue().getMemberType()).isEqualTo(MemberType.STAFF);
 		assertThat(new BCryptPasswordEncoder().matches(PASSWORD, saved.getValue().getPassword())).isTrue();
+		assertThat(saved.getValue().getPhone()).isEqualTo("01012345678");
 	}
 
 	@Test

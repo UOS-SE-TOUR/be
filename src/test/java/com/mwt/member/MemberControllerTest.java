@@ -20,6 +20,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -93,7 +94,7 @@ class MemberControllerTest {
 		assertThat(member.getLoginId()).isEqualTo("hong");
 		assertThat(member.getName()).isEqualTo("홍길동");
 		assertThat(member.getAddress()).isEqualTo("서울시 동대문구 서울시립대로 163");
-		assertThat(member.getPhone()).isEqualTo("010-1234-5678");
+		assertThat(member.getPhone()).isEqualTo("01012345678");
 		assertThat(member.getMemberType()).isEqualTo(MemberType.CUSTOMER);
 		assertThat(member.getPassword()).isNotEqualTo(PASSWORD).startsWith("$2");
 		assertThat(passwordEncoder.matches(PASSWORD, member.getPassword())).isTrue();
@@ -106,7 +107,7 @@ class MemberControllerTest {
 
 		Member member = memberRepository.findByLoginId("hong").orElseThrow();
 		assertThat(member).extracting(Member::getName, Member::getAddress, Member::getPhone)
-			.containsExactly("홍길동", "서울", "010-1234-5678");
+			.containsExactly("홍길동", "서울", "01012345678");
 		logIn(" hong ", PASSWORD).andExpect(status().isOk());
 	}
 
@@ -119,7 +120,7 @@ class MemberControllerTest {
 
 		Member member = memberRepository.findByLoginId("hong").orElseThrow();
 		assertThat(member).extracting(Member::getName, Member::getAddress, Member::getPhone)
-			.containsExactly("홍길동", "서울", "010-1234-5678");
+			.containsExactly("홍길동", "서울", "01012345678");
 		logIn("hong\u00A0", PASSWORD).andExpect(status().isOk());
 	}
 
@@ -209,17 +210,21 @@ class MemberControllerTest {
 		assertThat(memberRepository.findByLoginId("hong").orElseThrow().getName()).isEqualTo("가".repeat(50));
 	}
 
-	@ParameterizedTest
-	@ValueSource(strings = { "01012345678", "010 1234 5678", "+82 10-1234-5678", "+82 010-1234-5678", "011-123-4567" })
-	void 휴대폰_번호면_하이픈_공백_국가_번호와_함께_받는다(String phone) throws Exception {
+	@ParameterizedTest(name = "{0} → {1}")
+	@CsvSource({ "01012345678, 01012345678", "010-1234-5678, 01012345678", "'010 1234 5678', 01012345678",
+			"'+82 10-1234-5678', 01012345678", "'+82-10-1234-5678', 01012345678", "'+82 010-1234-5678', 01012345678",
+			"+821012345678, 01012345678", "82-010-1234-5678, 01012345678", "011-123-4567, 0111234567" })
+	void 휴대폰_번호면_하이픈_공백_국가_번호와_함께_받고_숫자만_남긴_국내_번호로_저장한다(String phone, String saved)
+			throws Exception {
 		signUp(customer("hong").withPhone(phone)).andExpect(status().isCreated());
 
-		assertThat(memberRepository.findByLoginId("hong").orElseThrow().getPhone()).isEqualTo(phone);   // 입력한 그대로 둔다
+		assertThat(memberRepository.findByLoginId("hong").orElseThrow().getPhone()).isEqualTo(saved);
 	}
 
 	@ParameterizedTest
 	@ValueSource(strings = { "02-123-4567", "abc", "010-1234-567", "010-1234-56789", "010.1234.5678", "010-abcd-1234-5678",
-			"(010) 1234-5678", "010-1234-5678+", "-010-1234-5678", "010-1234-5678-", "+ 010 1234 5678" })
+			"(010) 1234-5678", "010-1234-5678+", "-010-1234-5678", "010-1234-5678-", "+ 010 1234 5678", "+010-1234-5678",
+			"+01012345678", "+ 82 10-1234-5678" })
 	void 연락처가_휴대폰_번호가_아니면_400이고_저장하지_않는다(String phone) throws Exception {
 		signUp(customer("hong").withPhone(phone)).andExpect(badRequest(MemberService.NOT_MOBILE_NUMBER));
 
