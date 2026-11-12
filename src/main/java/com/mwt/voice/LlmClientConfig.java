@@ -15,7 +15,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * OpenAiLlmClient를 LlmClient 빈으로 둔다. OPENAI_API_KEY가 없어도 서버는 띄운다 — 그때 음성으로 고르기만 503이고,
- * 화면에서 직접 고르는 흐름(MWT-UC4)은 그대로 쓸 수 있다(설계산출물 v0.5 5.5 부 흐름).
+ * 화면에서 직접 고르는 흐름(MWT-UC4)은 그대로 쓸 수 있다(설계산출물 5.5 부 흐름).
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
