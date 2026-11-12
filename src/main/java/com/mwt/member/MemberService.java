@@ -31,8 +31,8 @@ public class MemberService {
 
 	static final int MIN_STAFF_CODE_BYTES = 16;
 
-	/** 연락처의 꼴. 숫자와, 숫자 사이의 하이픈·공백과, 맨 앞의 +만 받는다. */
-	private static final Pattern PHONE_CHARACTERS = Pattern.compile("\\+?[0-9]+(?:[ -]+[0-9]+)*");
+	/** 연락처의 꼴. 숫자와, 숫자 사이의 하이픈·공백과, 맨 앞의 +만 받는다. +는 국가 번호 82 앞에만 쓸 수 있다(+82 10-…). */
+	private static final Pattern PHONE_CHARACTERS = Pattern.compile("(?:\\+(?=82))?[0-9]+(?:[ -]+[0-9]+)*");
 
 	static final String LOGIN_ID_TAKEN = "이미 쓰는 아이디입니다.";
 
@@ -65,7 +65,8 @@ public class MemberService {
 
 	/**
 	 * 회원가입(MWT-UC1). 직원은 직원 코드가 맞아야 가입한다. 비밀번호는 8자 이상 72바이트 이하, 연락처는 고객·직원 모두
-	 * 휴대폰 번호다. 가입한 회원 ID를 돌려준다.
+	 * 휴대폰 번호다. 연락처는 문자를 보낼 때와 같은 꼴(숫자만 남긴 국내 번호, 예: 01012345678)로 바꿔 저장한다.
+	 * 가입한 회원 ID를 돌려준다.
 	 */
 	@Transactional
 	public Long signUp(SignUpRequest request) {
@@ -86,7 +87,7 @@ public class MemberService {
 			throw new BusinessException(LOGIN_ID_TAKEN);
 		}
 		Member member = new Member(request.loginId(), passwordEncoder.encode(request.password()), request.name(),
-				request.address(), request.phone(), request.memberType());
+				request.address(), SmsSender.normalizeNumber(request.phone()), request.memberType());
 		try {
 			return memberRepository.save(member).getId();
 		} catch (DataIntegrityViolationException e) {
