@@ -9,7 +9,8 @@ import java.util.stream.Collectors;
 /**
  * 받는 번호 정리. 숫자만 남기고, 국가 번호(+82)로 적은 번호는 국내 번호로 바꾸고(normalize), 같은 번호는 한 번만 둔다.
  * 휴대폰 번호 꼴이 아닌 번호는 따로 모은다 — 잘못된 번호 하나가 같은 요청의 다른 사람까지 실패(400)시키지 않게.
- * SolapiSmsSender와 FakeSmsSender가 같이 써서 시연 연습과 실제 발송의 받는 사람이 같게 한다.
+ * SolapiSmsSender와 FakeSmsSender가 같이 써서 시연 연습과 실제 발송의 받는 사람이 같게 한다. 회원가입도 SmsSender를 거쳐
+ * 같은 규칙으로 연락처를 확인하고(isMobile), 바꾼 꼴(normalize)로 저장한다.
  */
 final class PhoneNumbers {
 

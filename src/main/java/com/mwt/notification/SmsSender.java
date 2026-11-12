@@ -24,4 +24,12 @@ public interface SmsSender {
 		return phoneNumber != null && PhoneNumbers.isMobile(phoneNumber);
 	}
 
+	/**
+	 * sendSms가 보낼 때 쓰는 꼴로 번호를 바꾼다. 숫자만 남기고, 국가 번호(+82)로 적은 번호는 0으로 시작하는 국내 번호로 바꾼다
+	 * (예: +82 10-1234-5678 → 01012345678). 회원가입이 연락처를 이 꼴로 저장한다.
+	 */
+	static String normalizeNumber(String phoneNumber) {
+		return PhoneNumbers.normalize(phoneNumber);
+	}
+
 }
