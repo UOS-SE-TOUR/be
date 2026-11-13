@@ -117,8 +117,8 @@ public class BookingService {
 			if (saved.isEmpty()) {
 				throw e;
 			}
-			log.info("같은 신청 키의 신청이 먼저 저장되어 이 신청을 되돌리고 그 결과를 돌려준다: 회원 {}, 신청 {}, 되돌린 까닭 {}", memberId,
-					saved.get().bookingId(), e.toString());
+			log.info("신청 키가 있는 신청이 실패했지만 그 신청 키의 신청이 저장되어 있어 그 결과를 돌려준다: 회원 {}, 신청 {}, 실패 {}",
+					memberId, saved.get().bookingId(), e.toString());
 			return saved.get();
 		}
 	}

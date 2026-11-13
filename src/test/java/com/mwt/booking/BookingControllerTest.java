@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
@@ -287,6 +288,12 @@ class BookingControllerTest {
 			.andExpect(status().isCreated())
 			.andExpect(content().json("""
 					{"bookingId": %d, "status": "RECRUITING"}""".formatted((Long) saved.get("id")), JsonCompareMode.STRICT));
+		// UUID는 대소문자를 가리지 않으므로 대문자로 보내도 같은 신청 키다
+		mockMvc.perform(apply(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d, %d]}""".formatted(tourId, hotel, champagne))
+				.header(IDEMPOTENCY_KEY, KEY.toUpperCase(Locale.ROOT)))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.bookingId").value(saved.get("id")));
 		// 같은 옵션을 두 번 보내면 다른 내용이다(신청 키 없이 보냈으면 거부되는 요청)
 		mockMvc.perform(apply(me, """
 				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d, %d, %d]}""".formatted(tourId, hotel,
