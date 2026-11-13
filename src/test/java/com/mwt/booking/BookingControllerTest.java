@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
@@ -62,6 +63,8 @@ class BookingControllerTest {
 	private static final String APPLY = "/api/v1/bookings";
 	private static final String PREVIOUS = "/api/v1/bookings/previous";
 	private static final String CONFIRMED_MESSAGE = "[미스터 월드] 신청하신 여행 상품(골프 챌린지 투어 12/1 출발 5일)이 확정되었습니다.";
+	private static final String IDEMPOTENCY_KEY = "Idempotency-Key";
+	private static final String KEY = "3f2b8c1e-7a4d-4e5f-9b6a-0c1d2e3f4a5b";
 
 	@TestBean
 	Clock clock;
@@ -261,6 +264,82 @@ class BookingControllerTest {
 
 		assertThat(bookingCount(full)).isEqualTo(1);
 		assertThat(bookingCount(departed)).isZero();
+	}
+
+	@Test
+	void 신청_키를_보내면_신청과_함께_저장하고_같은_신청_키로_다시_보내면_201과_첫_신청의_결과를_돌려준다() throws Exception {
+		long me = member("me");
+		long tourId = register(Theme.GOLF);
+		long hotel = optionId(tourId, "5등급 호텔");
+		long champagne = optionId(tourId, "샴페인");
+
+		mockMvc.perform(apply(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d, %d]}""".formatted(tourId, hotel, champagne))
+				.header(IDEMPOTENCY_KEY, KEY))
+			.andExpect(status().isCreated());
+		Map<String, Object> saved = jdbcTemplate.queryForMap("select id, idempotency_key from booking where tour_id = ?",
+				tourId);
+		assertThat(saved.get("idempotency_key")).isEqualTo(KEY);
+
+		// 옵션은 순서만 다르면 같은 내용이다
+		mockMvc.perform(apply(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d, %d]}""".formatted(tourId, champagne, hotel))
+				.header(IDEMPOTENCY_KEY, KEY))
+			.andExpect(status().isCreated())
+			.andExpect(content().json("""
+					{"bookingId": %d, "status": "RECRUITING"}""".formatted((Long) saved.get("id")), JsonCompareMode.STRICT));
+		// UUID는 대소문자를 가리지 않으므로 대문자로 보내도 같은 신청 키다
+		mockMvc.perform(apply(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d, %d]}""".formatted(tourId, hotel, champagne))
+				.header(IDEMPOTENCY_KEY, KEY.toUpperCase(Locale.ROOT)))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.bookingId").value(saved.get("id")));
+		// 같은 옵션을 두 번 보내면 다른 내용이다(신청 키 없이 보냈으면 거부되는 요청)
+		mockMvc.perform(apply(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d, %d, %d]}""".formatted(tourId, hotel,
+				champagne, hotel)).header(IDEMPOTENCY_KEY, KEY))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().json("{\"message\": \"같은 신청 키로 다른 내용을 신청할 수 없습니다.\"}", JsonCompareMode.STRICT));
+
+		assertThat(bookingCount(tourId)).isEqualTo(1);
+		assertThat(appliedCount(tourId)).isEqualTo(2);
+	}
+
+	@Test
+	void 같은_신청_키로_다른_내용을_보내면_신청하지_않고_400() throws Exception {
+		long me = member("me");
+		long tourId = register(Theme.GOLF);
+		mockMvc.perform(apply(me, request(tourId, 2)).header(IDEMPOTENCY_KEY, KEY))
+			.andExpect(status().isCreated());
+
+		mockMvc.perform(apply(me, request(tourId, 3)).header(IDEMPOTENCY_KEY, KEY))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().json("{\"message\": \"같은 신청 키로 다른 내용을 신청할 수 없습니다.\"}", JsonCompareMode.STRICT));
+
+		assertThat(bookingCount(tourId)).isEqualTo(1);
+		assertThat(appliedCount(tourId)).isEqualTo(2);
+	}
+
+	@Test
+	void 신청_키_형식이_틀리면_신청하지_않고_400() throws Exception {
+		long me = member("me");
+		long tourId = register(Theme.GOLF);
+		List<String> malformed = List.of("", "abc", "3f2b8c1e7a4d4e5f9b6a0c1d2e3f4a5b", "{3f2b8c1e-7a4d-4e5f-9b6a-0c1d2e3f4a5b}",
+				"3f2b8c1e-7a4d-4e5f-9b6a-0c1d2e3f4a5g", KEY + "0");
+
+		for (String key : malformed) {
+			mockMvc.perform(apply(me, request(tourId, 2)).header(IDEMPOTENCY_KEY, key))
+				.andExpect(status().isBadRequest())
+				.andExpect(content().json("{\"message\": \"신청 키 형식이 올바르지 않습니다.\"}", JsonCompareMode.STRICT));
+		}
+		// 신청 키를 검사해도 본문 검증 문구는 그대로다
+		mockMvc.perform(apply(me, """
+				{"tourId": %d, "headcount": 2}""".formatted(tourId)).header(IDEMPOTENCY_KEY, KEY))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().json("{\"message\": \"투어 등급을 골라 주세요.\"}", JsonCompareMode.STRICT));
+
+		assertThat(bookingCount(tourId)).isZero();
+		assertThat(appliedCount(tourId)).isZero();
 	}
 
 	@Test

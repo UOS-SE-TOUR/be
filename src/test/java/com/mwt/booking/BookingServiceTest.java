@@ -10,8 +10,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -19,6 +21,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.AfterEach;
@@ -47,8 +50,8 @@ import com.mwt.tour.TourService;
 import com.mwt.tour.TourStatus;
 
 /**
- * 신청(BookingService.applyTour)의 트랜잭션 동작을 MySQL(Testcontainers)에서 스레드 여럿으로 본다(설계산출물 5.4.1).
- * 되돌려진 신청, 인원을 더할 때 정원을 넘은 신청, 같은 상품의 동시 신청, 확정 문자 받을 사람.
+ * 신청(BookingService.applyTour)의 트랜잭션 동작을 MySQL(Testcontainers)에서 스레드 여럿으로 본다(설계산출물 4.5·5.4.1).
+ * 되돌려진 신청, 인원을 더할 때 정원을 넘은 신청, 같은 상품의 동시 신청, 확정 문자 받을 사람, 신청 키로 다시 보낸 신청과 동시에 온 신청.
  * "오늘"은 2026-11-10(서울)로 고정하고, 문자는 보내지 않고 RecordingSmsSender에 기록한다.
  * 트랜잭션마다 커밋하므로 테스트가 끝나면 행을 지운다. Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
@@ -56,6 +59,8 @@ import com.mwt.tour.TourStatus;
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 class BookingServiceTest {
+
+	private static final String KEY = "3f2b8c1e-7a4d-4e5f-9b6a-0c1d2e3f4a5b";
 
 	@TestBean
 	Clock clock;
@@ -97,11 +102,11 @@ class BookingServiceTest {
 	@Test
 	void 신청이_되돌려지면_인원도_신청도_남지_않고_문자를_보내지_않는다() {
 		long tourId = register(10);
-		bookingService.applyTour(member("first", "01011112222"), request(tourId, 2));
+		bookingService.applyTour(member("first", "01011112222"), request(tourId, 2), null);
 		long second = member("second", "01033334444");
 
 		transactionTemplate.executeWithoutResult(status -> {
-			assertThat(bookingService.applyTour(second, request(tourId, 1)).status()).isEqualTo(TourStatus.CONFIRMED);
+			assertThat(bookingService.applyTour(second, request(tourId, 1), null).status()).isEqualTo(TourStatus.CONFIRMED);
 			status.setRollbackOnly();
 		});
 
@@ -118,8 +123,8 @@ class BookingServiceTest {
 
 		assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
 			assertThat(tourService.getTour(tourId).remainingSeats()).isEqualTo(10);   // 이 트랜잭션이 상품을 먼저 읽어 둔다
-			runInOtherThread(() -> bookingService.applyTour(other, request(tourId, 9)));
-			bookingService.applyTour(me, request(tourId, 2));
+			runInOtherThread(() -> bookingService.applyTour(other, request(tourId, 9), null));
+			bookingService.applyTour(me, request(tourId, 2), null);
 		})).isInstanceOfSatisfying(BusinessException.class, e -> {
 			assertThat(e.getMessage()).isEqualTo("남은 자리보다 인원이 많습니다.");
 			assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -137,7 +142,7 @@ class BookingServiceTest {
 			members.add(member("member" + i, "0101000000" + i));
 		}
 
-		List<Object> results = runConcurrently(members, memberId -> bookingService.applyTour(memberId, request(tourId, 1)));
+		List<Object> results = runConcurrently(members, memberId -> bookingService.applyTour(memberId, request(tourId, 1), null));
 
 		assertThat(results).filteredOn(ApplyTourResponse.class::isInstance).hasSize(5);
 		assertThat(results).filteredOn(BusinessException.class::isInstance)
@@ -161,7 +166,7 @@ class BookingServiceTest {
 	@Test
 	void 상품_잠금을_기다리는_사이_커밋된_신청자도_확정_문자를_받는다() throws Exception {
 		long tourId = register(10);
-		bookingService.applyTour(member("first", "01011112222"), request(tourId, 1));
+		bookingService.applyTour(member("first", "01011112222"), request(tourId, 1), null);
 		long second = member("second", "01033334444");
 		long third = member("third", "01055556666");
 		CountDownLatch added = new CountDownLatch(1);
@@ -169,13 +174,13 @@ class BookingServiceTest {
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
 			Future<?> secondApply = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
-				bookingService.applyTour(second, request(tourId, 1));   // 상품을 잠근 채 커밋을 미룬다
+				bookingService.applyTour(second, request(tourId, 1), null);   // 상품을 잠근 채 커밋을 미룬다
 				added.countDown();
 				await(commit);
 			}));
 			assertThat(added.await(30, TimeUnit.SECONDS)).isTrue();
 
-			Future<ApplyTourResponse> thirdApply = executor.submit(() -> bookingService.applyTour(third, request(tourId, 1)));
+			Future<ApplyTourResponse> thirdApply = executor.submit(() -> bookingService.applyTour(third, request(tourId, 1), null));
 			Thread.sleep(500);
 			assertThat(thirdApply.isDone()).as("셋째 신청은 상품을 읽은 뒤 둘째의 잠금을 기다린다").isFalse();
 
@@ -189,6 +194,211 @@ class BookingServiceTest {
 
 		assertThat(recorder().sent()).extracting(Sent::phoneNumbers)
 			.containsExactly(List.of("01011112222", "01033334444", "01055556666"));
+	}
+
+	@Test
+	void 같은_신청_키로_같은_내용을_다시_보내면_첫_신청의_결과를_돌려주고_인원과_문자는_한_번만() {
+		long tourId = register(10);
+		long me = member("me", "01011112222");
+
+		ApplyTourResponse first = bookingService.applyTour(me, request(tourId, 3), KEY);
+		ApplyTourResponse again = bookingService.applyTour(me, request(tourId, 3), KEY);
+
+		assertThat(first.status()).isEqualTo(TourStatus.CONFIRMED);
+		assertThat(again).isEqualTo(first);
+		assertThat(bookingCount(tourId)).isEqualTo(1);
+		assertThat(appliedCount(tourId)).isEqualTo(3);
+		assertThat(recorder().sent()).extracting(Sent::phoneNumbers).containsExactly(List.of("01011112222"));
+		assertThat(jdbcTemplate.queryForObject("select idempotency_key from booking where id = ?", String.class,
+				first.bookingId())).isEqualTo(KEY);
+	}
+
+	@Test
+	void 같은_신청_키로_다른_내용을_보내면_400이고_아무것도_바뀌지_않는다() {
+		long tourId = register(10);
+		long otherTour = register(10);
+		long me = member("me", "01011112222");
+		bookingService.applyTour(me, request(tourId, 2), KEY);
+
+		List<QuoteRequest> differentRequests = List.of(request(otherTour, 2), request(tourId, 1),
+				new QuoteRequest(tourId, TourLevel.PREMIUM, 2, List.of()),
+				new QuoteRequest(tourId, TourLevel.GRAND, 2, List.of(optionId(tourId, "비행기 이코노미석"))));
+		for (QuoteRequest different : differentRequests) {
+			assertThatThrownBy(() -> bookingService.applyTour(me, different, KEY))
+				.isInstanceOfSatisfying(BusinessException.class, e -> {
+					assertThat(e.getMessage()).isEqualTo("같은 신청 키로 다른 내용을 신청할 수 없습니다.");
+					assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+				});
+		}
+
+		assertThat(bookingCount(tourId)).isEqualTo(1);
+		assertThat(appliedCount(tourId)).isEqualTo(2);
+		assertThat(bookingCount(otherTour)).isZero();
+		assertThat(appliedCount(otherTour)).isZero();
+	}
+
+	@Test
+	void 다른_회원이_같은_신청_키를_쓰면_각자_신청된다() {
+		long tourId = register(10);
+
+		ApplyTourResponse mine = bookingService.applyTour(member("me", "01011112222"), request(tourId, 1), KEY);
+		ApplyTourResponse others = bookingService.applyTour(member("other", "01033334444"), request(tourId, 1), KEY);
+
+		assertThat(others.bookingId()).isNotEqualTo(mine.bookingId());
+		assertThat(bookingCount(tourId)).isEqualTo(2);
+		assertThat(appliedCount(tourId)).isEqualTo(2);
+	}
+
+	@Test
+	void 첫_신청_뒤_상품이_마감되거나_끝났어도_같은_신청_키면_첫_신청의_ID와_상품의_지금_상태를_돌려준다() {
+		long tourId = register(3);
+		long me = member("me", "01011112222");
+		long bookingId = bookingService.applyTour(me, request(tourId, 3), KEY).bookingId();
+		recorder().clear();
+
+		assertThat(bookingService.applyTour(me, request(tourId, 3), KEY))
+			.isEqualTo(new ApplyTourResponse(bookingId, TourStatus.FULL));
+		assertThatThrownBy(() -> bookingService.applyTour(me, request(tourId, 3), null))
+			.isInstanceOfSatisfying(BusinessException.class,
+					e -> assertThat(e.getStatus()).as("신청 키가 없으면 지금처럼 409").isEqualTo(HttpStatus.CONFLICT));
+
+		jdbcTemplate.update("update tour set departure_date = '2026-11-01', status = 'COMPLETED' where id = ?", tourId);
+		assertThat(bookingService.applyTour(me, request(tourId, 3), KEY))
+			.isEqualTo(new ApplyTourResponse(bookingId, TourStatus.COMPLETED));
+
+		assertThat(bookingCount(tourId)).isEqualTo(1);
+		assertThat(appliedCount(tourId)).isEqualTo(3);
+		assertThat(recorder().sent()).isEmpty();
+	}
+
+	@Test
+	void 신청_키_없이_두_번_보내면_지금처럼_둘_다_신청된다() {
+		long tourId = register(10);
+		long me = member("me", "01011112222");
+
+		ApplyTourResponse first = bookingService.applyTour(me, request(tourId, 1), null);
+		ApplyTourResponse second = bookingService.applyTour(me, request(tourId, 1), null);
+
+		assertThat(second.bookingId()).isNotEqualTo(first.bookingId());
+		assertThat(bookingCount(tourId)).isEqualTo(2);
+		assertThat(appliedCount(tourId)).isEqualTo(2);
+	}
+
+	@Test
+	void 같은_신청_키로_한꺼번에_보내도_신청은_하나이고_모두_첫_신청의_결과를_받는다() throws Exception {
+		long tourId = register(10);
+		long me = member("me", "01011112222");
+
+		List<Object> results = runConcurrently(Collections.nCopies(5, me),
+				memberId -> bookingService.applyTour(memberId, request(tourId, 3), KEY));
+
+		long bookingId = jdbcTemplate.queryForObject("select id from booking where tour_id = ?", Long.class, tourId);
+		assertThat(results).hasSize(5).containsOnly(new ApplyTourResponse(bookingId, TourStatus.CONFIRMED));
+		assertThat(appliedCount(tourId)).isEqualTo(3);
+		assertThat(recorder().sent()).extracting(Sent::phoneNumbers).containsExactly(List.of("01011112222"));
+	}
+
+	/**
+	 * 같은 신청 키의 첫 신청이 커밋되기 전에 온 신청은 찾는 신청이 없어 신청하러 들어가 상품 잠금을 기다린다.
+	 * 첫 신청이 커밋된 뒤에는 인원을 더하고 저장하다 (회원, 신청 키) 유일 제약에 걸려 통째로 되돌려지고, 첫 신청의 결과를 받는다.
+	 */
+	@Test
+	void 같은_신청_키로_동시에_오면_늦은_신청은_유일_제약에_걸려_되돌려지고_첫_신청의_결과를_받는다() throws Exception {
+		long tourId = register(10);
+		bookingService.applyTour(member("other", "01033334444"), request(tourId, 1), null);
+		long me = member("me", "01011112222");
+
+		Held held = applyWhileFirstHeld(me, tourId, 1, () -> bookingService.applyTour(me, request(tourId, 1), KEY));
+
+		// 늦은 신청이 더한 인원(3명째, 새로 확정)은 되돌려져 상품은 모집 중 그대로이고 문자도 나가지 않는다
+		assertThat(held.late()).isEqualTo(new ApplyTourResponse(held.firstBookingId(), TourStatus.RECRUITING));
+		assertThat(bookingCount(tourId)).isEqualTo(2);
+		assertThat(appliedCount(tourId)).isEqualTo(2);
+		assertThat(recorder().sent()).isEmpty();
+	}
+
+	/** 첫 신청이 마지막 남은 자리를 채우면 늦은 신청은 유일 제약까지 가지 않고 인원을 더할 때 409로 거부되지만, 첫 신청의 결과를 받는다. */
+	@Test
+	void 마지막_남은_자리를_채우는_첫_신청과_같은_신청_키로_동시에_보내면_409가_아니라_첫_신청의_결과를_받는다() throws Exception {
+		long tourId = register(10);
+		bookingService.applyTour(member("other", "01033334444"), request(tourId, 8), null);
+		long me = member("me", "01011112222");
+		recorder().clear();
+
+		Held held = applyWhileFirstHeld(me, tourId, 2, () -> bookingService.applyTour(me, request(tourId, 2), KEY));
+
+		assertThat(held.late()).isEqualTo(new ApplyTourResponse(held.firstBookingId(), TourStatus.FULL));
+		assertThat(bookingCount(tourId)).isEqualTo(2);
+		assertThat(appliedCount(tourId)).isEqualTo(10);
+		assertThat(recorder().sent()).isEmpty();
+	}
+
+	@Test
+	void 신청_키가_있는_신청은_트랜잭션_안에서_부를_수_없다() {
+		long tourId = register(10);
+		long me = member("me", "01011112222");
+
+		assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(
+				status -> bookingService.applyTour(me, request(tourId, 1), KEY)))
+			.isInstanceOf(IllegalStateException.class);
+
+		assertThat(bookingCount(tourId)).isZero();
+	}
+
+	/**
+	 * 같은 신청 키의 첫 신청을 흉내 내 다른 트랜잭션에서 상품을 잠가 인원을 더하고 그 신청 키로 신청 행을 넣은 채, late가 상품 잠금을
+	 * 기다리는 것을 확인한 뒤에 커밋한다. 신청 키가 있는 applyTour는 트랜잭션 밖에서만 불러 커밋을 미룰 수 없어서 이렇게 흉내 낸다.
+	 */
+	private Held applyWhileFirstHeld(long memberId, long tourId, int headcount, Callable<ApplyTourResponse> late)
+			throws Exception {
+		CountDownLatch added = new CountDownLatch(1);
+		CountDownLatch commit = new CountDownLatch(1);
+		AtomicLong firstBookingId = new AtomicLong();
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> first = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+				tourService.addApplicants(tourId, headcount);
+				firstBookingId.set(insertBooking(memberId, tourId, headcount, KEY));
+				added.countDown();
+				await(commit);
+			}));
+			assertThat(added.await(30, TimeUnit.SECONDS)).isTrue();
+
+			Future<ApplyTourResponse> lateApply = executor.submit(late);
+			Thread.sleep(500);
+			assertThat(lateApply.isDone()).as("늦은 신청은 첫 신청의 상품 잠금을 기다린다").isFalse();
+
+			commit.countDown();
+			first.get(30, TimeUnit.SECONDS);
+			return new Held(firstBookingId.get(), lateApply.get(30, TimeUnit.SECONDS));
+		} finally {
+			commit.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	private record Held(long firstBookingId, ApplyTourResponse late) {
+	}
+
+	/** 그랜드, 옵션 없음, 가격 0원으로 신청 행을 직접 넣는다. 부르는 쪽의 트랜잭션에 함께 든다. */
+	private long insertBooking(long memberId, long tourId, int headcount, String idempotencyKey) {
+		KeyHolder keyHolder = new GeneratedKeyHolder();
+		jdbcTemplate.update(connection -> {
+			PreparedStatement statement = connection.prepareStatement("""
+					insert into booking (member_id, tour_id, level, headcount, total_price, discount, applied_at, idempotency_key)
+					values (?, ?, 'GRAND', ?, 0, 0, '2026-11-10 00:00:00', ?)""", Statement.RETURN_GENERATED_KEYS);
+			statement.setLong(1, memberId);
+			statement.setLong(2, tourId);
+			statement.setInt(3, headcount);
+			statement.setString(4, idempotencyKey);
+			return statement;
+		}, keyHolder);
+		return keyHolder.getKey().longValue();
+	}
+
+	private long optionId(long tourId, String name) {
+		return jdbcTemplate.queryForObject("select id from tour_option where tour_id = ? and name = ?", Long.class, tourId,
+				name);
 	}
 
 	private RecordingSmsSender recorder() {

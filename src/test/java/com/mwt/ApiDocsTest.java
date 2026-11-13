@@ -93,7 +93,11 @@ class ApiDocsTest {
 			.andExpect(jsonPath("$.paths['/api/v1/bookings/quote'].post.requestBody").exists())
 			.andExpect(jsonPath("$.paths['/api/v1/bookings/quote'].post.parameters").doesNotExist())
 			.andExpect(jsonPath("$.paths['/api/v1/bookings'].post.requestBody").exists())
-			.andExpect(jsonPath("$.paths['/api/v1/bookings'].post.parameters").doesNotExist());
+			// 신청의 요청 값은 신청 키 헤더 하나뿐이다
+			.andExpect(jsonPath("$.paths['/api/v1/bookings'].post.parameters.length()").value(1))
+			.andExpect(jsonPath("$.paths['/api/v1/bookings'].post.parameters[0].name").value("Idempotency-Key"))
+			.andExpect(jsonPath("$.paths['/api/v1/bookings'].post.parameters[0].in").value("header"))
+			.andExpect(jsonPath("$.paths['/api/v1/bookings'].post.parameters[0].required").value(false));
 	}
 
 	/**
