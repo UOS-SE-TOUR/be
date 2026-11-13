@@ -287,6 +287,12 @@ class BookingControllerTest {
 			.andExpect(status().isCreated())
 			.andExpect(content().json("""
 					{"bookingId": %d, "status": "RECRUITING"}""".formatted((Long) saved.get("id")), JsonCompareMode.STRICT));
+		// 같은 옵션을 두 번 보내면 다른 내용이다(신청 키 없이 보냈으면 거부되는 요청)
+		mockMvc.perform(apply(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d, %d, %d]}""".formatted(tourId, hotel,
+				champagne, hotel)).header(IDEMPOTENCY_KEY, KEY))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().json("{\"message\": \"같은 신청 키로 다른 내용을 신청할 수 없습니다.\"}", JsonCompareMode.STRICT));
 
 		assertThat(bookingCount(tourId)).isEqualTo(1);
 		assertThat(appliedCount(tourId)).isEqualTo(2);

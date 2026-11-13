@@ -3,6 +3,7 @@ package com.mwt.booking;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -39,7 +40,11 @@ interface BookingRepository extends JpaRepository<Booking, Long> {
 			order by b.id""")
 	List<Booking> findByTourId(@Param("tourId") Long tourId);
 
-	/** 회원과 신청 키로 신청을 찾는다. 같은 회원의 신청 키는 겹치지 않으므로 많아야 하나다. */
+	/**
+	 * 회원과 신청 키로 신청을 찾는다. 같은 회원의 신청 키는 겹치지 않으므로 많아야 하나다.
+	 * 찾은 신청의 고른 내용을 요청과 견주고 상품 상태를 돌려주므로(BookingService.applyTour) 상품과 옵션을 함께 가져온다.
+	 */
+	@EntityGraph(attributePaths = {"tour", "options"})
 	Optional<Booking> findByMemberIdAndIdempotencyKey(Long memberId, String idempotencyKey);
 
 }

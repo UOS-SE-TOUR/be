@@ -26,9 +26,12 @@ import com.mwt.tour.TourOption;
 import com.mwt.tour.TourService;
 import com.mwt.tour.TourSummary;
 
+import lombok.extern.slf4j.Slf4j;
+
 /**
  * 가격 계산, 신청, 이전 여행 흐름을 처리하는 booking 모듈의 Service다(설계산출물 4.5).
  */
+@Slf4j
 @Service
 public class BookingService {
 
@@ -104,7 +107,19 @@ public class BookingService {
 		try {
 			return applyTransaction.execute(status -> apply(memberId, request, idempotencyKey));
 		} catch (RuntimeException e) {
-			return earlierResult(memberId, request, idempotencyKey).orElseThrow(() -> e);
+			Optional<ApplyTourResponse> saved;
+			try {
+				saved = earlierResult(memberId, request, idempotencyKey);
+			} catch (RuntimeException lookupFailure) {
+				lookupFailure.addSuppressed(e);
+				throw lookupFailure;
+			}
+			if (saved.isEmpty()) {
+				throw e;
+			}
+			log.info("같은 신청 키의 신청이 먼저 저장되어 이 신청을 되돌리고 그 결과를 돌려준다: 회원 {}, 신청 {}, 되돌린 까닭 {}", memberId,
+					saved.get().bookingId(), e.toString());
+			return saved.get();
 		}
 	}
 
@@ -123,14 +138,19 @@ public class BookingService {
 			}));
 	}
 
-	/** 신청과 요청의 내용(상품, 투어 등급, 인원, 옵션)이 같은지 본다. 옵션은 순서와 상관없이 본다. */
+	/**
+	 * 신청과 요청의 내용(상품, 투어 등급, 인원, 옵션)이 같은지 본다. 옵션은 순서와 상관없이 보되, 같은 옵션을 두 번 보낸 요청은
+	 * 다른 내용으로 본다(처음 신청이었으면 Tour.checkApplicable이 거부했을 요청이다).
+	 */
 	private static boolean sameChoice(Booking booking, QuoteRequest request) {
-		Set<Long> optionIds = booking.getOptions().stream()
+		Set<Long> savedOptionIds = booking.getOptions().stream()
 			.map(TourOption::getId)
 			.collect(Collectors.toSet());
+		List<Long> requestedOptionIds = request.optionIdsOrEmpty();
 		return booking.getTour().getId().equals(request.tourId()) && booking.getLevel() == request.level()
 				&& Objects.equals(booking.getHeadcount(), request.headcount())
-				&& optionIds.equals(new HashSet<>(request.optionIdsOrEmpty()));
+				&& requestedOptionIds.size() == savedOptionIds.size()
+				&& savedOptionIds.equals(new HashSet<>(requestedOptionIds));
 	}
 
 	/**
