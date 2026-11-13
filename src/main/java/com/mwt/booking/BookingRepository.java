@@ -1,6 +1,7 @@
 package com.mwt.booking;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -37,5 +38,8 @@ interface BookingRepository extends JpaRepository<Booking, Long> {
 			where b.tour.id = :tourId
 			order by b.id""")
 	List<Booking> findByTourId(@Param("tourId") Long tourId);
+
+	/** 회원과 신청 키로 신청을 찾는다. 같은 회원의 신청 키는 겹치지 않으므로 많아야 하나다. */
+	Optional<Booking> findByMemberIdAndIdempotencyKey(Long memberId, String idempotencyKey);
 
 }

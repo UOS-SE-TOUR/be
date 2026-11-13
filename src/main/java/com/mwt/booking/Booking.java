@@ -66,9 +66,13 @@ public class Booking {
 	@Column(nullable = false)
 	private Instant appliedAt;
 
+	/** 신청 키. 신청 키 없이 한 신청은 null이다. 같은 회원의 신청 키는 겹치지 않는다(V5 유일 제약). */
+	@Column(length = 36)
+	private String idempotencyKey;
+
 	/** 신청(BookingService.applyTour)에서만 만든다. 고른 내용과 가격은 Tour.checkApplicable과 PriceCalculator를 거친 값이다. */
 	Booking(Member member, Tour tour, TourLevel level, int headcount, Collection<TourOption> options, long totalPrice,
-			long discount, Instant appliedAt) {
+			long discount, Instant appliedAt, String idempotencyKey) {
 		this.member = member;
 		this.tour = tour;
 		this.level = level;
@@ -77,6 +81,7 @@ public class Booking {
 		this.totalPrice = totalPrice;
 		this.discount = discount;
 		this.appliedAt = appliedAt;
+		this.idempotencyKey = idempotencyKey;
 	}
 
 	public long finalPrice() {
