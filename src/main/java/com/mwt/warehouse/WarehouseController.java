@@ -27,8 +27,6 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class WarehouseController {
 
-	private static final String ITEM_NOT_FOUND = "창고 물품이 없음";
-
 	private final WarehouseService warehouseService;
 
 	@Operation(summary = "창고 물품 목록 (직원)")
@@ -57,7 +55,7 @@ public class WarehouseController {
 	@ApiResponse(responseCode = "400", description = "입력 오류(1개보다 적은 수량, 창고에 둘 수 있는 수량을 넘김, 물품 ID 형식이 올바르지 않음 등)")
 	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
 	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_STAFF)
-	@ApiResponse(responseCode = "404", description = ITEM_NOT_FOUND)
+	@ApiResponse(responseCode = "404", description = ApiDescriptions.ITEM_NOT_FOUND)
 	@PostMapping("/{itemId}/quantity")
 	public ItemResponse addQuantity(@PathVariable Long itemId, @Valid @RequestBody AddQuantityRequest request) {
 		return ItemResponse.from(warehouseService.addQuantity(itemId, request.quantity()));
@@ -69,7 +67,7 @@ public class WarehouseController {
 	@ApiResponse(responseCode = "400", description = "입력 오류(1인당 개수가 0~" + Item.PER_PERSON_MAX + "개 밖, 물품 ID 형식이 올바르지 않음 등)")
 	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
 	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_STAFF)
-	@ApiResponse(responseCode = "404", description = ITEM_NOT_FOUND)
+	@ApiResponse(responseCode = "404", description = ApiDescriptions.ITEM_NOT_FOUND)
 	@PostMapping("/{itemId}/per-person")
 	public ItemResponse changePerPerson(@PathVariable Long itemId, @Valid @RequestBody ChangePerPersonRequest request) {
 		return ItemResponse.from(warehouseService.changePerPerson(itemId, request.perPerson()));

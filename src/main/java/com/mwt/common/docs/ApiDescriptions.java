@@ -9,6 +9,7 @@ public final class ApiDescriptions {
 	public static final String NOT_CUSTOMER = "고객 계정이 아님";
 	public static final String NOT_STAFF = "직원 계정이 아님";
 	public static final String TOUR_NOT_FOUND = "여행 상품이 없음";
+	public static final String ITEM_NOT_FOUND = "창고 물품이 없음";
 
 	/** 상품 이름. 이름을 만드는 TourSummary.title()의 형식을 바꾸면 함께 고친다. */
 	public static final String TOUR_TITLE = "상품 이름(테마 이름·출발일·기간, 예: 허니문 낭만 투어 10/20 출발 5일)";
