@@ -89,6 +89,7 @@ public class WarehouseService {
 	 * 1인당 개수가 0인 물품은 그대로이고, 모자라도 줄여 수량이 음수가 된다. 그 테마 물품이 없으면 아무것도 줄지 않는다.
 	 * 그 테마 물품 행을 잠그고 줄이므로 직원이 같은 때 수량을 더해도 한쪽이 사라지지 않는다.
 	 * <p>부르는 쪽 트랜잭션 밖에서 부르면 바로 실패한다(MANDATORY) — 따로 커밋되면 신청이 되돌려져도 수량은 줄어 있어서다.
+	 * 부르는 쪽 트랜잭션은 그 전에 창고 물품을 읽어 두지 않는다. 먼저 읽어 둔 물품이면 낡은 수량에서 줄인다(ItemRepository 머리말).
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void takeOutItems(Theme theme, int headcount) {
