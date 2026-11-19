@@ -48,10 +48,13 @@ import com.mwt.tour.Theme;
 import com.mwt.tour.TourLevel;
 import com.mwt.tour.TourService;
 import com.mwt.tour.TourStatus;
+import com.mwt.warehouse.Item;
+import com.mwt.warehouse.WarehouseService;
 
 /**
  * 신청(BookingService.applyTour)의 트랜잭션 동작을 MySQL(Testcontainers)에서 스레드 여럿으로 본다(설계산출물 4.5·5.4.1).
- * 되돌려진 신청, 인원을 더할 때 정원을 넘은 신청, 같은 상품의 동시 신청, 확정 문자 받을 사람, 신청 키로 다시 보낸 신청과 동시에 온 신청.
+ * 되돌려진 신청, 인원을 더할 때 정원을 넘은 신청, 같은 상품의 동시 신청, 확정 문자 받을 사람, 신청 키로 다시 보낸 신청과 동시에 온 신청,
+ * 확정 때 창고 물품 줄이기(be #71).
  * "오늘"은 2026-11-10(서울)로 고정하고, 문자는 보내지 않고 RecordingSmsSender에 기록한다.
  * 트랜잭션마다 커밋하므로 테스트가 끝나면 행을 지운다. Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
@@ -75,6 +78,9 @@ class BookingServiceTest {
 	TourService tourService;
 
 	@Autowired
+	WarehouseService warehouseService;
+
+	@Autowired
 	TransactionTemplate transactionTemplate;
 
 	@Autowired
@@ -91,6 +97,7 @@ class BookingServiceTest {
 	@AfterEach
 	void deleteAll() {
 		recorder().clear();
+		jdbcTemplate.update("delete from item");
 		jdbcTemplate.update("delete from booking_option");
 		jdbcTemplate.update("delete from booking");
 		jdbcTemplate.update("delete from tour_price");
@@ -345,6 +352,117 @@ class BookingServiceTest {
 		assertThat(bookingCount(tourId)).isZero();
 	}
 
+	@Test
+	void 확정되면_그_테마_창고_물품을_처음엔_신청_인원_합계_그다음엔_이번_인원만큼_줄인다() {
+		long tourId = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		long ball = item("골프공", Theme.GOLF, 2, 100);
+		long water = item("생수", Theme.GOLF, 0, 100);
+		long scarf = item("스카프", Theme.TREKKING, 1, 100);
+
+		bookingService.applyTour(member("first", "01011112222"), request(tourId, 2), null);
+		assertThat(quantities(cap, ball, water, scarf)).as("모집 중이면 줄이지 않는다").containsExactly(100, 100, 100, 100);
+
+		bookingService.applyTour(member("second", "01033334444"), request(tourId, 1), null);
+		assertThat(quantities(cap, ball, water, scarf)).as("처음 확정: 합계 3명").containsExactly(97, 94, 100, 100);
+
+		bookingService.applyTour(member("third", "01055556666"), request(tourId, 2), null);
+		assertThat(quantities(cap, ball, water, scarf)).as("이미 확정: 이번 2명").containsExactly(95, 90, 100, 100);
+	}
+
+	@Test
+	void 처음_확정되면서_정원이_차_바로_마감돼도_신청_인원_합계만큼_줄인다() {
+		long tourId = register(3);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		bookingService.applyTour(member("first", "01011112222"), request(tourId, 1), null);
+
+		assertThat(bookingService.applyTour(member("second", "01033334444"), request(tourId, 2), null).status())
+			.isEqualTo(TourStatus.FULL);
+
+		assertThat(quantities(cap)).containsExactly(97);
+	}
+
+	@Test
+	void 같은_신청_키로_다시_보낸_신청은_창고_수량을_다시_줄이지_않는다() {
+		long tourId = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		long me = member("me", "01011112222");
+
+		bookingService.applyTour(me, request(tourId, 3), KEY);
+		bookingService.applyTour(me, request(tourId, 3), KEY);
+
+		assertThat(quantities(cap)).containsExactly(97);
+	}
+
+	@Test
+	void 일인당_개수를_바꾸면_그_뒤에_줄이는_것부터_새_값을_쓰고_이미_줄인_수량은_그대로다() {
+		long tourId = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		bookingService.applyTour(member("first", "01011112222"), request(tourId, 3), null);
+		assertThat(quantities(cap)).containsExactly(97);
+
+		warehouseService.changePerPerson(cap, 3);
+		assertThat(quantities(cap)).containsExactly(97);
+		bookingService.applyTour(member("second", "01033334444"), request(tourId, 2), null);
+
+		assertThat(quantities(cap)).containsExactly(91);
+	}
+
+	@Test
+	void 창고_수량이_모자라도_신청은_받고_수량은_모자란_만큼_음수가_된다() {
+		long tourId = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 1);
+
+		ApplyTourResponse response = bookingService.applyTour(member("me", "01011112222"), request(tourId, 3), null);
+
+		assertThat(response.status()).isEqualTo(TourStatus.CONFIRMED);
+		assertThat(quantities(cap)).containsExactly(-2);
+		assertThat(bookingCount(tourId)).isEqualTo(1);
+	}
+
+	@Test
+	void 신청이_되돌려지면_줄인_창고_수량도_되돌려진다() {
+		long tourId = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		long me = member("me", "01011112222");
+
+		transactionTemplate.executeWithoutResult(status -> {
+			assertThat(bookingService.applyTour(me, request(tourId, 3), null).status()).isEqualTo(TourStatus.CONFIRMED);
+			status.setRollbackOnly();
+		});
+
+		assertThat(quantities(cap)).containsExactly(100);
+		assertThat(bookingCount(tourId)).isZero();
+	}
+
+	/**
+	 * 같은 상품에 여럿이 동시에 신청하는 사이 직원들도 그 물품에 수량을 더한다. 신청은 상품 행 다음에 물품 행을 잠그고 직원은 물품 행만
+	 * 잠가 교착하지 않고, 줄인 양(처음 확정 3명 + 이미 확정 1명씩 2번)과 더한 양이 모두 남는다.
+	 */
+	@Test
+	void 동시에_신청하고_직원이_수량을_더해도_교착_없이_줄인_양과_더한_양이_모두_남는다() throws Exception {
+		long tourId = register(5);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		List<Callable<Object>> tasks = new ArrayList<>();
+		for (int i = 0; i < 8; i++) {
+			long memberId = member("member" + i, "0101000000" + i);
+			tasks.add(() -> bookingService.applyTour(memberId, request(tourId, 1), null));
+			if (i % 2 == 0) {
+				tasks.add(() -> warehouseService.addQuantity(cap, 1));
+			}
+		}
+
+		List<Object> results = runConcurrently(tasks);
+
+		assertThat(results).filteredOn(ApplyTourResponse.class::isInstance).hasSize(5);
+		assertThat(results).filteredOn(BusinessException.class::isInstance)
+			.extracting(result -> ((BusinessException) result).getMessage())
+			.containsExactly("마감된 상품입니다.", "마감된 상품입니다.", "마감된 상품입니다.");
+		assertThat(results).filteredOn(Item.class::isInstance).as("직원의 더하기는 모두 성공").hasSize(4);
+		assertThat(results).hasSize(5 + 3 + 4);
+		assertThat(quantities(cap)).containsExactly(100 - 5 + 4);
+	}
+
 	/**
 	 * 같은 신청 키의 첫 신청을 흉내 내 다른 트랜잭션에서 상품을 잠가 인원을 더하고 그 신청 키로 신청 행을 넣은 채, late가 상품 잠금을
 	 * 기다리는 것을 확인한 뒤에 커밋한다. 신청 키가 있는 applyTour는 트랜잭션 밖에서만 불러 커밋을 미룰 수 없어서 이렇게 흉내 낸다.
@@ -431,6 +549,20 @@ class BookingServiceTest {
 		return keyHolder.getKey().longValue();
 	}
 
+	/** 창고 물품을 등록하고 ID를 돌려준다. */
+	private long item(String name, Theme theme, int perPerson, int quantity) {
+		return warehouseService.registerItem(name, theme, perPerson, quantity).getId();
+	}
+
+	/** 물품마다 지금 수량을 받은 순서대로. */
+	private List<Integer> quantities(long... itemIds) {
+		List<Integer> quantities = new ArrayList<>();
+		for (long itemId : itemIds) {
+			quantities.add(jdbcTemplate.queryForObject("select quantity from item where id = ?", Integer.class, itemId));
+		}
+		return quantities;
+	}
+
 	private int bookingCount(long tourId) {
 		return jdbcTemplate.queryForObject("select count(*) from booking where tour_id = ?", Integer.class, tourId);
 	}
@@ -442,14 +574,19 @@ class BookingServiceTest {
 	/** 회원마다 스레드 하나로 한꺼번에 시작하고, 돌려준 값이나 던진 예외를 모은다. */
 	private static List<Object> runConcurrently(List<Long> memberIds, Function<Long, Object> task)
 			throws InterruptedException {
+		return runConcurrently(memberIds.stream().<Callable<Object>>map(memberId -> () -> task.apply(memberId)).toList());
+	}
+
+	/** 일마다 스레드 하나로 한꺼번에 시작하고, 돌려준 값이나 던진 예외를 순서대로 모은다. */
+	private static List<Object> runConcurrently(List<Callable<Object>> tasks) throws InterruptedException {
 		CountDownLatch start = new CountDownLatch(1);
-		ExecutorService executor = Executors.newFixedThreadPool(memberIds.size());
+		ExecutorService executor = Executors.newFixedThreadPool(tasks.size());
 		try {
 			List<Future<Object>> futures = new ArrayList<>();
-			for (Long memberId : memberIds) {
+			for (Callable<Object> task : tasks) {
 				futures.add(executor.submit(() -> {
 					start.await();
-					return task.apply(memberId);
+					return task.call();
 				}));
 			}
 			start.countDown();

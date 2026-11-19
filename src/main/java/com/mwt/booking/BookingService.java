@@ -25,6 +25,7 @@ import com.mwt.tour.Tour;
 import com.mwt.tour.TourOption;
 import com.mwt.tour.TourService;
 import com.mwt.tour.TourSummary;
+import com.mwt.warehouse.WarehouseService;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -43,19 +44,21 @@ public class BookingService {
 	private final SmsSender smsSender;
 	private final PriceCalculator priceCalculator;
 	private final RegularDiscountPolicy regularDiscountPolicy;
+	private final WarehouseService warehouseService;
 	private final Clock clock;
 	private final TransactionTemplate applyTransaction;
 	private final TransactionTemplate readOnlyTransaction;
 
 	public BookingService(BookingRepository bookingRepository, TourService tourService, MemberService memberService,
-			SmsSender smsSender, PriceCalculator priceCalculator, RegularDiscountPolicy regularDiscountPolicy, Clock clock,
-			PlatformTransactionManager transactionManager) {
+			SmsSender smsSender, PriceCalculator priceCalculator, RegularDiscountPolicy regularDiscountPolicy,
+			WarehouseService warehouseService, Clock clock, PlatformTransactionManager transactionManager) {
 		this.bookingRepository = bookingRepository;
 		this.tourService = tourService;
 		this.memberService = memberService;
 		this.smsSender = smsSender;
 		this.priceCalculator = priceCalculator;
 		this.regularDiscountPolicy = regularDiscountPolicy;
+		this.warehouseService = warehouseService;
 		this.clock = clock;
 		this.applyTransaction = new TransactionTemplate(transactionManager);
 		this.readOnlyTransaction = new TransactionTemplate(transactionManager);
@@ -164,7 +167,7 @@ public class BookingService {
 	/**
 	 * 신청하는 부분(applyTour가 트랜잭션으로 묶는다). quote와 같은 확인과 계산을 한 번 더 하고, 신청 인원을 더한 뒤 신청을 저장한다.
 	 * 신청 인원을 더하기 전에 저장하면 같은 상품의 동시 신청이 교착한다(TourService.addApplicants). 정원을 넘어 거부되면 저장하지 않는다.
-	 * 상품이 확정 상태면 신청이 커밋된 뒤 확정 문자를 보낸다.
+	 * 상품이 확정 상태면 같은 트랜잭션에서 그 테마 창고 물품을 줄이고, 신청이 커밋된 뒤 확정 문자를 보낸다.
 	 */
 	private ApplyTourResponse apply(Long memberId, QuoteRequest request, String idempotencyKey) {
 		Tour tour = tourService.getTour(request.tourId());
@@ -181,10 +184,27 @@ public class BookingService {
 				.toList();
 			case ALREADY_CONFIRMED -> List.of(member.getPhone());
 		};
+		takeOutItems(tour, change, request.headcount());
 		if (!recipients.isEmpty()) {
 			sendAfterCommit(recipients, confirmMessage(tour));
 		}
 		return new ApplyTourResponse(booking.getId(), tour.getStatus());
+	}
+
+	/**
+	 * 상품이 확정되면 그 테마 창고 물품을 줄인다. 이번 신청으로 처음 확정됐으면 신청 인원 합계(이번 신청 포함)만큼, 이미 확정된
+	 * 상품이면 이번 인원만큼이다. tour는 addApplicants가 잠그고 다시 읽어 인원을 더한 객체라 신청 인원 합계가 최신이다.
+	 * 상품 행을 잠근 뒤에 창고 물품 행을 잠그고, 창고 쪽 요청은 상품 행을 잠그지 않으므로 서로 기다리다 교착하지 않는다.
+	 */
+	private void takeOutItems(Tour tour, ConfirmChange change, int headcount) {
+		int takeOutHeadcount = switch (change) {
+			case NOT_CONFIRMED -> 0;
+			case NEWLY_CONFIRMED -> tour.getAppliedCount();
+			case ALREADY_CONFIRMED -> headcount;
+		};
+		if (takeOutHeadcount > 0) {
+			warehouseService.takeOutItems(tour.getTheme(), takeOutHeadcount);
+		}
 	}
 
 	/** 확정 문자. 상품 이름에 출발일이 들어 있다(예: "골프 챌린지 투어 12/1 출발 5일"). */

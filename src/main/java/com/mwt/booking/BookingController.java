@@ -75,9 +75,10 @@ public class BookingController {
 
 	@Operation(summary = "신청 (고객)",
 			description = "가격 계산과 같은 내용을 보내 신청한다. 이 신청으로 상품이 확정(신청 인원 3명 이상)되면 신청자 모두에게, 이미 확정된 상품이면 이 신청자에게 확정 문자를 보낸다. "
-					+ "요청 헤더 Idempotency-Key로 신청 키를 보내면, 같은 회원이 같은 신청 키로 다시 보낸 신청은 새로 신청하지 않고(인원을 더하지 않고 문자도 보내지 않는다) 첫 신청의 결과를 돌려준다.")
+					+ "상품이 확정되면 그 테마 창고 물품의 수량을 '인원 × 1인당 개수'만큼 줄인다 — 처음 확정되면 신청 인원 합계, 이미 확정된 상품이면 이번 인원이다. 수량이 모자라도 신청은 받는다. "
+					+ "요청 헤더 Idempotency-Key로 신청 키를 보내면, 같은 회원이 같은 신청 키로 다시 보낸 신청은 새로 신청하지 않고(인원을 더하지 않고 문자도 보내지 않으며 창고 수량도 줄이지 않는다) 첫 신청의 결과를 돌려준다.")
 	@ApiResponse(responseCode = "201", description = "신청 ID와 신청 뒤 상품 상태. 같은 신청 키로 다시 보냈으면 첫 신청의 ID와 상품의 지금 상태")
-	@ApiResponse(responseCode = "400", description = "입력 오류, 고른 내용이 맞지 않음(가격 계산과 같다), 신청 키 형식이 틀림, 같은 신청 키로 다른 내용(상품, 투어 등급, 인원, 옵션)을 보냄")
+	@ApiResponse(responseCode = "400", description = "입력 오류, 고른 내용이 맞지 않음(가격 계산과 같다), 신청 키 형식이 틀림, 같은 신청 키로 다른 내용(상품, 투어 등급, 인원, 옵션)을 보냄, 줄인 창고 수량이 정수 범위를 벗어남(정원에 상한이 없어 이론으로만 가능)")
 	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
 	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_CUSTOMER)
 	@ApiResponse(responseCode = "404", description = ApiDescriptions.TOUR_NOT_FOUND)
