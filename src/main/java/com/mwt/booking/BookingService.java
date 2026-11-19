@@ -189,11 +189,13 @@ public class BookingService {
 	 * 상품 행을 잠근 뒤에 창고 물품 행을 잠그고, 창고 쪽 요청은 상품 행을 잠그지 않으므로 서로 기다리다 교착하지 않는다.
 	 */
 	private void takeOutItems(Tour tour, ConfirmChange change, int headcount) {
-		switch (change) {
-			case NOT_CONFIRMED -> {
-			}
-			case NEWLY_CONFIRMED -> warehouseService.takeOutItems(tour.getTheme(), tour.getAppliedCount());
-			case ALREADY_CONFIRMED -> warehouseService.takeOutItems(tour.getTheme(), headcount);
+		int takeOutHeadcount = switch (change) {
+			case NOT_CONFIRMED -> 0;
+			case NEWLY_CONFIRMED -> tour.getAppliedCount();
+			case ALREADY_CONFIRMED -> headcount;
+		};
+		if (takeOutHeadcount > 0) {
+			warehouseService.takeOutItems(tour.getTheme(), takeOutHeadcount);
 		}
 	}
 

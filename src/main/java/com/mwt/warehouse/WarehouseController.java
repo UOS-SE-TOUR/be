@@ -43,7 +43,7 @@ public class WarehouseController {
 	@Operation(summary = "새 창고 물품 등록 (직원)",
 			description = "이름과 테마가 같은 물품이 이미 있으면 등록하지 않고 400이다. 있는 물품에는 수량 더하기로 더한다.")
 	@ApiResponse(responseCode = "200", description = "등록한 물품")
-	@ApiResponse(responseCode = "400", description = "입력 오류(이름 길이, 1인당 개수가 0~100개 밖, 1개보다 적은 수량 등), 이름과 테마가 같은 물품이 이미 있음")
+	@ApiResponse(responseCode = "400", description = "입력 오류(이름 길이, 1인당 개수가 0~" + Item.PER_PERSON_MAX + "개 밖, 1개보다 적은 수량 등), 이름과 테마가 같은 물품이 이미 있음")
 	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
 	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_STAFF)
 	@PostMapping
@@ -66,7 +66,7 @@ public class WarehouseController {
 	@Operation(summary = "창고 물품 1인당 개수 바꾸기 (직원)",
 			description = "이미 줄인 수량은 다시 계산하지 않고, 이 뒤에 상품이 확정되거나 확정된 상품에 신청할 때부터 새 값으로 줄인다.")
 	@ApiResponse(responseCode = "200", description = "바꾼 뒤의 물품")
-	@ApiResponse(responseCode = "400", description = "입력 오류(1인당 개수가 0~100개 밖, 물품 ID 형식이 올바르지 않음 등)")
+	@ApiResponse(responseCode = "400", description = "입력 오류(1인당 개수가 0~" + Item.PER_PERSON_MAX + "개 밖, 물품 ID 형식이 올바르지 않음 등)")
 	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
 	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_STAFF)
 	@ApiResponse(responseCode = "404", description = ITEM_NOT_FOUND)
