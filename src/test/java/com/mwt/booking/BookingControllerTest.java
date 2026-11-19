@@ -48,8 +48,9 @@ import com.mwt.tour.TourService;
 import jakarta.servlet.http.Cookie;
 
 /**
- * 가격 계산(POST /api/v1/bookings/quote), 신청(POST /api/v1/bookings), 이전 여행 조회(GET /api/v1/bookings/previous)
- * API(설계산출물 4.9 서버 API 표, 5.3·5.4·5.4.1·5.6·5.7). 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다.
+ * 가격 계산(POST /api/v1/bookings/quote), 신청(POST /api/v1/bookings), 이전 여행 조회(GET /api/v1/bookings/previous),
+ * 내 신청 목록(GET /api/v1/bookings, MWT-UC11) API(설계산출물 4.9 서버 API 표, 5.3·5.4·5.4.1·5.6·5.7).
+ * 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다.
  * "오늘"은 2026-11-10(서울)로 고정하고, 문자는 보내지 않고 RecordingSmsSender에 기록한다.
  * Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
@@ -62,6 +63,7 @@ class BookingControllerTest {
 	private static final String QUOTE = "/api/v1/bookings/quote";
 	private static final String APPLY = "/api/v1/bookings";
 	private static final String PREVIOUS = "/api/v1/bookings/previous";
+	private static final String MY_BOOKINGS = "/api/v1/bookings";
 	private static final String CONFIRMED_MESSAGE = "[미스터 월드] 신청하신 여행 상품(골프 챌린지 투어 12/1 출발 5일)이 확정되었습니다.";
 	private static final String IDEMPOTENCY_KEY = "Idempotency-Key";
 	private static final String KEY = "3f2b8c1e-7a4d-4e5f-9b6a-0c1d2e3f4a5b";
@@ -368,6 +370,51 @@ class BookingControllerTest {
 	}
 
 	@Test
+	void 내_신청은_상품_상태와_상관없이_신청한_때가_최근인_순서로_상태와_확정까지_남은_인원과_함께_돌려준다() throws Exception {
+		long me = member("me");
+		long completed = booking(me, completedTour("2026-09-01"), 3_300_000, 330_000);
+		long confirmedTour = tour("2026-12-05", "CONFIRMED", 3);
+		long confirmed = insert("""
+				insert into booking (member_id, tour_id, level, headcount, total_price, discount, applied_at)
+				values (?, ?, 'PREMIUM', 3, 7500000, 0, '2026-11-09 03:15:00')""", me, confirmedTour);
+		long golf = register(Theme.GOLF);
+		long honeymoon = register(Theme.HONEYMOON);
+		applyAndExpect(me, golf, 2, "RECRUITING");
+		applyAndExpect(me, honeymoon, 2, "RECRUITING");
+		booking(member("other"), completedTour("2026-10-01"), 3_000_000, 0);
+		long golfBooking = bookingOf(golf);
+		long honeymoonBooking = bookingOf(honeymoon);
+
+		// 신청 API로 한 두 신청은 신청한 때("오늘" 2026-11-10 09:00 서울)가 같아 신청 ID가 큰 허니문이 앞이다
+		mockMvc.perform(customer(get(MY_BOOKINGS), me))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					[{"bookingId": %d, "tourId": %d, "title": "허니문 낭만 투어 12/1 출발 5일", "departureDate": "2026-12-01",
+					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "finalPrice": 3000000,
+					  "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 2},
+					 {"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 12/1 출발 5일", "departureDate": "2026-12-01",
+					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "finalPrice": 3000000,
+					  "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 1},
+					 {"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 12/5 출발 5일", "departureDate": "2026-12-05",
+					  "duration": 5, "level": "PREMIUM", "levelName": "프리미엄", "headcount": 3, "finalPrice": 7500000,
+					  "appliedAt": "2026-11-09T03:15:00Z", "status": "CONFIRMED", "headcountToConfirm": 0},
+					 {"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 9/1 출발 5일", "departureDate": "2026-09-01",
+					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "finalPrice": 2970000,
+					  "appliedAt": "2026-08-01T00:00:00Z", "status": "COMPLETED", "headcountToConfirm": 0}]"""
+				.formatted(honeymoonBooking, honeymoon, golfBooking, golf, confirmed, confirmedTour, completed,
+						tourOf(completed)), JsonCompareMode.STRICT));
+	}
+
+	@Test
+	void 내_신청이_없으면_빈_목록() throws Exception {
+		booking(member("other"), completedTour("2026-10-01"), 3_000_000, 0);
+
+		mockMvc.perform(customer(get(MY_BOOKINGS), member("me")))
+			.andExpect(status().isOk())
+			.andExpect(content().json("[]", JsonCompareMode.STRICT));
+	}
+
+	@Test
 	void 직원은_쓸_수_없고_로그인하지_않으면_401() throws Exception {
 		long tourId = register(Theme.GOLF);
 		String request = """
@@ -380,9 +427,13 @@ class BookingControllerTest {
 			.andExpect(status().isForbidden());
 		mockMvc.perform(get(PREVIOUS).cookie(staff))
 			.andExpect(status().isForbidden());
+		mockMvc.perform(get(MY_BOOKINGS).cookie(staff))
+			.andExpect(status().isForbidden());
 		mockMvc.perform(post(QUOTE).contentType(MediaType.APPLICATION_JSON).content(request))
 			.andExpect(status().isUnauthorized());
 		mockMvc.perform(post(APPLY).contentType(MediaType.APPLICATION_JSON).content(request))
+			.andExpect(status().isUnauthorized());
+		mockMvc.perform(get(MY_BOOKINGS))
 			.andExpect(status().isUnauthorized());
 		assertThat(bookingCount(tourId)).isZero();
 	}
@@ -470,6 +521,11 @@ class BookingControllerTest {
 	private long optionId(long tourId, String name) {
 		return jdbcTemplate.queryForObject("select id from tour_option where tour_id = ? and name = ?", Long.class, tourId,
 				name);
+	}
+
+	/** 그 상품의 신청이 하나뿐일 때 그 신청 ID. */
+	private long bookingOf(long tourId) {
+		return jdbcTemplate.queryForObject("select id from booking where tour_id = ?", Long.class, tourId);
 	}
 
 	private long tourOf(long bookingId) {

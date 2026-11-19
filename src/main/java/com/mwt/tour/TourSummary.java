@@ -26,7 +26,7 @@ public record TourSummary(Long tourId,
 				tour.remainingSeats(), tour.getStatus());
 	}
 
-	/** 상품 이름. booking 모듈의 가격 계산 결과와 이전 여행도 같은 이름을 쓴다. 형식을 바꾸면 ApiDescriptions.TOUR_TITLE도 고친다. */
+	/** 상품 이름. booking 모듈의 가격 계산 결과, 이전 여행, 내 신청 목록도 같은 이름을 쓴다. 형식을 바꾸면 ApiDescriptions.TOUR_TITLE도 고친다. */
 	public static String title(Tour tour) {
 		return tour.getTheme().getDisplayName() + " " + tour.getDepartureDate().format(TITLE_DATE) + " 출발 "
 				+ tour.getDuration() + "일";

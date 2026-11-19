@@ -700,6 +700,39 @@ class TourTest {
 
 	}
 
+	/** 내 신청 목록(MWT-UC11)이 보여 주는 확정까지 남은 인원. */
+	@Nested
+	class 확정까지_남은_인원 {
+
+		@ParameterizedTest
+		@ValueSource(ints = {0, 1, 2})
+		void 모집_중이면_3명에서_신청_인원_합계를_뺀다(int appliedCount) {
+			Tour tour = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			if (appliedCount > 0) {
+				tour.addApplicants(appliedCount);
+			}
+
+			assertThat(tour.headcountToConfirm()).isEqualTo(3 - appliedCount);
+		}
+
+		@Test
+		void 허니문은_2명_단위로_올린다() {
+			Tour honeymoon = new Tour(Theme.HONEYMOON, DEPARTURE, 5, 6, TODAY);
+			assertThat(honeymoon.headcountToConfirm()).isEqualTo(4);
+
+			honeymoon.addApplicants(2);
+
+			assertThat(honeymoon.headcountToConfirm()).isEqualTo(2);
+		}
+
+		@ParameterizedTest
+		@EnumSource(value = TourStatus.class, names = "RECRUITING", mode = EnumSource.Mode.EXCLUDE)
+		void 모집_중이_아니면_0(TourStatus status) {
+			assertThat(tourIn(status).headcountToConfirm()).isZero();
+		}
+
+	}
+
 	private static void assertRejected(ThrowingCallable call, String message) {
 		assertThatThrownBy(call).isInstanceOf(BusinessException.class).hasMessage(message);
 	}
