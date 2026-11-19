@@ -331,6 +331,36 @@ class WarehouseServiceTest {
 		assertThat(quantity(cap)).isEqualTo(12);
 	}
 
+	/**
+	 * 물품이 몇 개뿐이어도 확정 때 줄이기는 테마 색인으로 그 테마 물품만 잠근다. MySQL이 테이블 전체를 훑기로 고르면 다른 테마 물품까지
+	 * 잠가 아래 더하기가 기다린다.
+	 */
+	@Test
+	void 확정_때_줄이는_사이에도_다른_테마_물품은_기다리지_않고_더한다() throws Exception {
+		warehouseService.registerItem("모자", Theme.GOLF, 1, 10);
+		long scarf = warehouseService.registerItem("스카프", Theme.TREKKING, 1, 10).getId();
+		CountDownLatch taken = new CountDownLatch(1);
+		CountDownLatch commit = new CountDownLatch(1);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> takeOut = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+				warehouseService.takeOutItems(Theme.GOLF, 3);
+				taken.countDown();
+				await(commit);
+			}));
+			assertThat(taken.await(30, TimeUnit.SECONDS)).isTrue();
+
+			Future<Item> add = executor.submit(() -> warehouseService.addQuantity(scarf, 5));
+			assertThat(add.get(10, TimeUnit.SECONDS).getQuantity()).as("GOLF를 잠근 동안에도 TREKKING 물품은 바로 더한다").isEqualTo(15);
+
+			commit.countDown();
+			takeOut.get(30, TimeUnit.SECONDS);
+		} finally {
+			commit.countDown();
+			executor.shutdownNow();
+		}
+	}
+
 	private int quantity(long itemId) {
 		return itemRepository.findById(itemId).orElseThrow().getQuantity();
 	}

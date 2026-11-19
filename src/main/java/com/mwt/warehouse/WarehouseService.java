@@ -92,7 +92,7 @@ public class WarehouseService {
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void takeOutItems(Theme theme, int headcount) {
-		itemRepository.findByThemeForUpdate(theme).forEach(item -> item.takeOut(headcount));
+		itemRepository.findByThemeForUpdate(theme.name()).forEach(item -> item.takeOut(headcount));
 	}
 
 	/** 없는 물품이면 404다. */
