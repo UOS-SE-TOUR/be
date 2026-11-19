@@ -28,6 +28,13 @@ interface BookingRepository extends JpaRepository<Booking, Long> {
 			where b.member.id = :memberId and b.tour.status = com.mwt.tour.TourStatus.COMPLETED""")
 	long countPreviousBookings(@Param("memberId") Long memberId);
 
+	/** 그 회원의 신청 모두를 상품 상태와 상관없이 찾는다. 신청한 때가 최근인 순서이고, 신청한 때가 같으면 신청 ID가 큰 것이 앞이다. */
+	@Query("""
+			select b from Booking b join fetch b.tour
+			where b.member.id = :memberId
+			order by b.appliedAt desc, b.id desc""")
+	List<Booking> findMyBookings(@Param("memberId") Long memberId);
+
 	/**
 	 * 그 상품의 신청 모두를 신청한 순서로 돌려준다. 확정 문자를 받을 연락처를 읽도록 회원을 함께 가져온다.
 	 * 잠그며 읽는다(for share) — MySQL(REPEATABLE READ)은 잠그지 않은 읽기에 트랜잭션 첫 읽기 때의 값을 줘서,
