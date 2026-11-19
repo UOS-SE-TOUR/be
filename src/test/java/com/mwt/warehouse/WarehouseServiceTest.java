@@ -332,12 +332,14 @@ class WarehouseServiceTest {
 	}
 
 	/**
-	 * 물품이 몇 개뿐이어도 확정 때 줄이기는 테마 색인으로 그 테마 물품만 잠근다. MySQL이 테이블 전체를 훑기로 고르면 다른 테마 물품까지
-	 * 잠가 아래 더하기가 기다린다.
+	 * 물품 대부분이 그 테마여도 확정 때 줄이기는 테마 색인으로 그 테마 물품만 잠근다. 그럴 때 MySQL은 색인보다 테이블 전체를 훑기를
+	 * 골라 다른 테마 물품까지 잠그고, 그러면 아래 더하기가 기다린다.
 	 */
 	@Test
 	void 확정_때_줄이는_사이에도_다른_테마_물품은_기다리지_않고_더한다() throws Exception {
-		warehouseService.registerItem("모자", Theme.GOLF, 1, 10);
+		for (int i = 0; i < 20; i++) {
+			warehouseService.registerItem("모자" + i, Theme.GOLF, 1, 10);
+		}
 		long scarf = warehouseService.registerItem("스카프", Theme.TREKKING, 1, 10).getId();
 		CountDownLatch taken = new CountDownLatch(1);
 		CountDownLatch commit = new CountDownLatch(1);
