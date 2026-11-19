@@ -30,7 +30,7 @@ import com.mwt.warehouse.WarehouseService;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 가격 계산, 신청, 이전 여행 흐름을 처리하는 booking 모듈의 Service다(설계산출물 4.5).
+ * 가격 계산, 신청, 이전 여행, 내 신청 목록 흐름을 처리하는 booking 모듈의 Service다(설계산출물 4.5).
  */
 @Slf4j
 @Service
@@ -70,6 +70,14 @@ public class BookingService {
 	public List<PreviousTourResponse> getPreviousTours(Long memberId) {
 		return bookingRepository.findPreviousBookings(memberId).stream()
 			.map(PreviousTourResponse::from)
+			.toList();
+	}
+
+	/** 신청 내역 조회(MWT-UC11). 상품 상태와 상관없이 그 회원의 신청 모두를 신청한 때가 최근인 순서로 돌려준다. */
+	@Transactional(readOnly = true)
+	public List<MyBookingResponse> getMyBookings(Long memberId) {
+		return bookingRepository.findMyBookings(memberId).stream()
+			.map(MyBookingResponse::from)
 			.toList();
 	}
 

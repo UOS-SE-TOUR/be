@@ -23,7 +23,7 @@ import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 고객의 이전 여행 조회, 가격 계산, 신청 요청을 받는다(설계산출물 4.5, 4.9 서버 API 표).
+ * 고객의 이전 여행 조회, 내 신청 목록 조회, 가격 계산, 신청 요청을 받는다(설계산출물 4.5, 4.9 서버 API 표).
  * 로그인한 회원의 ID는 로그인 토큰을 확인한 common.security가 Spring Security에 넣어 둔 값이다.
  * 신청은 요청 헤더 Idempotency-Key로 신청 키를 받아 BookingService.applyTour에 넘긴다(없으면 null).
  */
@@ -47,6 +47,17 @@ public class BookingController {
 	@GetMapping("/previous")
 	public List<PreviousTourResponse> getPreviousTours(@AuthenticationPrincipal Long memberId) {
 		return bookingService.getPreviousTours(memberId);
+	}
+
+	@Operation(summary = "내 신청 목록 (고객)",
+			description = "상품 상태와 상관없이(모집 중·확정·마감·취소·진행 중·완료) 내 신청 모두를 신청한 때가 최근인 순서로 돌려준다. "
+					+ "신청한 때가 같으면 신청 ID가 큰 것이 앞이다.")
+	@ApiResponse(responseCode = "200", description = "내 신청 목록. 없으면 빈 목록")
+	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
+	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_CUSTOMER)
+	@GetMapping
+	public List<MyBookingResponse> getMyBookings(@AuthenticationPrincipal Long memberId) {
+		return bookingService.getMyBookings(memberId);
 	}
 
 	@Operation(summary = "가격 계산 (고객)",

@@ -90,6 +90,8 @@ class ApiDocsTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.paths['/api/v1/bookings/previous'].get").exists())
 			.andExpect(jsonPath("$.paths['/api/v1/bookings/previous'].get.parameters").doesNotExist())
+			.andExpect(jsonPath("$.paths['/api/v1/bookings'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/v1/bookings'].get.parameters").doesNotExist())
 			.andExpect(jsonPath("$.paths['/api/v1/bookings/quote'].post.requestBody").exists())
 			.andExpect(jsonPath("$.paths['/api/v1/bookings/quote'].post.parameters").doesNotExist())
 			.andExpect(jsonPath("$.paths['/api/v1/bookings'].post.requestBody").exists())

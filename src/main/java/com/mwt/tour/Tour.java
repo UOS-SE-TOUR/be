@@ -245,6 +245,22 @@ public class Tour {
 		return capacity - appliedCount;
 	}
 
+	/**
+	 * 확정까지 남은 인원(명). 모집 중이면 확정 기준 인원에서 신청 인원 합계를 뺀 값이고, 다른 상태에서는 0이다.
+	 * 허니문은 2명씩만 신청하므로 2명 단위로 올린다(합계가 2명이면 1명이 아니라 2명).
+	 */
+	public int headcountToConfirm() {
+		if (status != TourStatus.RECRUITING) {
+			return 0;
+		}
+		int remaining = Math.max(0, MIN_CONFIRMED_COUNT - appliedCount);
+		if (theme == Theme.HONEYMOON) {
+			int unit = Theme.HONEYMOON_HEADCOUNT;
+			return (remaining + unit - 1) / unit * unit;
+		}
+		return remaining;
+	}
+
 	/** 더는 신청할 수 없는 상품이면 409(checkApplicable), 인원만 고치면 되면 400이다. */
 	private void checkSeats(int headcount) {
 		if (status != TourStatus.RECRUITING && status != TourStatus.CONFIRMED && status != TourStatus.FULL) {
