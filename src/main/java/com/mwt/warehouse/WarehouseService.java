@@ -1,7 +1,9 @@
 package com.mwt.warehouse;
 
 import java.util.List;
+import java.util.Locale;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -23,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 public class WarehouseService {
 
 	private static final String DUPLICATE_ITEM = "이미 있는 물품입니다. 목록에서 수량을 더해 주세요.";
+	private static final String NAME_THEME_UNIQUE_KEY = "uk_item_name_theme";   // V2__item_unique_name_theme.sql
 
 	private final ItemRepository itemRepository;
 
@@ -37,8 +40,7 @@ public class WarehouseService {
 	 * 대소문자·악센트만 다른 이름도 같은 이름이다.
 	 *
 	 * <p>있는지는 잠그지 않고 먼저 본다(ItemRepository.existsByNameAndTheme). 그사이 다른 요청이 같은 새 물품을 먼저 넣었으면
-	 * 저장할 때 (이름, 테마) 유일 제약에 걸리므로 같은 400으로 바꾼다. 빈 칸과 이름 길이는 Item이 먼저 거르므로, 저장이 어길 수 있는
-	 * 제약은 이 유일 제약뿐이다.
+	 * 저장할 때 (이름, 테마) 유일 제약에 걸리므로 같은 400으로 바꾼다. 다른 무결성 오류는 서버 잘못이라 그대로 던진다.
 	 */
 	@Transactional
 	public Item registerItem(String itemName, Theme theme, int perPerson, int quantity) {
@@ -49,8 +51,21 @@ public class WarehouseService {
 		try {
 			return itemRepository.saveAndFlush(item);
 		} catch (DataIntegrityViolationException e) {
-			throw new BusinessException(DUPLICATE_ITEM);
+			if (isDuplicateItem(e)) {
+				throw new BusinessException(DUPLICATE_ITEM);
+			}
+			throw e;
 		}
+	}
+
+	/** (이름, 테마) 유일 키(uk_item_name_theme) 위반인지. MemberService.isLoginIdTaken과 같은 방법으로 가린다. */
+	static boolean isDuplicateItem(DataIntegrityViolationException e) {
+		for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+			if (cause instanceof ConstraintViolationException violation && violation.getConstraintName() != null) {
+				return violation.getConstraintName().toLowerCase(Locale.ROOT).endsWith(NAME_THEME_UNIQUE_KEY);
+			}
+		}
+		return false;
 	}
 
 	/** 있는 물품에 수량을 더한다. 물품 행을 잠그며 읽으므로 동시에 더하거나 확정 때 줄여도 한쪽 수량이 사라지지 않는다. */

@@ -79,7 +79,7 @@ public class Item {
 		}
 		long left = (long) this.quantity - (long) headcount * perPerson;
 		if (left < Integer.MIN_VALUE) {
-			throw new BusinessException("기념품 수량을 줄일 수 없어 신청할 수 없습니다.");
+			throw new BusinessException("창고 물품 수량을 줄일 수 없어 신청할 수 없습니다.");
 		}
 		this.quantity = (int) left;
 	}

@@ -161,7 +161,7 @@ class ItemTest {
 		int before = item.getQuantity();
 		assertThatThrownBy(() -> item.takeOut(Integer.MAX_VALUE))
 			.isInstanceOf(BusinessException.class)
-			.hasMessage("기념품 수량을 줄일 수 없어 신청할 수 없습니다.");
+			.hasMessage("창고 물품 수량을 줄일 수 없어 신청할 수 없습니다.");
 		assertThat(item.getQuantity()).isEqualTo(before);
 	}
 
