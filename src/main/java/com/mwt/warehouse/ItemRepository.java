@@ -1,24 +1,39 @@
 package com.mwt.warehouse;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import com.mwt.tour.Theme;
 
 import jakarta.persistence.LockModeType;
 
 /**
- * 창고 물품을 저장하고 찾는다(설계산출물 4.8). 물품은 이름과 테마로 찾는다.
+ * 창고 물품을 저장하고 찾는다(설계산출물 4.8). 다른 모듈은 이 인터페이스 대신 WarehouseService를 쓴다.
+ *
+ * <p>잠그며 찾는 두 메소드는 그 트랜잭션에서 물품을 처음 읽을 때 쓴다. 잠그지 않고 먼저 읽어 둔 물품이면 Hibernate가 잠그기만 하고
+ * 그 낡은 객체를 돌려줘, 다른 요청이 바꾼 수량을 덮어쓴다(TourRepositoryCustomImpl의 같은 함정).
  */
 interface ItemRepository extends JpaRepository<Item, Long> {
 
 	/** 잠그지 않고 본다. 없는 물품을 잠그며 찾으면 MySQL이 그 물품이 들어갈 구간까지 잠가, 다른 새 물품끼리도 교착한다. */
 	boolean existsByNameAndTheme(String name, Theme theme);
 
-	/** 수량을 더하려고 찾으므로 찾은 행을 잠근다. 동시에 같은 물품을 더해도 한쪽 수량이 사라지지 않는다. 있는 물품에만 쓴다. */
+	/** 수량을 더하거나 1인당 개수를 바꾸려고 찾으므로 그 행을 잠근다. 동시에 더해도 한쪽 수량이 사라지지 않는다. */
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
-	Optional<Item> findByNameAndTheme(String name, Theme theme);
+	@Query("select i from Item i where i.id = :id")
+	Optional<Item> findByIdForUpdate(@Param("id") Long id);
+
+	/**
+	 * 상품이 확정되어 수량을 줄이려고 그 테마 물품을 모두 잠근다. 테마 색인(idx_item_theme)으로 찾아 다른 테마 물품은 잠그지 않고,
+	 * ID 순으로 잠그므로 같은 테마의 신청끼리 잠그는 순서가 같다.
+	 */
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select i from Item i where i.theme = :theme order by i.id")
+	List<Item> findByThemeForUpdate(@Param("theme") Theme theme);
 
 }
