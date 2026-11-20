@@ -8,10 +8,10 @@ import com.mwt.common.docs.ApiDescriptions;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * 상품 목록의 한 줄이다(설계산출물 4.4). 음성 경로의 후보 상품(TourSelection.candidates)도 이 모양이다.
+ * 상품 목록의 한 줄이다(설계산출물 4.4).
  * title은 테마 이름에 출발일과 기간을 붙인 상품 이름이다(예: "허니문 낭만 투어 10/20 출발 5일").
  */
-@Schema(description = "상품 목록의 한 줄(음성으로 고르기의 후보 상품도 이 모양)")
+@Schema(description = "상품 목록의 한 줄")
 public record TourSummary(Long tourId,
 		@Schema(description = ApiDescriptions.TOUR_TITLE) String title,
 		LocalDate departureDate,

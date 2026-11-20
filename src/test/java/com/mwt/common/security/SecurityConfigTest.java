@@ -80,7 +80,7 @@ class SecurityConfigTest {
 		mockMvc.perform(get("/api/v1/tours/1/levels")).andExpect(unauthorized());
 		mockMvc.perform(get("/api/v1/bookings/previous")).andExpect(unauthorized());
 		mockMvc.perform(post("/api/v1/bookings")).andExpect(unauthorized());
-		mockMvc.perform(post("/api/v1/voice/parse")).andExpect(unauthorized());
+		mockMvc.perform(post("/api/v1/voice/chat")).andExpect(unauthorized());
 	}
 
 	@Test
@@ -96,7 +96,7 @@ class SecurityConfigTest {
 		mockMvc.perform(get("/api/v1/tours/1/levels").cookie(customer())).andExpect(memberId(CUSTOMER_ID));
 		mockMvc.perform(get("/api/v1/bookings/previous").cookie(customer())).andExpect(memberId(CUSTOMER_ID));
 		mockMvc.perform(post("/api/v1/bookings").cookie(customer())).andExpect(memberId(CUSTOMER_ID));
-		mockMvc.perform(post("/api/v1/voice/parse").cookie(customer())).andExpect(memberId(CUSTOMER_ID));
+		mockMvc.perform(post("/api/v1/voice/chat").cookie(customer())).andExpect(memberId(CUSTOMER_ID));
 	}
 
 	@Test
@@ -121,6 +121,7 @@ class SecurityConfigTest {
 	void 직원이_고객_주소를_부르면_403() throws Exception {
 		mockMvc.perform(get("/api/v1/tours").cookie(staff())).andExpect(forbidden());
 		mockMvc.perform(post("/api/v1/bookings").cookie(staff())).andExpect(forbidden());
+		mockMvc.perform(post("/api/v1/voice/chat").cookie(staff())).andExpect(forbidden());
 	}
 
 	@Test
@@ -241,7 +242,7 @@ class SecurityConfigTest {
 			return memberId;
 		}
 
-		@PostMapping({ "/api/v1/bookings", "/api/v1/voice/parse", "/api/v1/staff/tours" })
+		@PostMapping({ "/api/v1/bookings", "/api/v1/voice/chat", "/api/v1/staff/tours" })
 		Long post(@AuthenticationPrincipal Long memberId) {
 			return memberId;
 		}

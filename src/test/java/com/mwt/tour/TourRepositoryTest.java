@@ -62,20 +62,6 @@ class TourRepositoryTest {
 	}
 
 	@Test
-	void 테마와_출발일이_같은_상품만_기간_순으로_찾는다() {
-		Tour longer = save(Theme.PARENTS, "2026-11-20", 7);
-		Tour shorter = save(Theme.PARENTS, "2026-11-20", 3);
-		Tour full = save(Theme.PARENTS, "2026-11-20", 5);
-		save(Theme.PARENTS, "2026-11-21", 5);
-		save(Theme.GOLF, "2026-11-20", 5);
-		makeFull(full);
-
-		assertThat(tourRepository.findByThemeAndDepartureDate(Theme.PARENTS, LocalDate.of(2026, 11, 20)))
-			.extracting(Tour::getId)
-			.containsExactly(shorter.getId(), full.getId(), longer.getId());
-	}
-
-	@Test
 	void 잠그며_읽기는_ID로_상품을_찾는다() {
 		Tour tour = save(Theme.GOLF, "2026-11-20", 3);
 		entityManager.clear();

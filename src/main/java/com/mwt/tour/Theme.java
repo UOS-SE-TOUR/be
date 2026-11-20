@@ -39,8 +39,12 @@ public enum Theme {
 		return level != null && (level != TourLevel.CLASSIC || !grandAndPremiumOnly());
 	}
 
+	public boolean allowsHeadcount(int headcount) {
+		return this != HONEYMOON || headcount == HONEYMOON_HEADCOUNT;
+	}
+
 	public void checkHeadcount(int headcount) {
-		if (this == HONEYMOON && headcount != HONEYMOON_HEADCOUNT) {
+		if (!allowsHeadcount(headcount)) {
 			throw new BusinessException(displayName + "는 " + HONEYMOON_HEADCOUNT + "명만 신청할 수 있습니다.");
 		}
 	}
