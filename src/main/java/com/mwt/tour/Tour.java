@@ -199,6 +199,25 @@ public class Tour {
 	}
 
 	/**
+	 * 신청한 뒤 투어 등급과 옵션을 바꿀 수 있는지 확인한다(MWT-UC12): 바꿀 수 있는 때인지(isChangeable), 테마가 허용하는 등급인지,
+	 * 고른 옵션이 이 상품의 것인지. 인원은 그대로라서 checkApplicable과 달리 남은 자리와 인원은 보지 않는다.
+	 * <p>바꿀 수 있는 때가 아니면 409, 고른 내용만 고치면 되면 400이다.
+	 */
+	public void checkChangeable(TourLevel level, Collection<Long> optionIds, LocalDate today) {
+		if (!isChangeable(today)) {
+			throw new BusinessException(HttpStatus.CONFLICT, "출발했거나 취소된 여행은 바꿀 수 없습니다.");
+		}
+		checkLevel(level);
+		checkOptions(optionIds);
+	}
+
+	/** 신청한 내용을 바꿀 수 있는 때인지 본다: 출발일이 오늘보다 뒤이고 모집 중·확정·마감 상태다. */
+	public boolean isChangeable(LocalDate today) {
+		return departureDate.isAfter(today)
+				&& (status == TourStatus.RECRUITING || status == TourStatus.CONFIRMED || status == TourStatus.FULL);
+	}
+
+	/**
 	 * 신청 인원을 더하고 상태를 바꾼다(설계산출물 6장 전이표): 합계가 정원과 같으면 마감, 3명 이상이면 확정, 아니면 모집 중 그대로다.
 	 * 모집 중·확정 상품이 아니거나 남은 자리보다 많은 인원은 거부한다. 상품을 잠그고 더해야 동시 신청이 정원을 넘지 않으므로,
 	 * 상태를 바꾸는 이 메소드와 depart·complete는 tour 패키지 안(TourService)에서만 부른다.

@@ -11,7 +11,7 @@ import com.mwt.tour.TourPrice;
 
 /**
  * 할인 전 총 가격을 계산한다(설계산출물 4.5, 1.3 (6)). 1인 가격은 투어 등급 가격에 고른 옵션마다 Tour.optionPriceDiff를 더한 값이고,
- * 총 가격은 1인 가격 × 인원이다. 고른 내용이 그 상품에 맞는지는 먼저 Tour.checkApplicable로 확인한다.
+ * 총 가격은 1인 가격 × 인원이다. 고른 내용이 그 상품에 맞는지는 먼저 Tour.checkApplicable이나 Tour.checkChangeable로 확인한다.
  */
 @Component
 class PriceCalculator {

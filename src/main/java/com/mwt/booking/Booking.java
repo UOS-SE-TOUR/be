@@ -84,6 +84,18 @@ public class Booking {
 		this.idempotencyKey = idempotencyKey;
 	}
 
+	/**
+	 * 투어 등급과 옵션을 바꾸고 가격을 다시 정한다(BookingService.changeBooking에서만 부른다, MWT-UC12). 고른 내용과 가격은
+	 * Tour.checkChangeable과 PriceCalculator를 거친 값이다. 신청한 때, 인원, 신청 키는 그대로 둔다.
+	 */
+	void change(TourLevel level, Collection<TourOption> options, long totalPrice, long discount) {
+		this.level = level;
+		this.options.clear();
+		this.options.addAll(options);
+		this.totalPrice = totalPrice;
+		this.discount = discount;
+	}
+
 	public long finalPrice() {
 		return totalPrice - discount;
 	}

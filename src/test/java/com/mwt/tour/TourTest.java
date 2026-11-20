@@ -700,6 +700,101 @@ class TourTest {
 
 	}
 
+	/** 신청한 뒤 투어 등급과 옵션 바꾸기(MWT-UC12). 인원은 그대로라 남은 자리와 인원은 보지 않는다. */
+	@Nested
+	class 신청_내용_바꾸기 {
+
+		private final Tour golf = savedTour(Theme.GOLF, 10);
+
+		@Test
+		void 조건에_맞으면_통과() {
+			assertThatCode(() -> golf.checkChangeable(TourLevel.CLASSIC,
+					List.of(optionId(golf, "5등급 호텔"), optionId(golf, "샴페인"), optionId(golf, "커피")), TODAY))
+				.doesNotThrowAnyException();
+			assertThatCode(() -> golf.checkChangeable(TourLevel.GRAND, List.of(), TODAY)).doesNotThrowAnyException();
+			assertThatCode(() -> golf.checkChangeable(TourLevel.GRAND, null, TODAY)).doesNotThrowAnyException();
+		}
+
+		@ParameterizedTest
+		@EnumSource(value = TourStatus.class, names = {"RECRUITING", "CONFIRMED", "FULL"})
+		void 출발_전_상태면_남은_자리와_상관없이_바꿀_수_있다(TourStatus status) {
+			Tour tour = tourIn(status);
+
+			assertThat(tour.isChangeable(TODAY)).isTrue();
+			assertThatCode(() -> tour.checkChangeable(TourLevel.PREMIUM, List.of(), TODAY)).doesNotThrowAnyException();
+		}
+
+		@Test
+		void 남은_자리가_없거나_적어도_바꿀_수_있다() {
+			ReflectionTestUtils.setField(golf, "status", TourStatus.CONFIRMED);
+			ReflectionTestUtils.setField(golf, "appliedCount", 10);
+
+			assertThatCode(() -> golf.checkChangeable(TourLevel.PREMIUM, List.of(), TODAY)).doesNotThrowAnyException();
+		}
+
+		@ParameterizedTest
+		@EnumSource(value = TourStatus.class, names = {"CANCELLED", "IN_PROGRESS", "COMPLETED"})
+		void 출발했거나_취소된_상품이면_409(TourStatus status) {
+			Tour tour = tourIn(status);
+
+			assertThat(tour.isChangeable(TODAY)).isFalse();
+			assertConflict(() -> tour.checkChangeable(TourLevel.GRAND, List.of(), TODAY));
+		}
+
+		@ParameterizedTest
+		@ValueSource(ints = {0, 1})
+		void 출발일이_오늘이거나_지났으면_상태가_그대로여도_409(int daysAfterDeparture) {
+			LocalDate today = DEPARTURE.plusDays(daysAfterDeparture);
+
+			assertThat(golf.isChangeable(today)).isFalse();
+			assertConflict(() -> golf.checkChangeable(TourLevel.GRAND, List.of(), today));
+		}
+
+		@Test
+		void 출발일_전날까지_바꿀_수_있다() {
+			assertThat(golf.isChangeable(DEPARTURE.minusDays(1))).isTrue();
+		}
+
+		@ParameterizedTest
+		@EnumSource(value = Theme.class, names = {"HONEYMOON", "PARENTS"})
+		void 허니문과_효도_투어에서_클래식은_400(Theme theme) {
+			Tour tour = savedTour(theme, 10);
+
+			assertRejected(() -> tour.checkChangeable(TourLevel.CLASSIC, List.of(), TODAY),
+					theme.getDisplayName() + "는 그랜드와 프리미엄만 고를 수 있습니다.");
+			assertStatus(() -> tour.checkChangeable(TourLevel.CLASSIC, List.of(), TODAY), HttpStatus.BAD_REQUEST);
+		}
+
+		@Test
+		void 고른_내용이_맞지_않으면_신청할_때와_같은_400() {
+			Long champagne = optionId(golf, "샴페인");
+
+			assertRejected(() -> golf.checkChangeable(null, List.of(), TODAY), "투어 등급을 골라 주세요.");
+			assertRejected(() -> golf.checkChangeable(TourLevel.GRAND, List.of(999L), TODAY), "이 상품에 없는 옵션입니다.");
+			assertRejected(() -> golf.checkChangeable(TourLevel.GRAND, List.of(champagne, champagne), TODAY),
+					"같은 옵션을 두 번 고를 수 없습니다.");
+			assertRejected(() -> golf.checkChangeable(TourLevel.GRAND,
+					List.of(optionId(golf, "3등급 호텔"), optionId(golf, "5등급 호텔")), TODAY),
+					"호텔·교통·식사는 종류마다 하나만 고를 수 있습니다.");
+			assertStatus(() -> golf.checkChangeable(TourLevel.GRAND, List.of(999L), TODAY), HttpStatus.BAD_REQUEST);
+		}
+
+		@Test
+		void 바꿀_수_없는_때면_고른_내용보다_먼저_409() {
+			ReflectionTestUtils.setField(golf, "status", TourStatus.CANCELLED);
+
+			assertConflict(() -> golf.checkChangeable(TourLevel.GRAND, List.of(999L), TODAY));
+		}
+
+		private static void assertConflict(ThrowingCallable call) {
+			assertThatThrownBy(call).isInstanceOfSatisfying(BusinessException.class, e -> {
+				assertThat(e.getMessage()).isEqualTo("출발했거나 취소된 여행은 바꿀 수 없습니다.");
+				assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+			});
+		}
+
+	}
+
 	/** 내 신청 목록(MWT-UC11)이 보여 주는 확정까지 남은 인원. */
 	@Nested
 	class 확정까지_남은_인원 {

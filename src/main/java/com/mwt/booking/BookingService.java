@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +31,7 @@ import com.mwt.warehouse.WarehouseService;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 가격 계산, 신청, 이전 여행, 내 신청 목록 흐름을 처리하는 booking 모듈의 Service다(설계산출물 4.5).
+ * 가격 계산, 신청, 이전 여행, 내 신청 목록, 신청 내용 바꾸기 흐름을 처리하는 booking 모듈의 Service다(설계산출물 4.5).
  */
 @Slf4j
 @Service
@@ -73,11 +74,15 @@ public class BookingService {
 			.toList();
 	}
 
-	/** 신청 내역 조회(MWT-UC11). 상품 상태와 상관없이 그 회원의 신청 모두를 신청한 때가 최근인 순서로 돌려준다. */
+	/**
+	 * 신청 내역 조회(MWT-UC11). 상품 상태와 상관없이 그 회원의 신청 모두를 신청한 때가 최근인 순서로 돌려준다.
+	 * 신청마다 오늘 바꿀 수 있는지(Tour.isChangeable)도 담는다.
+	 */
 	@Transactional(readOnly = true)
 	public List<MyBookingResponse> getMyBookings(Long memberId) {
+		LocalDate today = LocalDate.now(clock);
 		return bookingRepository.findMyBookings(memberId).stream()
-			.map(MyBookingResponse::from)
+			.map(booking -> MyBookingResponse.from(booking, today))
 			.toList();
 	}
 
@@ -207,6 +212,51 @@ public class BookingService {
 		}
 	}
 
+	/**
+	 * 신청 바꾸기 가격 계산(MWT-UC12). 그 회원의 신청을 바꿀 내용(투어 등급과 옵션)으로 가격을 계산해 돌려준다. 저장하지 않는다.
+	 * 확인과 계산은 changeBooking과 같다.
+	 */
+	@Transactional(readOnly = true)
+	public PriceQuote quoteChange(Long memberId, Long bookingId, ChangeBookingRequest request) {
+		Booking booking = bookingRepository.findByIdAndMemberId(bookingId, memberId).orElseThrow(BookingService::notFound);
+		Price price = changedPrice(memberId, booking, request, LocalDate.now(clock));
+		return PriceQuote.of(booking.getTour(), request.level(), booking.getHeadcount(), request.optionIdsOrEmpty(),
+				price.totalPrice(), price.discount());
+	}
+
+	/**
+	 * 신청 내용 변경(MWT-UC12). 출발 전(Tour.checkChangeable)이면 그 회원의 신청의 투어 등급과 옵션을 바꾸고, 바꾸는 때를 기준으로 가격을
+	 * 다시 정한다 — 할인 전 총 가격은 새 등급·옵션과 신청 인원으로, 단골 할인은 지금의 이전 여행 수로 정한다. 인원은 그대로라 상품의 신청
+	 * 인원 합계와 상태, 확정 문자, 창고 물품 수량은 바꾸지 않는다. 바뀐 신청을 내 신청 목록의 한 줄로 돌려준다.
+	 * <p>신청 키도 그대로라서, 바꾼 뒤 같은 신청 키로 처음 신청 내용을 다시 보내면 내용이 달라 400이다(알려진 한계, applyTour).
+	 */
+	@Transactional
+	public MyBookingResponse changeBooking(Long memberId, Long bookingId, ChangeBookingRequest request) {
+		Booking booking = bookingRepository.findByIdAndMemberIdForUpdate(bookingId, memberId)
+			.orElseThrow(BookingService::notFound);
+		LocalDate today = LocalDate.now(clock);
+		Price price = changedPrice(memberId, booking, request, today);
+		booking.change(request.level(), chosenOptions(booking.getTour(), request.optionIdsOrEmpty()), price.totalPrice(),
+				price.discount());
+		return MyBookingResponse.from(booking, today);
+	}
+
+	/**
+	 * 바꿀 내용을 확인하고 할인 전 총 가격과 단골 할인 금액을 계산한다. 신청할 때의 price와 달리 남은 자리를 보지 않으므로
+	 * Tour.checkChangeable로 확인하고, 인원은 신청 인원 그대로 쓴다.
+	 */
+	private Price changedPrice(Long memberId, Booking booking, ChangeBookingRequest request, LocalDate today) {
+		Tour tour = booking.getTour();
+		List<Long> optionIds = request.optionIdsOrEmpty();
+		tour.checkChangeable(request.level(), optionIds, today);
+		long totalPrice = priceCalculator.calculate(tour, request.level(), booking.getHeadcount(), optionIds);
+		return withDiscount(memberId, totalPrice);
+	}
+
+	private static BusinessException notFound() {
+		return new BusinessException(HttpStatus.NOT_FOUND, "신청을 찾을 수 없습니다.");
+	}
+
 	/** 확정 문자. 상품 이름에 출발일이 들어 있다(예: "골프 챌린지 투어 12/1 출발 5일"). */
 	static String confirmMessage(Tour tour) {
 		return "[미스터 월드] 신청하신 여행 상품(" + TourSummary.title(tour) + ")이 확정되었습니다.";
@@ -217,6 +267,11 @@ public class BookingService {
 		List<Long> optionIds = request.optionIdsOrEmpty();
 		tour.checkApplicable(request.level(), request.headcount(), optionIds, LocalDate.now(clock));
 		long totalPrice = priceCalculator.calculate(tour, request.level(), request.headcount(), optionIds);
+		return withDiscount(memberId, totalPrice);
+	}
+
+	/** 지금의 이전 여행 수로 단골 할인 금액을 정한다. */
+	private Price withDiscount(Long memberId, long totalPrice) {
 		long previousCount = bookingRepository.countPreviousBookings(memberId);
 		return new Price(totalPrice, regularDiscountPolicy.discount(previousCount, totalPrice));
 	}

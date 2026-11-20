@@ -54,7 +54,7 @@ import com.mwt.warehouse.WarehouseService;
 /**
  * 신청(BookingService.applyTour)의 트랜잭션 동작을 MySQL(Testcontainers)에서 스레드 여럿으로 본다(설계산출물 4.5·5.4.1).
  * 되돌려진 신청, 인원을 더할 때 정원을 넘은 신청, 같은 상품의 동시 신청, 확정 문자 받을 사람, 신청 키로 다시 보낸 신청과 동시에 온 신청,
- * 확정 때 창고 물품 줄이기(be #71).
+ * 확정 때 창고 물품 줄이기(be #71), 신청 바꾸기와 같은 신청을 동시에 바꾸기(be #75).
  * "오늘"은 2026-11-10(서울)로 고정하고, 문자는 보내지 않고 RecordingSmsSender에 기록한다.
  * 트랜잭션마다 커밋하므로 테스트가 끝나면 행을 지운다. Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
@@ -461,6 +461,60 @@ class BookingServiceTest {
 		assertThat(results).filteredOn(Item.class::isInstance).as("직원의 더하기는 모두 성공").hasSize(4);
 		assertThat(results).hasSize(5 + 3 + 4);
 		assertThat(quantities(cap)).containsExactly(100 - 5 + 4);
+	}
+
+	@Test
+	void 신청을_바꿔도_상품의_신청_인원_합계와_상태_창고_수량은_그대로이고_문자를_보내지_않는다() {
+		long tourId = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		long me = member("me", "01011112222");
+		long bookingId = bookingService.applyTour(me, request(tourId, 3), KEY).bookingId();
+		recorder().clear();
+
+		MyBookingResponse changed = bookingService.changeBooking(me, bookingId,
+				new ChangeBookingRequest(TourLevel.PREMIUM, List.of(optionId(tourId, "커피"))));
+
+		assertThat(changed.level()).isEqualTo(TourLevel.PREMIUM);
+		assertThat(changed.status()).isEqualTo(TourStatus.CONFIRMED);
+		assertThat(appliedCount(tourId)).isEqualTo(3);
+		assertThat(jdbcTemplate.queryForObject("select status from tour where id = ?", String.class, tourId))
+			.isEqualTo("CONFIRMED");
+		assertThat(quantities(cap)).containsExactly(97);
+		assertThat(recorder().sent()).isEmpty();
+		assertThat(jdbcTemplate.queryForObject("select idempotency_key from booking where id = ?", String.class, bookingId))
+			.as("신청 키는 그대로다").isEqualTo(KEY);
+	}
+
+	/**
+	 * 같은 신청을 여럿이 동시에 바꿔도 신청 행을 잠가 차례로 바꾸므로, 옵션이 섞이지 않고 마지막에 바꾼 요청의 등급·옵션·가격이 함께 남는다.
+	 * 같은 내용을 동시에 보내도 같은 옵션 행을 두 번 넣다 실패하지 않는다.
+	 */
+	@Test
+	void 같은_신청을_동시에_바꿔도_옵션이_섞이지_않고_한_요청의_내용과_가격이_함께_남는다() throws Exception {
+		long tourId = register(10);
+		long me = member("me", "01011112222");
+		long bookingId = bookingService.applyTour(me, new QuoteRequest(tourId, TourLevel.GRAND, 2,
+				List.of(optionId(tourId, "샴페인"))), null).bookingId();
+		List<ChangeBookingRequest> changes = new ArrayList<>();
+		for (String option : List.of("3등급 호텔", "5등급 호텔", "도시락", "고급 레스토랑", "커피", "커피", "커피", "커피")) {
+			changes.add(new ChangeBookingRequest(TourLevel.GRAND, List.of(optionId(tourId, option))));
+		}
+		changes.add(new ChangeBookingRequest(TourLevel.PREMIUM, List.of()));
+
+		List<Object> results = runConcurrently(changes.stream()
+			.<Callable<Object>>map(change -> () -> bookingService.changeBooking(me, bookingId, change))
+			.toList());
+
+		assertThat(results).allSatisfy(result -> assertThat(result).isInstanceOf(MyBookingResponse.class));
+		String level = jdbcTemplate.queryForObject("select level from booking where id = ?", String.class, bookingId);
+		List<Long> options = jdbcTemplate.queryForList("select tour_option_id from booking_option where booking_id = ?",
+				Long.class, bookingId);
+		ChangeBookingRequest last = changes.stream()
+			.filter(change -> change.level().name().equals(level) && change.optionIds().equals(options))
+			.findFirst()
+			.orElseThrow(() -> new AssertionError("남은 내용이 어느 요청과도 같지 않다: " + level + " " + options));
+		assertThat(jdbcTemplate.queryForObject("select total_price from booking where id = ?", Long.class, bookingId))
+			.isEqualTo(bookingService.quoteChange(me, bookingId, last).totalPrice());
 	}
 
 	/**
