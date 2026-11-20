@@ -31,7 +31,7 @@ class LlmClientConfig {
 	@Bean
 	LlmClient llmClient(VoiceProperties properties, JsonMapper jsonMapper, Clock clock) {
 		if (!properties.hasOpenaiApiKey()) {
-			log.warn("OPENAI_API_KEY가 없어 음성으로 고르기(POST /api/v1/voice/parse)는 503을 돌려줍니다");
+			log.warn("OPENAI_API_KEY가 없어 음성으로 고르기(POST /api/v1/voice/chat)는 503을 돌려줍니다");
 		}
 		return new OpenAiLlmClient(openAiRestClient(), properties.openaiApiKey(), jsonMapper, clock);
 	}

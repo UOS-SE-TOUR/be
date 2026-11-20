@@ -194,7 +194,8 @@ class ApiDocsTest {
 			}
 		});
 		assertThat(schemas).containsKeys(Theme.class.getSimpleName(), TourLevel.class.getSimpleName(),
-				TourStatus.class.getSimpleName(), MemberType.class.getSimpleName(), OptionCategory.class.getSimpleName());
+				TourStatus.class.getSimpleName(), MemberType.class.getSimpleName(), OptionCategory.class.getSimpleName(),
+				"VoiceSpeaker", "VoiceNext");
 		assertThat(missing).as("@Schema 설명에 뜻이 없는 열거값").isEmpty();
 		// @Schema(enumAsRef = true)를 빠뜨린 열거형은 칸 안에 그대로 실려 위 검사를 비켜 간다
 		List<String> enumPaths = JsonPath.using(Configuration.builder().options(Option.AS_PATH_LIST).build())
@@ -264,18 +265,22 @@ class ApiDocsTest {
 		assertThat(schemas).doesNotContainKey("Option");
 	}
 
-	/** 음성으로 고르기에서 알아듣지 못한 조건은 null이 온다. 열거형 칸은 anyOf [열거형, null]이다(OpenApiConfig). */
+	/** 음성 대화에서 고르지 않은 칸은 null이 온다. 열거형 칸은 anyOf [열거형, null]이다(OpenApiConfig). */
 	@Test
-	void 음성으로_고르기의_조건은_null일_수_있다고_적는다() throws Exception {
+	void 음성_대화의_고른_내용은_null일_수_있다고_적는다() throws Exception {
 		String docs = apiDocs();
-		String properties = "$.components.schemas.TourSelection.properties.";
+		assertThat(JsonPath.<List<String>>read(docs, "$.paths['/api/v1/voice/chat'].post.responses['200'].content.*.schema['$ref']"))
+			.containsExactly("#/components/schemas/VoiceChatResponse");
+		assertThat(JsonPath.<String>read(docs, "$.components.schemas.VoiceChatResponse.properties.draft['$ref']"))
+			.isEqualTo("#/components/schemas/VoiceDraft");
+		String properties = "$.components.schemas.VoiceDraft.properties.";
 		assertThat(JsonPath.<List<String>>read(docs, properties + "theme.anyOf[*]['$ref']"))
 			.containsExactly("#/components/schemas/Theme");
 		assertThat(JsonPath.<List<Object>>read(docs, properties + "theme.anyOf[*].type")).containsExactly("null");
 		assertThat(JsonPath.<List<String>>read(docs, properties + "level.anyOf[*]['$ref']"))
 			.containsExactly("#/components/schemas/TourLevel");
 		assertThat(JsonPath.<List<Object>>read(docs, properties + "level.anyOf[*].type")).containsExactly("null");
-		assertThat(JsonPath.<List<String>>read(docs, properties + "departureDate.type")).contains("string", "null");
+		assertThat(JsonPath.<List<String>>read(docs, properties + "tourId.type")).contains("integer", "null");
 		assertThat(JsonPath.<List<String>>read(docs, properties + "headcount.type")).contains("integer", "null");
 	}
 

@@ -40,12 +40,14 @@ class ThemeTest {
 
 	@Test
 	void 허니문은_2명만_신청한다() {
+		assertThat(Theme.HONEYMOON.allowsHeadcount(2)).isTrue();
 		assertThatCode(() -> Theme.HONEYMOON.checkHeadcount(2)).doesNotThrowAnyException();
 	}
 
 	@ParameterizedTest
 	@ValueSource(ints = {1, 3, 4})
 	void 허니문에_2명이_아니면_거부(int headcount) {
+		assertThat(Theme.HONEYMOON.allowsHeadcount(headcount)).isFalse();
 		assertThatThrownBy(() -> Theme.HONEYMOON.checkHeadcount(headcount))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage("허니문 낭만 투어는 2명만 신청할 수 있습니다.");
@@ -54,6 +56,8 @@ class ThemeTest {
 	@ParameterizedTest
 	@EnumSource(value = Theme.class, names = {"PARENTS", "GOLF", "TREKKING"})
 	void 허니문이_아니면_인원_제한이_없다(Theme theme) {
+		assertThat(theme.allowsHeadcount(1)).isTrue();
+		assertThat(theme.allowsHeadcount(5)).isTrue();
 		assertThatCode(() -> theme.checkHeadcount(1)).doesNotThrowAnyException();
 		assertThatCode(() -> theme.checkHeadcount(5)).doesNotThrowAnyException();
 	}

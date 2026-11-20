@@ -35,7 +35,7 @@ grep -qs '^STAFF_CODE=' .env || printf '\nSTAFF_CODE=%s\n' "$(openssl rand -hex 
 | `SOLAPI_API_KEY` | (없음) | 솔라피 API Key(문자 발송). 솔라피 콘솔의 API Key 관리에서 만듭니다 |
 | `SOLAPI_API_SECRET` | (없음) | 위 API Key의 API Secret |
 | `SOLAPI_SENDER_NUMBER` | (없음) | 솔라피 콘솔에 등록한 발신 번호(하이픈은 있어도 됩니다) |
-| `OPENAI_API_KEY` | (없음) | 음성으로 고르기(`POST /api/v1/voice/parse`)가 부르는 OpenAI API 키. OpenAI 대시보드의 API keys에서 만듭니다 |
+| `OPENAI_API_KEY` | (없음) | 음성으로 고르기(`POST /api/v1/voice/chat`)가 부르는 OpenAI API 키. OpenAI 대시보드의 API keys에서 만듭니다 |
 
 `SOLAPI_`로 시작하는 세 값이 모두 비어 있으면 문자를 보내지 않고 보낼 내용을 서버 로그에만 남깁니다(가짜 발송기, 테스트·시연 연습용). 일부만 넣으면 서버가 뜨지 않습니다. 솔라피가 접수하지 못한 번호(발신 번호 미등록 등)는 이유와 함께 서버 로그(ERROR)에 남습니다. 접수된 뒤 통신사 단계에서 실패한 문자(예: 번호도용문자 차단)는 서버 로그에 남지 않으니 솔라피 콘솔의 발송 결과에서 확인합니다.
 
@@ -134,7 +134,7 @@ API 문서(Swagger) 주소는 로그인 없이 열립니다.
 | `tour` | 여행 상품, 등급별 가격, 옵션, 상품 기획, 매일 상품 상태 바꾸기 | 4.4 |
 | `booking` | 가격 계산, 단골 할인, 신청, 확정 문자 요청, 이전 여행, 내 신청 목록 | 4.5 |
 | `notification` | 문자 발송과 실패 때 재시도 | 4.6 |
-| `voice` | 음성에서 나온 글자로 테마·출발일·등급·인원 채우기 | 4.7 |
+| `voice` | 음성 대화로 테마·상품·등급·인원·옵션 고르기(대화는 저장하지 않음) | 4.7 |
 | `warehouse` | 창고 물품 목록, 등록, 수량 더하기, 1인당 개수 바꾸기, 확정 때 줄이기 | 4.8 |
 
 모듈 사이에서는 다음을 지킵니다(설계산출물 4.1).

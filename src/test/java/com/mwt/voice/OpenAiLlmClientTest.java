@@ -39,8 +39,10 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.mwt.tour.OptionCategory;
 import com.mwt.tour.Theme;
 import com.mwt.tour.TourLevel;
+import com.mwt.tour.TourStatus;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -50,7 +52,15 @@ import tools.jackson.databind.json.JsonMapper;
  */
 class OpenAiLlmClientTest {
 
-	private static final String TEXT = "다음 주 토요일에 골프 그랜드로 둘이 갈래요";
+	private static final List<VoiceMessage> MESSAGES = List.of(
+			new VoiceMessage(VoiceSpeaker.SYSTEM, "안녕하세요, 최유성 고객님. 어떤 여행을 찾으세요?"),
+			new VoiceMessage(VoiceSpeaker.CUSTOMER, "부모님 결혼기념일이에요"));
+
+	private static final VoiceContext CONTEXT = new VoiceContext(List.of(new VoiceContext.Tour(12L, Theme.PARENTS,
+			"효도 힐링 투어 12/5 출발 5일", LocalDate.of(2026, 12, 5), 5, 8, TourStatus.RECRUITING,
+			List.of(TourLevel.GRAND, TourLevel.PREMIUM),
+			List.of(new VoiceContext.Option(105L, OptionCategory.MEAL, "고급 레스토랑")))),
+			new VoiceDraft(Theme.PARENTS, null, null, null, List.of()));
 
 	private final Clock clock = Clock.fixed(Instant.parse("2026-11-10T00:00:00Z"), ZoneId.of("Asia/Seoul"));
 
@@ -76,63 +86,110 @@ class OpenAiLlmClientTest {
 	}
 
 	@Test
-	void 설계의_모델을_구조화_출력으로_부르고_오늘_날짜와_요일을_프롬프트에_넣는다() {
+	void 설계의_모델을_구조화_출력으로_부르고_대화는_역할을_붙여_input에_넣는다() {
 		expectRequest()
 			.andExpect(header("Authorization", "Bearer test-key"))
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(content().json("""
 					{"model": "gpt-6-luna",
-					 "input": "%s",
+					 "input": [{"role": "assistant", "content": "안녕하세요, 최유성 고객님. 어떤 여행을 찾으세요?"},
+					           {"role": "user", "content": "부모님 결혼기념일이에요"}],
 					 "reasoning": {"effort": "low"},
-					 "max_output_tokens": 2000,
+					 "max_output_tokens": 4000,
 					 "store": false,
 					 "text": {"format": {
-					   "type": "json_schema", "name": "tour_selection", "strict": true,
+					   "type": "json_schema", "name": "voice_chat", "strict": true,
 					   "schema": {
 					     "type": "object",
 					     "properties": {
+					       "reply": {"type": "string", "description": "고객에게 할 말"},
 					       "theme": {"type": ["string", "null"], "enum": ["HONEYMOON", "PARENTS", "GOLF", "TREKKING", null],
-					                 "description": "여행 테마"},
-					       "departureDate": {"type": ["string", "null"], "description": "출발일(YYYY-MM-DD)"},
+					                 "description": "테마"},
+					       "tourId": {"type": ["integer", "null"], "description": "상품 ID(tours의 tourId)"},
 					       "level": {"type": ["string", "null"], "enum": ["CLASSIC", "GRAND", "PREMIUM", null],
 					                 "description": "투어 등급"},
-					       "headcount": {"type": ["integer", "null"], "description": "여행할 사람 수(1 이상)"}},
-					     "required": ["theme", "departureDate", "level", "headcount"],
-					     "additionalProperties": false}}}}""".formatted(TEXT), JsonCompareMode.LENIENT))
-			.andExpect(jsonPath("$.instructions", containsString("오늘 날짜는 2026-11-10(화요일)이다")))
-			.andExpect(jsonPath("$.instructions", not(containsString(OpenAiLlmClient.TODAY_PLACEHOLDER))))
+					       "headcount": {"type": ["integer", "null"], "description": "인원(명)"},
+					       "optionIds": {"type": "array", "items": {"type": "integer"},
+					                     "description": "고른 옵션의 ID(그 상품의 options의 optionId)"},
+					       "next": {"type": "string", "enum": ["TALK", "APPLY", "STOP"], "description": "다음에 할 일"}},
+					     "required": ["reply", "theme", "tourId", "level", "headcount", "optionIds", "next"],
+					     "additionalProperties": false}}}}""", JsonCompareMode.LENIENT))
+			.andExpect(jsonPath("$.input.length()").value(2))
 			.andRespond(answer("""
-					{"theme": "GOLF", "departureDate": "2026-11-21", "level": "GRAND", "headcount": 2}"""));
+					{"reply": "효도 힐링 투어를 권해 드려요. 12월 5일 출발 5일짜리가 있습니다.", "theme": "PARENTS", "tourId": 12,
+					 "level": "GRAND", "headcount": 3, "optionIds": [105], "next": "TALK"}"""));
 
-		TourSelection selection = client("test-key").extractSelection("  " + TEXT + "\n");
+		VoiceChatResponse response = client("test-key").chat(CONTEXT, MESSAGES);
 
-		assertThat(selection).isEqualTo(new TourSelection(Theme.GOLF, LocalDate.of(2026, 11, 21), TourLevel.GRAND, 2,
-				List.of()));
+		assertThat(response).isEqualTo(new VoiceChatResponse("효도 힐링 투어를 권해 드려요. 12월 5일 출발 5일짜리가 있습니다.",
+				new VoiceDraft(Theme.PARENTS, 12L, TourLevel.GRAND, 3, List.of(105L)), VoiceNext.TALK));
 		server.verify();
 	}
 
 	@Test
-	void 뽑지_못한_항목은_null로_둔다() {
-		expectRequest().andRespond(answer("""
-				{"theme": "HONEYMOON", "departureDate": null, "level": null, "headcount": null}"""));
+	void 프롬프트에_오늘_날짜와_요일_상품_목록과_지금_고른_내용을_넣고_가격은_넣지_않는다() {
+		expectRequest()
+			.andExpect(jsonPath("$.instructions", containsString("오늘 날짜는 2026-11-10(화요일)이다")))
+			.andExpect(jsonPath("$.instructions", containsString("""
+					{"tours":[{"tourId":12,"theme":"PARENTS","title":"효도 힐링 투어 12/5 출발 5일","departureDate":"2026-12-05",\
+					"duration":5,"remainingSeats":8,"status":"RECRUITING","levels":["GRAND","PREMIUM"],\
+					"options":[{"optionId":105,"category":"MEAL","name":"고급 레스토랑"}]}],\
+					"draft":{"theme":"PARENTS","tourId":null,"level":null,"headcount":null,"optionIds":[]}}""")))
+			.andExpect(jsonPath("$.instructions", not(containsString(OpenAiLlmClient.TODAY_PLACEHOLDER))))
+			.andExpect(jsonPath("$.instructions", not(containsString(OpenAiLlmClient.CONTEXT_PLACEHOLDER))))
+			.andExpect(jsonPath("$.instructions", not(containsString("price"))))
+			.andRespond(answer("""
+					{"reply": "네.", "theme": null, "tourId": null, "level": null, "headcount": null, "optionIds": [],
+					 "next": "TALK"}"""));
 
-		assertThat(client("test-key").extractSelection("신혼여행 가요"))
-			.isEqualTo(TourSelection.extracted(Theme.HONEYMOON, null, null, null));
+		client("test-key").chat(CONTEXT, MESSAGES);
+
+		server.verify();
 	}
 
 	@Test
-	void 스키마를_벗어난_값은_뽑지_못한_것으로_비운다() {
+	void 고르지_않은_칸은_null이고_옵션은_빈_목록이다() {
 		expectRequest().andRespond(answer("""
-				{"theme": "BEACH", "departureDate": "2026-02-30", "level": "grand", "headcount": 0}"""));
+				{"reply": "어떤 테마를 찾으세요?", "theme": null, "tourId": null, "level": null, "headcount": null,
+				 "optionIds": [], "next": "TALK"}"""));
 
-		assertThat(client("test-key").extractSelection(TEXT)).isEqualTo(TourSelection.extracted(null, null, null, null));
+		assertThat(client("test-key").chat(CONTEXT, MESSAGES))
+			.isEqualTo(new VoiceChatResponse("어떤 테마를 찾으세요?", VoiceDraft.EMPTY, VoiceNext.TALK));
+	}
+
+	@Test
+	void 스키마를_벗어난_테마와_등급은_비운다() {
+		expectRequest().andRespond(answer("""
+				{"reply": "네.", "theme": "BEACH", "tourId": null, "level": "grand", "headcount": 0, "optionIds": null,
+				 "next": "STOP"}"""));
+
+		assertThat(client("test-key").chat(CONTEXT, MESSAGES))
+			.isEqualTo(new VoiceChatResponse("네.", new VoiceDraft(null, null, null, 0, List.of()), VoiceNext.STOP));
+	}
+
+	@Test
+	void 할_말이_비었거나_다음에_할_일을_읽을_수_없으면_503() {
+		for (String reply : new String[] { "null", "\"\"", "\"  \\n\"" }) {
+			server.reset();
+			expectRequest().andRespond(answer("""
+					{"reply": %s, "theme": null, "tourId": null, "level": null, "headcount": null, "optionIds": [],
+					 "next": "TALK"}""".formatted(reply)));
+			assertUnavailable(() -> client("test-key").chat(CONTEXT, MESSAGES));
+		}
+		for (String next : new String[] { "null", "\"talk\"", "\"DONE\"" }) {
+			server.reset();
+			expectRequest().andRespond(answer("""
+					{"reply": "네.", "theme": null, "tourId": null, "level": null, "headcount": null, "optionIds": [],
+					 "next": %s}""".formatted(next)));
+			assertUnavailable(() -> client("test-key").chat(CONTEXT, MESSAGES));
+		}
 	}
 
 	@Test
 	void 키가_없으면_OpenAI를_부르지_않고_503() {
 		// 기대한 요청이 없으므로 HTTP를 부르면 가짜 서버가 AssertionError를 던져 테스트가 실패한다
 		for (String apiKey : new String[] { null, "", " " }) {
-			assertUnavailable(() -> client(apiKey).extractSelection(TEXT));
+			assertUnavailable(() -> client(apiKey).chat(CONTEXT, MESSAGES));
 		}
 	}
 
@@ -140,7 +197,7 @@ class OpenAiLlmClientTest {
 	void 키가_틀렸거나_한도를_넘었으면_503() {
 		expectRequest().andRespond(withStatus(HttpStatus.UNAUTHORIZED).contentType(MediaType.APPLICATION_JSON)
 			.body("{\"error\": {\"message\": \"Incorrect API key provided\", \"type\": \"invalid_request_error\"}}"));
-		assertThatThrownBy(() -> client("wrong-key").extractSelection(TEXT))
+		assertThatThrownBy(() -> client("wrong-key").chat(CONTEXT, MESSAGES))
 			.isInstanceOfSatisfying(ResponseStatusException.class, e -> {
 				assertThat(e.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
 				assertThat(e.getCause()).isInstanceOf(RestClientResponseException.class);
@@ -148,21 +205,21 @@ class OpenAiLlmClientTest {
 
 		server.reset();
 		expectRequest().andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
-		assertUnavailable(() -> client("test-key").extractSelection(TEXT));
+		assertUnavailable(() -> client("test-key").chat(CONTEXT, MESSAGES));
 	}
 
 	@Test
 	void OpenAI_서버_오류면_503() {
 		expectRequest().andRespond(withServerError());
 
-		assertUnavailable(() -> client("test-key").extractSelection(TEXT));
+		assertUnavailable(() -> client("test-key").chat(CONTEXT, MESSAGES));
 	}
 
 	@Test
 	void 시간이_초과되면_503() {
 		expectRequest().andRespond(withException(new HttpTimeoutException("request timed out")));
 
-		assertThatThrownBy(() -> client("test-key").extractSelection(TEXT))
+		assertThatThrownBy(() -> client("test-key").chat(CONTEXT, MESSAGES))
 			.isInstanceOfSatisfying(ResponseStatusException.class, e -> {
 				assertThat(e.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
 				assertThat(e.getCause()).isInstanceOf(ResourceAccessException.class);
@@ -176,7 +233,7 @@ class OpenAiLlmClientTest {
 				 "incomplete_details": {"reason": "max_output_tokens"},
 				 "output": [{"id": "rs_1", "type": "reasoning", "summary": []}]}""", MediaType.APPLICATION_JSON));
 
-		assertUnavailable(() -> client("test-key").extractSelection(TEXT));
+		assertUnavailable(() -> client("test-key").chat(CONTEXT, MESSAGES));
 	}
 
 	@Test
@@ -187,7 +244,7 @@ class OpenAiLlmClientTest {
 				   "content": [{"type": "refusal", "refusal": "I'm sorry, I cannot assist with that request."}]}]}""",
 				MediaType.APPLICATION_JSON));
 
-		assertUnavailable(() -> client("test-key").extractSelection(TEXT));
+		assertUnavailable(() -> client("test-key").chat(CONTEXT, MESSAGES));
 	}
 
 	@Test
@@ -195,31 +252,36 @@ class OpenAiLlmClientTest {
 		expectRequest().andRespond(withSuccess("""
 				{"id": "resp_1", "object": "response", "status": "completed", "incomplete_details": null,
 				 "output": [{"id": "rs_1", "type": "reasoning", "summary": []}]}""", MediaType.APPLICATION_JSON));
-		assertUnavailable(() -> client("test-key").extractSelection(TEXT));
+		assertUnavailable(() -> client("test-key").chat(CONTEXT, MESSAGES));
 
 		server.reset();
 		expectRequest().andRespond(answer("골프로 할게요"));
-		assertUnavailable(() -> client("test-key").extractSelection(TEXT));
+		assertUnavailable(() -> client("test-key").chat(CONTEXT, MESSAGES));
 
 		server.reset();
 		expectRequest().andRespond(withSuccess("<html>Bad Gateway</html>", MediaType.TEXT_HTML));
-		assertUnavailable(() -> client("test-key").extractSelection(TEXT));
+		assertUnavailable(() -> client("test-key").chat(CONTEXT, MESSAGES));
 	}
 
 	@Test
-	void 프롬프트_원본에_오늘_자리와_모든_테마와_등급_값이_있다() throws IOException {
+	void 프롬프트_원본에_자리_표시와_모든_테마_등급_다음에_할_일_값이_있다() throws IOException {
 		String prompt;
 		try (InputStream in = OpenAiLlmClient.class.getResourceAsStream(OpenAiLlmClient.PROMPT_FILE)) {
 			assertThat(in).isNotNull();
 			prompt = new String(in.readAllBytes(), StandardCharsets.UTF_8);
 		}
 
-		assertThat(prompt).contains(OpenAiLlmClient.TODAY_PLACEHOLDER);
+		assertThat(prompt).contains(OpenAiLlmClient.TODAY_PLACEHOLDER, OpenAiLlmClient.CONTEXT_PLACEHOLDER);
 		for (Theme theme : Theme.values()) {
 			assertThat(prompt).contains(theme.name() + ": " + theme.getDisplayName());
 		}
+		// 등급이 기본으로 주는 것은 프롬프트에 손으로 적었으니 열거형과 같은지 본다
 		for (TourLevel level : TourLevel.values()) {
-			assertThat(prompt).contains(level.name() + ": " + level.getDisplayName());
+			assertThat(prompt).contains(level.name() + ": " + level.getDisplayName() + "(" + level.getHotelGrade() + "등급 호텔, "
+					+ level.getMeal() + (level.isIncludesChampagne() ? ", 샴페인" : "") + ")");
+		}
+		for (VoiceNext next : VoiceNext.values()) {
+			assertThat(prompt).contains(next.name());
 		}
 	}
 
