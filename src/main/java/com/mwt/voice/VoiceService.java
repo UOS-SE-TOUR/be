@@ -1,7 +1,9 @@
 package com.mwt.voice;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
@@ -73,7 +75,7 @@ class VoiceService {
 
 	/**
 	 * OpenAI의 답을 상품 목록으로 확인한다. 목록에 없는 상품, 그 상품(상품이 없으면 그 테마)에서 고를 수 없는 등급, 그 상품에 없는 옵션,
-	 * 1 미만이거나 테마 규칙에 맞지 않는 인원은 비우거나 뺀다. 하나라도 비우거나 뺐으면 고객에게 알리고 신청으로 넘기지 않는다.
+	 * 종류마다 둘 이상 고른 호텔·교통·식사, 1 미만이거나 테마 규칙에 맞지 않는 인원은 비우거나 뺀다. 하나라도 비우거나 뺐으면 고객에게 알리고 신청으로 넘기지 않는다.
 	 * 상품을 아직 고르지 않았을 때의 옵션은 상품마다 ID가 달라 비우지만, 고객이 고른 것을 뺀 것이 아니라 알리지 않는다.
 	 * 남은 자리와 신청할 수 있는 상태는 보지 않는다 — 화면이 신청하기 전에 부르는 가격 계산이 거부한다.
 	 */
@@ -104,6 +106,19 @@ class VoiceService {
 				removed.add("옵션 " + optionIds.stream().filter(optionId -> !kept.contains(optionId)).toList());
 			}
 			optionIds = kept;
+			// 호텔·교통·식사가 종류마다 둘 이상이면 어느 쪽을 바꾼 것인지 모르니 그 종류를 비우고 다시 묻는다(가격 계산이 거부하는 꼴)
+			Set<OptionCategory> chosen = EnumSet.noneOf(OptionCategory.class);
+			Set<OptionCategory> duplicated = EnumSet.noneOf(OptionCategory.class);
+			for (Long optionId : optionIds) {
+				OptionCategory category = tour.categoryOf(optionId);
+				if (category != OptionCategory.EXTRA && !chosen.add(category)) {
+					duplicated.add(category);
+				}
+			}
+			if (!duplicated.isEmpty()) {
+				removed.add("같은 종류의 옵션 " + duplicated);
+				optionIds = optionIds.stream().filter(optionId -> !duplicated.contains(tour.categoryOf(optionId))).toList();
+			}
 		} else {
 			if (level != null && theme != null && !theme.allows(level)) {
 				removed.add("등급 " + level);

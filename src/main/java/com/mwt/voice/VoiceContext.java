@@ -36,6 +36,15 @@ record VoiceContext(List<Tour> tours, VoiceDraft draft) {
 			return options.stream().anyMatch(option -> option.optionId().equals(optionId));
 		}
 
+		/** 이 상품의 옵션이어야 한다(hasOption). */
+		OptionCategory categoryOf(Long optionId) {
+			return options.stream()
+				.filter(option -> option.optionId().equals(optionId))
+				.findFirst()
+				.orElseThrow()
+				.category();
+		}
+
 	}
 
 	record Option(Long optionId, OptionCategory category, String name) {

@@ -140,6 +140,16 @@ class VoiceServiceTest {
 	}
 
 	@Test
+	void 호텔_교통_식사를_종류마다_둘_이상_고르면_그_종류를_비우고_추가_옵션은_둔다() {
+		VoiceChatResponse response = chat(new VoiceChatResponse("신청하겠습니다.",
+				new VoiceDraft(Theme.PARENTS, 12L, TourLevel.GRAND, 3, List.of(101L, 105L, 102L, 106L, 107L)),
+				VoiceNext.APPLY));
+
+		assertThat(response).isEqualTo(new VoiceChatResponse(VoiceService.REMOVED_NOTICE,
+				new VoiceDraft(Theme.PARENTS, 12L, TourLevel.GRAND, 3, List.of(105L, 106L, 107L)), VoiceNext.TALK));
+	}
+
+	@Test
 	void 허니문에_2명이_아니면_상품이_없어도_인원을_비운다() {
 		assertThat(chat(talk(new VoiceDraft(Theme.HONEYMOON, null, null, 3, List.of()))))
 			.isEqualTo(new VoiceChatResponse(REPLY + " " + VoiceService.REMOVED_NOTICE,
