@@ -53,8 +53,11 @@ class OpenAiLlmClient implements LlmClient {
 	/** 정해 둔 순서대로 묻고 상품 목록에서 고르는 정도라 추론을 낮게 둔다. */
 	private static final String REASONING_EFFORT = "low";
 
-	/** 추론 토큰까지 센 응답 한도. 답 JSON은 할 말(두 문장 안팎)까지 넣어도 300토큰 안팎이고 나머지는 추론 몫이다. */
-	private static final int MAX_OUTPUT_TOKENS = 4000;
+	/**
+	 * 추론 토큰까지 센 응답 한도. be 실측(대본 셋, 17번)에서 출력은 51~199토큰(그중 추론 0~79)이었다.
+	 * 할 말이 VoiceService가 자르는 800자까지 길어져도 들어가게 넉넉히 둔다.
+	 */
+	private static final int MAX_OUTPUT_TOKENS = 2000;
 
 	private static final Map<String, Object> SCHEMA = schema();
 

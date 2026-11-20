@@ -95,7 +95,7 @@ class OpenAiLlmClientTest {
 					 "input": [{"role": "assistant", "content": "안녕하세요, 최유성 고객님. 어떤 여행을 찾으세요?"},
 					           {"role": "user", "content": "부모님 결혼기념일이에요"}],
 					 "reasoning": {"effort": "low"},
-					 "max_output_tokens": 4000,
+					 "max_output_tokens": 2000,
 					 "store": false,
 					 "text": {"format": {
 					   "type": "json_schema", "name": "voice_chat", "strict": true,

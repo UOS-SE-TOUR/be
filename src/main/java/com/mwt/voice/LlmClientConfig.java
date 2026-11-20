@@ -26,6 +26,7 @@ class LlmClientConfig {
 
 	// 고객이 말한 뒤 기다리는 시간이다. 넘으면 503으로 돌려주고 화면이 손으로 고르라고 안내한다.
 	// 스키마를 처음 쓰는 요청은 OpenAI가 스키마를 처리하느라 더 걸려서 넉넉히 둔다
+	// (be 실측: 상품 다섯 개 프롬프트, 입력 약 3천 토큰에서 한 번에 1.4~3.3초)
 	private static final Duration READ_TIMEOUT = Duration.ofSeconds(15);
 
 	@Bean
