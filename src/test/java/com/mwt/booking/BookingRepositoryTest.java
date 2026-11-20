@@ -20,7 +20,7 @@ import com.mwt.tour.TourStatus;
 import jakarta.persistence.EntityManager;
 
 /**
- * 이전 여행 찾기·세기와 내 신청 찾기 쿼리(설계산출물 4.5 BookingRepository)를 MySQL(Testcontainers)에서 본다. 테스트마다 되돌린다.
+ * 이전 여행 찾기·세기, 내 신청 찾기, 바꿀 신청 하나 찾기 쿼리(설계산출물 4.5 BookingRepository)를 MySQL(Testcontainers)에서 본다. 테스트마다 되돌린다.
  * 이전 여행은 완료(COMPLETED) 상태인 상품의 신청이고, 내 신청은 상품 상태와 상관없이 그 회원의 신청 모두다.
  * Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
@@ -91,6 +91,35 @@ class BookingRepositoryTest {
 			.containsExactly(TourStatus.RECRUITING, TourStatus.CONFIRMED, TourStatus.FULL, TourStatus.IN_PROGRESS,
 					TourStatus.CANCELLED, TourStatus.COMPLETED);
 		assertThat(mine).allSatisfy(booking -> assertThat(Hibernate.isInitialized(booking.getTour())).isTrue());
+	}
+
+	@Test
+	void 내_신청은_고른_옵션도_함께_가져온다() {
+		long me = member("me");
+		booking(me, tour("2026-12-01", TourStatus.RECRUITING));
+		entityManager.clear();
+
+		assertThat(bookingRepository.findMyBookings(me))
+			.singleElement()
+			.satisfies(booking -> assertThat(Hibernate.isInitialized(booking.getOptions())).isTrue());
+	}
+
+	@Test
+	void 신청_하나는_그_회원의_것만_찾는다() {
+		long me = member("me");
+		long other = member("other");
+		long mine = booking(me, tour("2026-12-01", TourStatus.RECRUITING));
+		entityManager.clear();
+
+		assertThat(bookingRepository.findByIdAndMemberId(mine, me)).get()
+			.satisfies(booking -> {
+				assertThat(Hibernate.isInitialized(booking.getTour())).isTrue();
+				assertThat(Hibernate.isInitialized(booking.getOptions())).isTrue();
+			});
+		assertThat(bookingRepository.findByIdAndMemberId(mine, other)).isEmpty();
+		assertThat(bookingRepository.findByIdAndMemberIdForUpdate(mine, me)).isPresent();
+		assertThat(bookingRepository.findByIdAndMemberIdForUpdate(mine, other)).isEmpty();
+		assertThat(bookingRepository.findByIdAndMemberId(999_999L, me)).isEmpty();
 	}
 
 	@Test

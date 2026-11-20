@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -23,7 +24,7 @@ import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 고객의 이전 여행 조회, 내 신청 목록 조회, 가격 계산, 신청 요청을 받는다(설계산출물 4.5, 4.9 서버 API 표).
+ * 고객의 이전 여행 조회, 내 신청 목록 조회, 가격 계산, 신청, 신청 내용 바꾸기(가격 계산과 바꾸기) 요청을 받는다(설계산출물 4.5, 4.9 서버 API 표).
  * 로그인한 회원의 ID는 로그인 토큰을 확인한 common.security가 Spring Security에 넣어 둔 값이다.
  * 신청은 요청 헤더 Idempotency-Key로 신청 키를 받아 BookingService.applyTour에 넘긴다(없으면 null).
  */
@@ -34,6 +35,12 @@ import lombok.RequiredArgsConstructor;
 public class BookingController {
 
 	private static final String CANNOT_APPLY = "그 상품을 더는 신청할 수 없음(자리가 다 참, 출발일이 오늘이거나 지남, 취소·진행 중·완료된 상품). 화면은 상품 목록으로 돌아간다";
+
+	private static final String BOOKING_NOT_FOUND = "신청이 없거나 내 신청이 아님";
+
+	private static final String CANNOT_CHANGE = "출발했거나 취소된 여행이라 바꿀 수 없음(출발일이 오늘이거나 지남, 취소·진행 중·완료된 상품)";
+
+	private static final String CHANGE_REJECTED = "입력 오류, 고른 내용이 맞지 않음(그 테마에서 고를 수 없는 등급, 그 상품의 것이 아닌 옵션 등)";
 
 	/** 신청 키 형식. UUID(8-4-4-4-12자리 16진수, 36자)만 받는다. */
 	private static final String IDEMPOTENCY_KEY_PATTERN = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -91,6 +98,37 @@ public class BookingController {
 			@RequestHeader(name = "Idempotency-Key", required = false)
 			@Pattern(regexp = IDEMPOTENCY_KEY_PATTERN, message = "신청 키 형식이 올바르지 않습니다.") String idempotencyKey) {
 		return bookingService.applyTour(memberId, request, idempotencyKey);
+	}
+
+	@Operation(summary = "신청 바꾸기 가격 계산 (고객)",
+			description = "내 신청의 투어 등급과 옵션을 바꾸면 가격이 얼마가 되는지 계산한다. 바꾸지는 않고 저장하지도 않는다. "
+					+ "상품과 인원은 신청 그대로이고, 단골 할인은 지금의 이전 여행 수로 정한다.")
+	@ApiResponse(responseCode = "200", description = "바꿀 내용과 가격. 가격 계산(POST /api/v1/bookings/quote)과 같은 모양")
+	@ApiResponse(responseCode = "400", description = CHANGE_REJECTED)
+	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
+	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_CUSTOMER)
+	@ApiResponse(responseCode = "404", description = BOOKING_NOT_FOUND)
+	@ApiResponse(responseCode = "409", description = CANNOT_CHANGE)
+	@PostMapping("/{bookingId}/quote")
+	public PriceQuote quoteChange(@AuthenticationPrincipal Long memberId, @PathVariable Long bookingId,
+			@Valid @RequestBody ChangeBookingRequest request) {
+		return bookingService.quoteChange(memberId, bookingId, request);
+	}
+
+	@Operation(summary = "신청 바꾸기 (고객)",
+			description = "출발 전까지 내 신청의 투어 등급과 옵션을 바꾸고, 바꾸는 때를 기준으로 가격을 다시 정한다(신청 바꾸기 가격 계산과 같은 가격). "
+					+ "상품과 인원은 바꿀 수 없다. 상품의 신청 인원 합계와 상태, 창고 물품 수량은 그대로이고 문자도 보내지 않는다. "
+					+ "같은 내용을 다시 보내도 결과가 같다.")
+	@ApiResponse(responseCode = "200", description = "바뀐 신청. 내 신청 목록(GET /api/v1/bookings)의 한 줄과 같은 모양")
+	@ApiResponse(responseCode = "400", description = CHANGE_REJECTED)
+	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
+	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_CUSTOMER)
+	@ApiResponse(responseCode = "404", description = BOOKING_NOT_FOUND)
+	@ApiResponse(responseCode = "409", description = CANNOT_CHANGE)
+	@PostMapping("/{bookingId}/change")
+	public MyBookingResponse changeBooking(@AuthenticationPrincipal Long memberId, @PathVariable Long bookingId,
+			@Valid @RequestBody ChangeBookingRequest request) {
+		return bookingService.changeBooking(memberId, bookingId, request);
 	}
 
 }

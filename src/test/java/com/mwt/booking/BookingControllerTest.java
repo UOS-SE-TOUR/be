@@ -49,7 +49,8 @@ import jakarta.servlet.http.Cookie;
 
 /**
  * 가격 계산(POST /api/v1/bookings/quote), 신청(POST /api/v1/bookings), 이전 여행 조회(GET /api/v1/bookings/previous),
- * 내 신청 목록(GET /api/v1/bookings, MWT-UC11) API(설계산출물 4.9 서버 API 표, 5.3·5.4·5.4.1·5.6·5.7).
+ * 내 신청 목록(GET /api/v1/bookings, MWT-UC11), 신청 바꾸기 가격 계산(POST /api/v1/bookings/{bookingId}/quote)과
+ * 신청 바꾸기(POST /api/v1/bookings/{bookingId}/change, MWT-UC12) API(설계산출물 4.9 서버 API 표, 5.3·5.4·5.4.1·5.6·5.7).
  * 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다.
  * "오늘"은 2026-11-10(서울)로 고정하고, 문자는 보내지 않고 RecordingSmsSender에 기록한다.
  * Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
@@ -64,6 +65,10 @@ class BookingControllerTest {
 	private static final String APPLY = "/api/v1/bookings";
 	private static final String PREVIOUS = "/api/v1/bookings/previous";
 	private static final String MY_BOOKINGS = "/api/v1/bookings";
+	private static final String QUOTE_CHANGE = "/api/v1/bookings/{bookingId}/quote";
+	private static final String CHANGE = "/api/v1/bookings/{bookingId}/change";
+	private static final String CANNOT_CHANGE = "출발했거나 취소된 여행은 바꿀 수 없습니다.";
+	private static final String BOOKING_NOT_FOUND = "신청을 찾을 수 없습니다.";
 	private static final String CONFIRMED_MESSAGE = "[미스터 월드] 신청하신 여행 상품(골프 챌린지 투어 12/1 출발 5일)이 확정되었습니다.";
 	private static final String IDEMPOTENCY_KEY = "Idempotency-Key";
 	private static final String KEY = "3f2b8c1e-7a4d-4e5f-9b6a-0c1d2e3f4a5b";
@@ -390,19 +395,213 @@ class BookingControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(content().json("""
 					[{"bookingId": %d, "tourId": %d, "title": "허니문 낭만 투어 12/1 출발 5일", "departureDate": "2026-12-01",
-					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "finalPrice": 3000000,
-					  "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 2},
+					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "optionIds": [], "finalPrice": 3000000,
+					  "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 2, "changeable": true},
 					 {"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 12/1 출발 5일", "departureDate": "2026-12-01",
-					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "finalPrice": 3000000,
-					  "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 1},
+					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "optionIds": [], "finalPrice": 3000000,
+					  "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 1, "changeable": true},
 					 {"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 12/5 출발 5일", "departureDate": "2026-12-05",
-					  "duration": 5, "level": "PREMIUM", "levelName": "프리미엄", "headcount": 3, "finalPrice": 7500000,
-					  "appliedAt": "2026-11-09T03:15:00Z", "status": "CONFIRMED", "headcountToConfirm": 0},
+					  "duration": 5, "level": "PREMIUM", "levelName": "프리미엄", "headcount": 3, "optionIds": [], "finalPrice": 7500000,
+					  "appliedAt": "2026-11-09T03:15:00Z", "status": "CONFIRMED", "headcountToConfirm": 0, "changeable": true},
 					 {"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 9/1 출발 5일", "departureDate": "2026-09-01",
-					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "finalPrice": 2970000,
-					  "appliedAt": "2026-08-01T00:00:00Z", "status": "COMPLETED", "headcountToConfirm": 0}]"""
+					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "optionIds": [], "finalPrice": 2970000,
+					  "appliedAt": "2026-08-01T00:00:00Z", "status": "COMPLETED", "headcountToConfirm": 0, "changeable": false}]"""
 				.formatted(honeymoonBooking, honeymoon, golfBooking, golf, confirmed, confirmedTour, completed,
 						tourOf(completed)), JsonCompareMode.STRICT));
+	}
+
+	@Test
+	void 내_신청의_optionIds는_고른_옵션의_ID를_작은_순으로_담고_changeable은_출발_전에만_true() throws Exception {
+		long me = member("me");
+		long golf = register(Theme.GOLF);
+		long champagne = optionId(golf, "샴페인");
+		long hotel = optionId(golf, "5등급 호텔");
+		mockMvc.perform(apply(me, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d, %d]}""".formatted(golf, champagne, hotel)))
+			.andExpect(status().isCreated());
+		long departingToday = tour("2026-11-10", "RECRUITING", 2);
+		booking(me, departingToday, 3_000_000, 0);
+		long cancelled = tour("2026-11-05", "CANCELLED", 2);
+		booking(me, cancelled, 3_000_000, 0);
+
+		mockMvc.perform(customer(get(MY_BOOKINGS), me))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$[0].tourId").value(golf))
+			.andExpect(jsonPath("$[0].optionIds.length()").value(2))
+			.andExpect(jsonPath("$[0].optionIds[0]").value(Math.min(hotel, champagne)))
+			.andExpect(jsonPath("$[0].optionIds[1]").value(Math.max(hotel, champagne)))
+			.andExpect(jsonPath("$[0].changeable").value(true))
+			.andExpect(jsonPath("$[?(@.tourId == %d)].changeable".formatted(departingToday)).value(false))
+			.andExpect(jsonPath("$[?(@.tourId == %d)].changeable".formatted(cancelled)).value(false));
+	}
+
+	@Test
+	void 신청_바꾸기_가격_계산은_바꿀_내용으로_계산하고_저장하지_않는다() throws Exception {
+		long me = member("me");
+		long tourId = register(Theme.GOLF);
+		long bookingId = applyWithHotelAndChampagne(me, tourId);
+		long business = optionId(tourId, "비행기 비즈니스석");
+		long coffee = optionId(tourId, "커피");
+
+		mockMvc.perform(customer(post(QUOTE_CHANGE, bookingId).contentType(MediaType.APPLICATION_JSON).content("""
+				{"level": "PREMIUM", "optionIds": [%d, %d]}""".formatted(coffee, business)), me))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					{"summary": {"tourId": %d, "title": "골프 챌린지 투어 12/1 출발 5일", "departureDate": "2026-12-01",
+					             "duration": 5, "level": "PREMIUM", "levelName": "프리미엄", "headcount": 2,
+					             "options": [{"optionId": %d, "category": "TRANSPORT", "name": "비행기 비즈니스석", "priceDiff": 300000},
+					                         {"optionId": %d, "category": "EXTRA", "name": "커피", "priceDiff": 5000}]},
+					 "totalPrice": 5610000, "discount": 0, "finalPrice": 5610000}""".formatted(tourId, business, coffee),
+					JsonCompareMode.STRICT));
+
+		assertThat(savedBooking(bookingId)).containsAllEntriesOf(Map.of("level", "GRAND", "total_price", 3_300_000L,
+				"discount", 0L));
+		assertThat(savedOptions(bookingId)).containsExactlyInAnyOrder(optionId(tourId, "5등급 호텔"), optionId(tourId, "샴페인"));
+	}
+
+	@Test
+	void 신청을_바꾸면_등급과_옵션과_가격만_바뀌고_바뀐_한_줄을_돌려준다() throws Exception {
+		long me = member("me");
+		long tourId = register(Theme.GOLF);
+		long bookingId = applyWithHotelAndChampagne(me, tourId);
+		long business = optionId(tourId, "비행기 비즈니스석");
+		long coffee = optionId(tourId, "커피");
+
+		mockMvc.perform(change(me, bookingId, """
+				{"level": "PREMIUM", "optionIds": [%d, %d]}""".formatted(coffee, business)))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					{"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 12/1 출발 5일", "departureDate": "2026-12-01",
+					 "duration": 5, "level": "PREMIUM", "levelName": "프리미엄", "headcount": 2, "optionIds": [%d, %d],
+					 "finalPrice": 5610000, "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 1,
+					 "changeable": true}""".formatted(bookingId, tourId, Math.min(business, coffee), Math.max(business, coffee)),
+					JsonCompareMode.STRICT));
+
+		assertThat(savedBooking(bookingId)).containsAllEntriesOf(Map.of("level", "PREMIUM", "headcount", 2,
+				"total_price", 5_610_000L, "discount", 0L, "applied_at", "2026-11-10 00:00:00"));
+		assertThat(savedOptions(bookingId)).containsExactlyInAnyOrder(business, coffee);
+		assertThat(appliedCount(tourId)).isEqualTo(2);
+		assertThat(recorder().sent()).isEmpty();
+
+		// 옵션을 보내지 않으면 고른 옵션을 모두 빼고 그 등급의 기본 제공으로 계산한다
+		mockMvc.perform(change(me, bookingId, """
+				{"level": "GRAND"}"""))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					{"level": "GRAND", "optionIds": [], "finalPrice": 3000000}"""));
+		assertThat(savedOptions(bookingId)).isEmpty();
+
+		// 같은 내용을 다시 보내도 결과가 같다
+		mockMvc.perform(change(me, bookingId, """
+				{"level": "GRAND", "optionIds": []}"""))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					{"level": "GRAND", "optionIds": [], "finalPrice": 3000000}"""));
+		assertThat(bookingCount(tourId)).isEqualTo(1);
+	}
+
+	@Test
+	void 단골_할인은_바꾸는_때의_이전_여행_수로_정한다() throws Exception {
+		long me = member("me");
+		long tourId = register(Theme.GOLF);
+		long bookingId = applyWithHotelAndChampagne(me, tourId);
+		assertThat(savedBooking(bookingId)).containsEntry("discount", 0L);
+		booking(me, completedTour("2026-09-01"), 3_000_000, 0);
+		booking(me, completedTour("2026-10-01"), 3_000_000, 0);
+		String premium = """
+				{"level": "PREMIUM"}""";
+
+		mockMvc.perform(customer(post(QUOTE_CHANGE, bookingId).contentType(MediaType.APPLICATION_JSON).content(premium), me))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					{"totalPrice": 5000000, "discount": 500000, "finalPrice": 4500000}"""));
+		mockMvc.perform(change(me, bookingId, premium))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.finalPrice").value(4_500_000));
+
+		assertThat(savedBooking(bookingId)).containsAllEntriesOf(Map.of("total_price", 5_000_000L, "discount", 500_000L));
+	}
+
+	@Test
+	void 마감된_상품과_남은_자리가_신청_인원보다_적은_확정_상품의_신청도_바꿀_수_있고_상품은_그대로다() throws Exception {
+		long me = member("me");
+		long full = register(Theme.GOLF);
+		applyAndExpect(me, full, 2, "RECRUITING");
+		applyAndExpect(member("other"), full, 8, "FULL");
+		long confirmed = register(Theme.GOLF);
+		applyAndExpect(me, confirmed, 3, "CONFIRMED");
+		applyAndExpect(member("another"), confirmed, 6, "CONFIRMED");
+		recorder().clear();
+		String premium = """
+				{"level": "PREMIUM"}""";
+
+		mockMvc.perform(change(me, myBooking(me, full), premium))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("FULL"))
+			.andExpect(jsonPath("$.finalPrice").value(5_000_000));
+		mockMvc.perform(change(me, myBooking(me, confirmed), premium))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("CONFIRMED"))
+			.andExpect(jsonPath("$.finalPrice").value(7_500_000));
+
+		assertThat(appliedCount(full)).isEqualTo(10);
+		assertThat(appliedCount(confirmed)).isEqualTo(9);
+		assertThat(jdbcTemplate.queryForList("select status from tour where id in (?, ?) order by id", String.class, full,
+				confirmed)).containsExactly("FULL", "CONFIRMED");
+		assertThat(recorder().sent()).isEmpty();
+	}
+
+	@Test
+	void 출발일이_오늘이거나_출발했거나_취소된_여행의_신청은_가격_계산도_바꾸기도_409() throws Exception {
+		long me = member("me");
+		List<Long> bookings = List.of(
+				booking(me, tour("2026-11-10", "RECRUITING", 2), 3_000_000, 0),
+				booking(me, tour("2026-11-05", "CANCELLED", 2), 3_000_000, 0),
+				booking(me, tour("2026-11-08", "IN_PROGRESS", 3), 3_000_000, 0),
+				booking(me, completedTour("2026-09-01"), 3_000_000, 0));
+
+		for (long bookingId : bookings) {
+			expectChangeRejected(me, bookingId, """
+					{"level": "PREMIUM"}""", 409, CANNOT_CHANGE);
+			assertThat(savedBooking(bookingId)).containsAllEntriesOf(Map.of("level", "GRAND", "total_price", 3_000_000L));
+		}
+	}
+
+	@Test
+	void 남의_신청이나_없는_신청이면_404이고_바뀌지_않는다() throws Exception {
+		long me = member("me");
+		long tourId = register(Theme.GOLF);
+		long othersBooking = applyWithHotelAndChampagne(member("other"), tourId);
+
+		expectChangeRejected(me, othersBooking, """
+				{"level": "PREMIUM"}""", 404, BOOKING_NOT_FOUND);
+		expectChangeRejected(me, 999_999, """
+				{"level": "PREMIUM"}""", 404, BOOKING_NOT_FOUND);
+
+		assertThat(savedBooking(othersBooking)).containsAllEntriesOf(Map.of("level", "GRAND", "total_price", 3_300_000L));
+	}
+
+	@Test
+	void 고를_수_없는_등급이나_그_상품에_없는_옵션이면_400이고_바뀌지_않는다() throws Exception {
+		long me = member("me");
+		long golf = register(Theme.GOLF);
+		long golfBooking = applyWithHotelAndChampagne(me, golf);
+		long honeymoon = register(Theme.HONEYMOON);
+		applyAndExpect(me, honeymoon, 2, "RECRUITING");
+		long parents = register(Theme.PARENTS);
+		applyAndExpect(me, parents, 2, "RECRUITING");
+
+		expectChangeRejected(me, myBooking(me, honeymoon), """
+				{"level": "CLASSIC"}""", 400, "허니문 낭만 투어는 그랜드와 프리미엄만 고를 수 있습니다.");
+		expectChangeRejected(me, myBooking(me, parents), """
+				{"level": "CLASSIC"}""", 400, "효도 힐링 투어는 그랜드와 프리미엄만 고를 수 있습니다.");
+		expectChangeRejected(me, golfBooking, """
+				{"level": "GRAND", "optionIds": [%d]}""".formatted(optionId(honeymoon, "샴페인")), 400, "이 상품에 없는 옵션입니다.");
+		expectChangeRejected(me, golfBooking, """
+				{"optionIds": []}""", 400, "투어 등급을 골라 주세요.");
+
+		assertThat(savedBooking(golfBooking)).containsAllEntriesOf(Map.of("level", "GRAND", "total_price", 3_300_000L));
+		assertThat(savedOptions(golfBooking)).containsExactlyInAnyOrder(optionId(golf, "5등급 호텔"), optionId(golf, "샴페인"));
 	}
 
 	@Test
@@ -436,6 +635,57 @@ class BookingControllerTest {
 		mockMvc.perform(get(MY_BOOKINGS))
 			.andExpect(status().isUnauthorized());
 		assertThat(bookingCount(tourId)).isZero();
+
+		long bookingId = applyWithHotelAndChampagne(member("me"), tourId);
+		String change = """
+				{"level": "PREMIUM"}""";
+		for (String path : List.of(QUOTE_CHANGE, CHANGE)) {
+			mockMvc.perform(post(path, bookingId).contentType(MediaType.APPLICATION_JSON).content(change).cookie(staff))
+				.andExpect(status().isForbidden());
+			mockMvc.perform(post(path, bookingId).contentType(MediaType.APPLICATION_JSON).content(change))
+				.andExpect(status().isUnauthorized());
+		}
+		assertThat(savedBooking(bookingId)).containsEntry("level", "GRAND");
+	}
+
+	/** 신청 바꾸기 가격 계산과 신청 바꾸기가 같은 상태 코드와 문구로 거부하는지 본다. */
+	private void expectChangeRejected(long memberId, long bookingId, String body, int status, String message)
+			throws Exception {
+		for (String path : List.of(QUOTE_CHANGE, CHANGE)) {
+			mockMvc.perform(customer(post(path, bookingId).contentType(MediaType.APPLICATION_JSON).content(body), memberId))
+				.andExpect(status().is(status))
+				.andExpect(content().json("{\"message\": \"" + message + "\"}", JsonCompareMode.STRICT));
+		}
+	}
+
+	private MockHttpServletRequestBuilder change(long memberId, long bookingId, String body) {
+		return customer(post(CHANGE, bookingId).contentType(MediaType.APPLICATION_JSON).content(body), memberId);
+	}
+
+	/** 그랜드 2명, 5등급 호텔과 샴페인으로 신청 API로 신청하고 신청 ID를 돌려준다. 할인 전 총 가격은 3,300,000원이다. */
+	private long applyWithHotelAndChampagne(long memberId, long tourId) throws Exception {
+		mockMvc.perform(apply(memberId, """
+				{"tourId": %d, "level": "GRAND", "headcount": 2, "optionIds": [%d, %d]}""".formatted(tourId,
+				optionId(tourId, "5등급 호텔"), optionId(tourId, "샴페인"))))
+			.andExpect(status().isCreated());
+		return myBooking(memberId, tourId);
+	}
+
+	/** 그 회원의 그 상품 신청이 하나뿐일 때 그 신청 ID. */
+	private long myBooking(long memberId, long tourId) {
+		return jdbcTemplate.queryForObject("select id from booking where member_id = ? and tour_id = ?", Long.class,
+				memberId, tourId);
+	}
+
+	private Map<String, Object> savedBooking(long bookingId) {
+		return jdbcTemplate.queryForMap("""
+				select level, headcount, total_price, discount, date_format(applied_at, '%Y-%m-%d %H:%i:%s') as applied_at
+				from booking where id = ?""", bookingId);
+	}
+
+	private List<Long> savedOptions(long bookingId) {
+		return jdbcTemplate.queryForList("select tour_option_id from booking_option where booking_id = ?", Long.class,
+				bookingId);
 	}
 
 	private void expectRejected(long memberId, String request, String message) throws Exception {
