@@ -82,20 +82,6 @@ public class TourService {
 	}
 
 	/**
-	 * 음성에서 뽑은 테마와 출발일이 같은 후보 상품(MWT-UC5, voice 모듈이 쓴다).
-	 * 출발일이 오늘이거나 지났으면 빈 목록이다 — 지난 상품도 상태가 DB에 남아 있어서다. 테마나 출발일을 뽑지 못했을 때(null)도 빈 목록이다.
-	 */
-	@Transactional(readOnly = true)
-	public List<TourSummary> findTours(Theme theme, LocalDate departureDate) {
-		if (theme == null || departureDate == null || !departureDate.isAfter(LocalDate.now(clock))) {
-			return List.of();
-		}
-		return tourRepository.findByThemeAndDepartureDate(theme, departureDate).stream()
-			.map(TourSummary::from)
-			.toList();
-	}
-
-	/**
 	 * 신청 인원을 더하고 확정 변화를 돌려준다(booking 모듈이 신청할 때 같은 트랜잭션에서 부른다, 설계산출물 5.4.1).
 	 * 상품 행을 잠근 채 더하므로 동시에 들어온 신청이 정원을 넘지 않는다. 거부되면(BusinessException) 그 트랜잭션이 되돌려진다.
 	 * <p>신청(booking 행)을 저장하기 <b>전에</b> 부른다. 신청을 먼저 저장하면 booking.tour_id 외래 키 확인이 상품 행에 공유 잠금을 걸어,

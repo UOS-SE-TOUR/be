@@ -2,7 +2,6 @@ package com.mwt.tour;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.tuple;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -24,7 +23,7 @@ import com.mwt.common.exception.BusinessException;
 import jakarta.persistence.EntityManager;
 
 /**
- * 다른 모듈이 쓰는 상품 읽기(getTour)·신청 인원 더하기(addApplicants, booking)와 음성용 찾기(findTours, voice),
+ * 다른 모듈이 쓰는 상품 읽기(getTour)·신청 인원 더하기(addApplicants, booking)와
  * 예약 작업의 상태 바꾸기(updateStatuses)를 MySQL(Testcontainers)에서 본다. 동시 신청은 TourConcurrencyTest가 본다.
  * "오늘"은 2026-11-10(서울)로 고정한다. Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
@@ -46,34 +45,6 @@ class TourServiceTest {
 
 	@Autowired
 	EntityManager entityManager;
-
-	@Test
-	void 음성용_찾기는_테마와_출발일이_같은_상품을_돌려준다() {
-		Tour tour = save(Theme.TREKKING, "2026-11-11");
-		save(Theme.TREKKING, "2026-11-12");
-		save(Theme.GOLF, "2026-11-11");
-
-		assertThat(tourService.findTours(Theme.TREKKING, LocalDate.of(2026, 11, 11)))
-			.extracting(TourSummary::tourId, TourSummary::title)
-			.containsExactly(tuple(tour.getId(), "아웃도어 트레킹 투어 11/11 출발 5일"));
-	}
-
-	@Test
-	void 음성용_찾기는_출발일이_오늘이거나_지났으면_빈_목록이다() {
-		save(Theme.TREKKING, "2026-11-10");
-		save(Theme.TREKKING, "2026-11-09");
-
-		assertThat(tourService.findTours(Theme.TREKKING, LocalDate.of(2026, 11, 10))).isEmpty();
-		assertThat(tourService.findTours(Theme.TREKKING, LocalDate.of(2026, 11, 9))).isEmpty();
-	}
-
-	@Test
-	void 음성용_찾기는_테마나_출발일을_못_뽑았으면_빈_목록이다() {
-		save(Theme.TREKKING, "2026-11-11");
-
-		assertThat(tourService.findTours(null, LocalDate.of(2026, 11, 11))).isEmpty();
-		assertThat(tourService.findTours(Theme.TREKKING, null)).isEmpty();
-	}
 
 	@Test
 	void 상품_읽기는_저장된_상품을_돌려준다() {

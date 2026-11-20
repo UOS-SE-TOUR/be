@@ -20,14 +20,6 @@ interface TourRepository extends JpaRepository<Tour, Long>, TourRepositoryCustom
 			order by t.departureDate, t.duration, t.id""")
 	List<Tour> findUpcomingTours(@Param("theme") Theme theme, @Param("today") LocalDate today);
 
-	/** 오늘 날짜와 상태는 보지 않는다 — 출발일이 오늘이거나 지난 상품은 TourService.findTours가 거른다. */
-	@Query("""
-			select t from Tour t
-			where t.theme = :theme and t.departureDate = :departureDate
-			order by t.duration, t.id""")
-	List<Tour> findByThemeAndDepartureDate(@Param("theme") Theme theme,
-			@Param("departureDate") LocalDate departureDate);
-
 	/**
 	 * 출발일이 오늘이거나 지난 모집 중·확정·마감 상품이다. 잠그지 않는다 — 이 조건에 맞는 색인이 없어 잠그며 찾으면 상품 표 전체가 잠긴다.
 	 * 출발 처리는 TourService.updateStatuses가 상품마다 잠그고 다시 읽어 한다.
