@@ -22,9 +22,9 @@ public record VoiceChatRequest(
 	static final int MAX_CUSTOMER_LENGTH = 300;
 	static final int MAX_SYSTEM_LENGTH = 1000;
 
-	static final String TOO_MANY_MESSAGES = "대화가 너무 길어졌습니다. 아래에서 직접 골라 주세요.";
-	static final String TOO_LONG_SPEECH = "말이 너무 깁니다. 아래에서 직접 골라 주세요.";
-	static final String CANNOT_CONTINUE = "음성 대화를 이어 갈 수 없습니다. 아래에서 직접 골라 주세요.";
+	static final String TOO_MANY_MESSAGES = "대화가 너무 길어졌습니다. 화면에서 직접 골라 주세요.";
+	static final String TOO_LONG_SPEECH = "말이 너무 깁니다. 화면에서 직접 골라 주세요.";
+	static final String CANNOT_CONTINUE = "음성 대화를 이어 갈 수 없습니다. 화면에서 직접 골라 주세요.";
 
 	/**
 	 * 대화를 확인하고 줄마다 앞뒤 공백을 뗀 대화를 돌려준다. 글자 수는 다듬은 말을 코드포인트로 센다(TextInput).
