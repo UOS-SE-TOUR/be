@@ -38,6 +38,16 @@ public class WarehouseController {
 		return warehouseService.getItems().stream().map(ItemResponse::from).toList();
 	}
 
+	@Operation(summary = "창고 물품 수량 기록 (직원)",
+			description = "등록, 수량 더하기, 상품 확정 때 줄임, 늦은 취소로 되돌림을 최근 것부터 200줄 돌려준다.")
+	@ApiResponse(responseCode = "200", description = "수량 기록 목록. 없으면 빈 목록")
+	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
+	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_STAFF)
+	@GetMapping("/history")
+	public List<ItemHistoryResponse> getHistory() {
+		return warehouseService.getHistory().stream().map(ItemHistoryResponse::from).toList();
+	}
+
 	@Operation(summary = "새 창고 물품 등록 (직원)",
 			description = "이름과 테마가 같은 물품이 이미 있으면 등록하지 않고 400이다. 있는 물품에는 수량 더하기로 더한다.")
 	@ApiResponse(responseCode = "200", description = "등록한 물품")

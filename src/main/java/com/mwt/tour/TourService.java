@@ -125,28 +125,25 @@ public class TourService {
 	}
 
 	/**
-	 * 직원이 상품을 바로 출발 처리한다. 예약 작업이 출발일에 하는 것과 같게 모집 중(3명 미만)이면 취소, 확정·마감이면 진행 중이 된다.
-	 * 출발일을 기다리지 않고 상태를 넘기는 기능이라 출발일은 보지 않는다. 상품 행을 잠그고 읽어 같은 상품의 신청과 겹치지 않는다.
+	 * 직원 확정(booking 모듈이 창고 물품 줄이기·확정 문자와 같은 트랜잭션에서 부른다). 신청이 있는 모집 중 상품이면 3명이 안 돼도 확정한다.
+	 * 신청과 같게 상품 행을 먼저 잠그고, 부르는 쪽은 그 뒤에 창고 물품을 잠근다. 부르는 쪽 트랜잭션 밖에서 부르면 바로 실패한다(MANDATORY).
 	 */
-	@Transactional
-	public StaffTourSummary departTour(Long tourId) {
+	@Transactional(propagation = Propagation.MANDATORY)
+	public Tour confirmTour(Long tourId) {
 		Tour tour = findTour(tourId, tourRepository::findByIdForUpdate);
-		if (!tour.canDepart()) {
-			throw new BusinessException(HttpStatus.CONFLICT, "모집 중·확정·마감인 상품만 출발 처리할 수 있습니다.");
-		}
-		tour.depart();
-		return StaffTourSummary.from(tour);
+		tour.confirmByStaff();
+		return tour;
 	}
 
-	/** 직원이 진행 중인 상품을 바로 완료 처리한다. 여행 종료일은 보지 않는다. */
-	@Transactional
-	public StaffTourSummary completeTour(Long tourId) {
+	/**
+	 * 출발했지만 여행이 진행되지 않은 상품의 늦은 취소(booking 모듈이 창고 물품 되돌리기와 같은 트랜잭션에서 부른다). 진행 중·완료 상품만 된다.
+	 * 상품 행을 잠그고 바꾸므로 같은 상품을 동시에 두 번 취소해도 물품은 한 번만 돌아간다. 부르는 쪽 트랜잭션 밖에서 부르면 바로 실패한다(MANDATORY).
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public Tour cancelTour(Long tourId) {
 		Tour tour = findTour(tourId, tourRepository::findByIdForUpdate);
-		if (!tour.canComplete()) {
-			throw new BusinessException(HttpStatus.CONFLICT, "진행 중인 상품만 완료 처리할 수 있습니다.");
-		}
-		tour.complete();
-		return StaffTourSummary.from(tour);
+		tour.cancelByStaff();
+		return tour;
 	}
 
 	/** 여행 상품 기획(MWT-UC8). 상품을 만들고 등급별 가격과 옵션 목록을 넣어 저장한 뒤 상품 ID를 돌려준다. */

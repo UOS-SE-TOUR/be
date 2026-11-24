@@ -19,7 +19,7 @@ public record StaffTourSummary(Long tourId,
 		@Schema(description = "신청 인원(명)") int appliedCount,
 		TourStatus status) {
 
-	static StaffTourSummary from(Tour tour) {
+	public static StaffTourSummary from(Tour tour) {
 		return new StaffTourSummary(tour.getId(), tour.getTheme(), TourSummary.title(tour), tour.getDepartureDate(),
 				tour.getDuration(), tour.getCapacity(), tour.getAppliedCount(), tour.getStatus());
 	}

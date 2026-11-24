@@ -73,6 +73,18 @@ public class Item {
 	}
 
 	/** 상품이 확정되어 고객에게 줄 만큼(인원 × 1인당 개수) 줄인다. 모자라도 줄여 음수가 된다. */
+	/** 늦은 취소로 그 상품 때문에 줄였던 수량을 되돌린다. 모자라 음수였어도 그대로 더한다. */
+	void putBack(int quantity) {
+		if (quantity < 1) {
+			throw new IllegalArgumentException("되돌릴 수량은 1개 이상이어야 한다: " + quantity);
+		}
+		long added = (long) this.quantity + quantity;
+		if (added > Integer.MAX_VALUE) {
+			throw new BusinessException("창고에 둘 수 있는 수량을 넘어 물품을 되돌릴 수 없습니다.");
+		}
+		this.quantity = (int) added;
+	}
+
 	public void takeOut(int headcount) {
 		if (headcount < 1) {
 			throw new IllegalArgumentException("인원은 1명 이상이어야 한다: " + headcount);

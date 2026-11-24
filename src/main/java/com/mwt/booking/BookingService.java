@@ -208,7 +208,7 @@ public class BookingService {
 			case ALREADY_CONFIRMED -> headcount;
 		};
 		if (takeOutHeadcount > 0) {
-			warehouseService.takeOutItems(tour.getTheme(), takeOutHeadcount);
+			warehouseService.takeOutItems(tour, takeOutHeadcount);
 		}
 	}
 
@@ -258,6 +258,34 @@ public class BookingService {
 	}
 
 	/** 확정 문자. 상품 이름에 출발일이 들어 있다(예: "골프 챌린지 투어 12/1 출발 5일"). */
+	/**
+	 * 직원 확정. 신청이 있는 모집 중 상품이면 3명이 안 돼도 확정하고, 신청이 3명을 채워 확정될 때와 같게 신청 인원 합계만큼 그 테마 창고 물품을
+	 * 줄이고 커밋된 뒤 신청자 모두에게 확정 문자를 보낸다. 신청과 같게 상품 행을 먼저 잠그고 창고 물품을 잠근다.
+	 */
+	@Transactional
+	public Tour confirmTour(Long tourId) {
+		Tour tour = tourService.confirmTour(tourId);
+		warehouseService.takeOutItems(tour, tour.getAppliedCount());
+		List<String> recipients = bookingRepository.findByTourId(tour.getId()).stream()
+			.map(applied -> applied.getMember().getPhone())
+			.toList();
+		if (!recipients.isEmpty()) {
+			sendAfterCommit(recipients, confirmMessage(tour));
+		}
+		return tour;
+	}
+
+	/**
+	 * 출발했지만 여행이 진행되지 않은 상품의 늦은 취소. 진행 중·완료 상품을 취소하고, 확정 때 그 상품 때문에 줄였던 창고 물품을 되돌린다.
+	 * 예약 작업이 출발일에 취소할 때처럼 문자는 보내지 않는다.
+	 */
+	@Transactional
+	public Tour cancelTour(Long tourId) {
+		Tour tour = tourService.cancelTour(tourId);
+		warehouseService.putBackItems(tour);
+		return tour;
+	}
+
 	static String confirmMessage(Tour tour) {
 		return "[미스터 월드] 신청하신 여행 상품(" + TourSummary.title(tour) + ")이 확정되었습니다.";
 	}

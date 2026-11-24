@@ -243,9 +243,23 @@ public class Tour {
 		return status == TourStatus.RECRUITING || status == TourStatus.CONFIRMED || status == TourStatus.FULL;
 	}
 
-	/** 완료 처리할 상태(진행 중)인지 본다. */
-	boolean canComplete() {
-		return status == TourStatus.IN_PROGRESS;
+	/**
+	 * 직원이 확정한다. 신청이 있는 모집 중 상품이면 3명이 안 돼도 확정이 된다. 그 뒤 신청은 이미 확정된 상품의 신청과 같게 다룬다
+	 * (addApplicants가 확정을 모집 중으로 되돌리지 않는다).
+	 */
+	void confirmByStaff() {
+		if (status != TourStatus.RECRUITING || appliedCount < 1) {
+			throw new BusinessException(HttpStatus.CONFLICT, "신청이 있는 모집 중 상품만 확정할 수 있습니다.");
+		}
+		status = TourStatus.CONFIRMED;
+	}
+
+	/** 출발했지만 여행이 진행되지 않은 상품을 직원이 뒤늦게 취소한다. 진행 중·완료 상품만 된다. */
+	void cancelByStaff() {
+		if (status != TourStatus.IN_PROGRESS && status != TourStatus.COMPLETED) {
+			throw new BusinessException(HttpStatus.CONFLICT, "진행 중이거나 완료된 상품만 취소할 수 있습니다.");
+		}
+		status = TourStatus.CANCELLED;
 	}
 
 	/** 출발일에 상태를 바꾼다(설계산출물 6장): 모집 중(3명 미만)이면 취소, 확정·마감이면 진행 중. */

@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.tuple;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.text.Normalizer;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -31,6 +32,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -38,9 +40,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import com.mwt.TestcontainersConfiguration;
 import com.mwt.common.exception.BusinessException;
 import com.mwt.tour.Theme;
+import com.mwt.tour.Tour;
 
 /**
- * 창고 물품 조회, 등록, 수량 더하기, 1인당 개수 바꾸기, 확정 때 줄이기(설계산출물 5.9, be #71).
+ * 창고 물품 조회, 등록, 수량 더하기, 1인당 개수 바꾸기, 확정 때 줄이기(설계산출물 5.9, be #71), 수량 기록과 늦은 취소로 되돌리기.
  * MySQL(Testcontainers)에 붙여 이름 찾기·잠금·유일 제약까지 본다. Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
 @Testcontainers(disabledWithoutDocker = true)
@@ -57,12 +60,67 @@ class WarehouseServiceTest {
 	ItemRepository itemRepository;
 
 	@Autowired
+	ItemHistoryRepository itemHistoryRepository;
+
+	@Autowired
 	TransactionTemplate transactionTemplate;
 
 	@AfterEach
 	void deleteItems() {
 		PauseAfterNameCheck.BARRIER.set(null);
 		itemRepository.deleteAll();
+		itemHistoryRepository.deleteAll();
+	}
+
+	@Test
+	void 수량이_바뀔_때마다_이유와_바뀐_양_바뀐_뒤_수량을_기록하고_1인당_0개는_남기지_않는다() {
+		itemHistoryRepository.deleteAll();
+		long cap = warehouseService.registerItem("모자", Theme.GOLF, 1, 10).getId();
+		warehouseService.registerItem("생수", Theme.GOLF, 0, 10);
+		warehouseService.addQuantity(cap, 5);
+		warehouseService.changePerPerson(cap, 2);
+		Tour tour = golfTour(77L);
+		transactionTemplate.executeWithoutResult(status -> warehouseService.takeOutItems(tour, 3));
+
+		assertThat(warehouseService.getHistory())
+			.extracting(ItemHistory::getItemName, ItemHistory::getReason, ItemHistory::getTourId, ItemHistory::getTourTitle,
+					ItemHistory::getChangeAmount, ItemHistory::getQuantityAfter)
+			.containsExactly(
+					tuple("모자", ItemHistoryReason.TAKE_OUT, 77L, "골프 챌린지 투어 12/1 출발 5일", -6, 9),
+					tuple("모자", ItemHistoryReason.ADD, null, null, 5, 15),
+					tuple("생수", ItemHistoryReason.REGISTER, null, null, 10, 10),
+					tuple("모자", ItemHistoryReason.REGISTER, null, null, 10, 10));
+	}
+
+	@Test
+	void 늦은_취소는_그_상품_때문에_줄인_만큼만_되돌린다() {
+		long cap = warehouseService.registerItem("모자", Theme.GOLF, 1, 10).getId();
+		long ball = warehouseService.registerItem("골프공", Theme.GOLF, 2, 4).getId();
+		Tour cancelled = golfTour(77L);
+		Tour other = golfTour(78L);
+		transactionTemplate.executeWithoutResult(status -> {
+			warehouseService.takeOutItems(cancelled, 3);
+			warehouseService.takeOutItems(other, 1);
+			warehouseService.takeOutItems(cancelled, 1);   // 확정된 상품에 더 신청
+		});
+		warehouseService.changePerPerson(ball, 5);
+		long towel = warehouseService.registerItem("타월", Theme.GOLF, 1, 10).getId();
+
+		transactionTemplate.executeWithoutResult(status -> warehouseService.putBackItems(cancelled));
+
+		assertThat(quantity(cap)).as("10 − 3 − 1 − 1 + 4").isEqualTo(9);
+		assertThat(quantity(ball)).as("4 − 6 − 2 − 2 + 8, 바꾼 1인당 개수로 다시 세지 않는다").isEqualTo(2);
+		assertThat(quantity(towel)).as("줄인 뒤 등록한 물품은 그대로").isEqualTo(10);
+		assertThat(itemHistoryRepository.findByTourId(77L))
+			.filteredOn(history -> history.getReason() == ItemHistoryReason.PUT_BACK)
+			.extracting(ItemHistory::getItemName, ItemHistory::getChangeAmount)
+			.containsExactlyInAnyOrder(tuple("모자", 4), tuple("골프공", 8));
+	}
+
+	@Test
+	void 늦은_취소로_되돌리기는_트랜잭션_밖에서_부를_수_없다() {
+		assertThatThrownBy(() -> warehouseService.putBackItems(golfTour(77L)))
+			.isInstanceOf(IllegalTransactionStateException.class);
 	}
 
 	@Test
@@ -259,7 +317,7 @@ class WarehouseServiceTest {
 		long water = warehouseService.registerItem("생수", Theme.GOLF, 0, 10).getId();
 		long scarf = warehouseService.registerItem("스카프", Theme.TREKKING, 1, 10).getId();
 
-		transactionTemplate.executeWithoutResult(status -> warehouseService.takeOutItems(Theme.GOLF, 3));
+		transactionTemplate.executeWithoutResult(status -> warehouseService.takeOutItems(golfTour(), 3));
 
 		assertThat(quantity(cap)).isEqualTo(7);
 		assertThat(quantity(ball)).as("4 − 3 × 2, 모자란 만큼 음수").isEqualTo(-2);
@@ -271,7 +329,7 @@ class WarehouseServiceTest {
 	void 그_테마_물품이_없으면_아무것도_줄지_않는다() {
 		long scarf = warehouseService.registerItem("스카프", Theme.TREKKING, 1, 10).getId();
 
-		transactionTemplate.executeWithoutResult(status -> warehouseService.takeOutItems(Theme.GOLF, 3));
+		transactionTemplate.executeWithoutResult(status -> warehouseService.takeOutItems(golfTour(), 3));
 
 		assertThat(quantity(scarf)).isEqualTo(10);
 	}
@@ -280,7 +338,7 @@ class WarehouseServiceTest {
 	void 확정_때_줄이기는_트랜잭션_밖에서_부를_수_없다() {
 		long cap = warehouseService.registerItem("모자", Theme.GOLF, 1, 10).getId();
 
-		assertThatThrownBy(() -> warehouseService.takeOutItems(Theme.GOLF, 3))
+		assertThatThrownBy(() -> warehouseService.takeOutItems(golfTour(), 3))
 			.isInstanceOf(IllegalTransactionStateException.class);
 
 		assertThat(quantity(cap)).isEqualTo(10);
@@ -291,7 +349,7 @@ class WarehouseServiceTest {
 		long cap = warehouseService.registerItem("모자", Theme.GOLF, 1, 10).getId();
 
 		transactionTemplate.executeWithoutResult(status -> {
-			warehouseService.takeOutItems(Theme.GOLF, 3);
+			warehouseService.takeOutItems(golfTour(), 3);
 			status.setRollbackOnly();
 		});
 
@@ -310,7 +368,7 @@ class WarehouseServiceTest {
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
 			Future<?> takeOut = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
-				warehouseService.takeOutItems(Theme.GOLF, 3);
+				warehouseService.takeOutItems(golfTour(), 3);
 				taken.countDown();
 				await(commit);
 			}));
@@ -346,7 +404,7 @@ class WarehouseServiceTest {
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
 			Future<?> takeOut = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
-				warehouseService.takeOutItems(Theme.GOLF, 3);
+				warehouseService.takeOutItems(golfTour(), 3);
 				taken.countDown();
 				await(commit);
 			}));
@@ -361,6 +419,17 @@ class WarehouseServiceTest {
 			commit.countDown();
 			executor.shutdownNow();
 		}
+	}
+
+	/** 정원 10명, 12/1 출발 5일인 골프 상품(저장하지 않는다). 기록에 붙는 상품 ID는 id로 준다. */
+	private static Tour golfTour(Long id) {
+		Tour tour = new Tour(Theme.GOLF, LocalDate.of(2026, 12, 1), 5, 10, LocalDate.of(2026, 11, 10));
+		ReflectionTestUtils.setField(tour, "id", id);
+		return tour;
+	}
+
+	private static Tour golfTour() {
+		return golfTour(null);
 	}
 
 	private int quantity(long itemId) {

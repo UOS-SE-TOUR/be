@@ -45,6 +45,7 @@ import com.mwt.tour.RegisterTourRequest;
 import com.mwt.tour.RegisterTourRequest.PriceInput;
 import com.mwt.tour.RegisterTourRequest.TransportInput;
 import com.mwt.tour.Theme;
+import com.mwt.tour.Tour;
 import com.mwt.tour.TourLevel;
 import com.mwt.tour.TourService;
 import com.mwt.tour.TourStatus;
@@ -54,7 +55,7 @@ import com.mwt.warehouse.WarehouseService;
 /**
  * 신청(BookingService.applyTour)의 트랜잭션 동작을 MySQL(Testcontainers)에서 스레드 여럿으로 본다(설계산출물 4.5·5.4.1).
  * 되돌려진 신청, 인원을 더할 때 정원을 넘은 신청, 같은 상품의 동시 신청, 확정 문자 받을 사람, 신청 키로 다시 보낸 신청과 동시에 온 신청,
- * 확정 때 창고 물품 줄이기(be #71), 신청 바꾸기와 같은 신청을 동시에 바꾸기(be #75).
+ * 확정 때 창고 물품 줄이기(be #71), 신청 바꾸기와 같은 신청을 동시에 바꾸기(be #75), 직원 확정과 늦은 취소.
  * "오늘"은 2026-11-10(서울)로 고정하고, 문자는 보내지 않고 RecordingSmsSender에 기록한다.
  * 트랜잭션마다 커밋하므로 테스트가 끝나면 행을 지운다. Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
@@ -98,6 +99,7 @@ class BookingServiceTest {
 	void deleteAll() {
 		recorder().clear();
 		jdbcTemplate.update("delete from item");
+		jdbcTemplate.update("delete from item_history");
 		jdbcTemplate.update("delete from booking_option");
 		jdbcTemplate.update("delete from booking");
 		jdbcTemplate.update("delete from tour_price");
@@ -368,6 +370,84 @@ class BookingServiceTest {
 
 		bookingService.applyTour(member("third", "01055556666"), request(tourId, 2), null);
 		assertThat(quantities(cap, ball, water, scarf)).as("이미 확정: 이번 2명").containsExactly(95, 90, 100, 100);
+	}
+
+	@Test
+	void 직원이_확정하면_3명이_안_돼도_확정하고_신청_인원_합계만큼_줄이고_신청자_모두에게_확정_문자를_보낸다() {
+		long tourId = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		long ball = item("골프공", Theme.GOLF, 2, 100);
+		bookingService.applyTour(member("first", "01011112222"), request(tourId, 1), null);
+		bookingService.applyTour(member("second", "01033334444"), request(tourId, 1), null);
+
+		Tour confirmed = bookingService.confirmTour(tourId);
+
+		assertThat(confirmed.getStatus()).isEqualTo(TourStatus.CONFIRMED);
+		assertThat(quantities(cap, ball)).containsExactly(98, 96);
+		assertThat(recorder().sent()).containsExactly(new Sent(List.of("01011112222", "01033334444"),
+				"[미스터 월드] 신청하신 여행 상품(골프 챌린지 투어 12/1 출발 5일)이 확정되었습니다."));
+
+		bookingService.applyTour(member("third", "01055556666"), request(tourId, 2), null);
+		assertThat(quantities(cap, ball)).as("그 뒤 신청은 이미 확정된 상품처럼 이번 인원만큼").containsExactly(96, 92);
+		assertThat(tourService.getTour(tourId).getStatus()).isEqualTo(TourStatus.CONFIRMED);
+	}
+
+	@Test
+	void 직원_확정은_신청이_있는_모집_중_상품만_되고_아니면_409이고_아무것도_바꾸지_않는다() {
+		long empty = register(10);
+		long confirmed = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		bookingService.applyTour(member("first", "01011112222"), request(confirmed, 3), null);
+		recorder().clear();
+
+		for (long tourId : List.of(empty, confirmed)) {
+			assertThatThrownBy(() -> bookingService.confirmTour(tourId))
+				.isInstanceOfSatisfying(BusinessException.class, e -> {
+					assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+					assertThat(e.getMessage()).isEqualTo("신청이 있는 모집 중 상품만 확정할 수 있습니다.");
+				});
+		}
+		assertThat(quantities(cap)).containsExactly(97);
+		assertThat(recorder().sent()).isEmpty();
+	}
+
+	@Test
+	void 늦은_취소는_진행_중_완료_상품을_취소하고_그_상품_때문에_줄인_물품만_되돌리고_문자는_보내지_않는다() {
+		long tourId = register(10);
+		long otherId = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		bookingService.applyTour(member("first", "01011112222"), request(tourId, 3), null);
+		bookingService.applyTour(member("second", "01033334444"), request(otherId, 3), null);
+		assertThat(quantities(cap)).containsExactly(94);
+		tourService.updateStatuses(LocalDate.of(2026, 12, 1));   // 둘 다 출발해 진행 중
+		recorder().clear();
+
+		Tour cancelled = bookingService.cancelTour(tourId);
+
+		assertThat(cancelled.getStatus()).isEqualTo(TourStatus.CANCELLED);
+		assertThat(quantities(cap)).as("취소한 상품 몫 3개만").containsExactly(97);
+		assertThat(recorder().sent()).isEmpty();
+		assertThatThrownBy(() -> bookingService.cancelTour(tourId))
+			.isInstanceOfSatisfying(BusinessException.class, e -> {
+				assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+				assertThat(e.getMessage()).isEqualTo("진행 중이거나 완료된 상품만 취소할 수 있습니다.");
+			});
+		assertThat(quantities(cap)).as("두 번 되돌리지 않는다").containsExactly(97);
+
+		tourService.updateStatuses(LocalDate.of(2026, 12, 6));   // 다른 상품은 완료
+		bookingService.cancelTour(otherId);
+		assertThat(quantities(cap)).containsExactly(100);
+	}
+
+	@Test
+	void 늦은_취소는_모집_중_확정_상품에는_409() {
+		long tourId = register(10);
+		bookingService.applyTour(member("first", "01011112222"), request(tourId, 3), null);
+
+		assertThatThrownBy(() -> bookingService.cancelTour(tourId))
+			.isInstanceOfSatisfying(BusinessException.class,
+					e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+		assertThat(tourService.getTour(tourId).getStatus()).isEqualTo(TourStatus.CONFIRMED);
 	}
 
 	@Test

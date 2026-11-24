@@ -52,39 +52,6 @@ class TourRepositoryTest {
 	}
 
 	@Test
-	void 다가오는_상품에서_출발일_전에_출발_처리한_상품은_뺀다() {
-		Tour upcoming = save(Theme.GOLF, "2026-11-20", 5);
-		Tour departedEarly = save(Theme.GOLF, "2026-11-21", 5);
-		Tour cancelledEarly = save(Theme.GOLF, "2026-11-22", 5);
-		change(departedEarly, saved -> {
-			saved.addApplicants(3);
-			saved.depart();
-		});
-		change(cancelledEarly, Tour::depart);
-
-		assertThat(tourRepository.findUpcomingTours(Theme.GOLF, TODAY))
-			.extracting(Tour::getId)
-			.containsExactly(upcoming.getId());
-	}
-
-	@Test
-	void 직원_상품_현황은_모든_상태의_상품을_출발일_기간_순으로_돌려준다() {
-		Tour later = save(Theme.TREKKING, "2026-12-01", 3);
-		Tour longer = save(Theme.GOLF, "2026-11-20", 7);
-		Tour shorter = save(Theme.HONEYMOON, "2026-11-20", 3);
-		Tour cancelled = save(Theme.GOLF, "2026-11-01", 5);
-		change(cancelled, Tour::depart);
-
-		assertThat(tourRepository.findAllForStaff())
-			.extracting(Tour::getId, Tour::getStatus)
-			.containsExactly(
-					tuple(cancelled.getId(), TourStatus.CANCELLED),
-					tuple(shorter.getId(), TourStatus.RECRUITING),
-					tuple(longer.getId(), TourStatus.RECRUITING),
-					tuple(later.getId(), TourStatus.RECRUITING));
-	}
-
-	@Test
 	void 출발일이_같은_상품은_기간_순이다() {
 		Tour longer = save(Theme.GOLF, "2026-11-20", 7);
 		Tour shorter = save(Theme.GOLF, "2026-11-20", 3);

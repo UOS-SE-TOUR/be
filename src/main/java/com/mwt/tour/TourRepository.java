@@ -13,11 +13,10 @@ import org.springframework.data.repository.query.Param;
  */
 interface TourRepository extends JpaRepository<Tour, Long>, TourRepositoryCustom {
 
-	/** 모집 중·확정·마감 상품만 넣어 마감 상품도 들어간다. 직원이 출발일 전에 출발 처리한 상품(진행 중·취소·완료)은 빠진다. */
+	/** 상태는 보지 않아 마감 상품도 들어간다. */
 	@Query("""
 			select t from Tour t
 			where t.theme = :theme and t.departureDate > :today
-			and t.status in (com.mwt.tour.TourStatus.RECRUITING, com.mwt.tour.TourStatus.CONFIRMED, com.mwt.tour.TourStatus.FULL)
 			order by t.departureDate, t.duration, t.id""")
 	List<Tour> findUpcomingTours(@Param("theme") Theme theme, @Param("today") LocalDate today);
 
