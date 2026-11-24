@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
@@ -180,6 +181,37 @@ public class Tour {
 			case TRANSPORT -> option.getUnitPrice();
 			case EXTRA -> option.getDefaultFor() == level ? 0 : option.getUnitPrice();
 		};
+	}
+
+	/**
+	 * 그 등급으로 신청하면 받는 옵션이다(가격 계산 optionPriceDiff와 같은 규칙). 호텔·교통·식사는 고른 것이 없으면 그 등급의 기본 제공
+	 * (교통은 추가 요금이 0원인 기본 교통)이고, 추가 옵션은 고른 것과 그 등급이 기본으로 주는 것(프리미엄의 샴페인)이다.
+	 * 종류 순(호텔·교통·식사·추가), 같은 종류는 옵션 ID 순이다. 기본 제공 옵션이 없는 종류는 건너뛴다.
+	 */
+	public List<IncludedOption> includedOptions(TourLevel level, Collection<Long> optionIds) {
+		Set<Long> chosen = new HashSet<>(optionIds);
+		List<IncludedOption> included = new ArrayList<>();
+		for (OptionCategory category : OptionCategory.values()) {
+			List<TourOption> inCategory = options.stream()
+				.filter(option -> option.getCategory() == category)
+				.sorted(Comparator.comparing(TourOption::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+				.toList();
+			boolean anyChosen = inCategory.stream().anyMatch(option -> chosen.contains(option.getId()));
+			for (TourOption option : inCategory) {
+				boolean picked = chosen.contains(option.getId());
+				boolean byDefault = category == OptionCategory.EXTRA ? option.getDefaultFor() == level
+						: !anyChosen && isDefault(option, level);
+				if (picked || byDefault) {
+					included.add(new IncludedOption(category, option.getName(), picked));
+				}
+			}
+		}
+		return included;
+	}
+
+	private static boolean isDefault(TourOption option, TourLevel level) {
+		return option.getCategory() == OptionCategory.TRANSPORT ? option.getUnitPrice() == 0
+				: option.getDefaultFor() == level;
 	}
 
 	/**

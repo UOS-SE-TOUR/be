@@ -1,6 +1,7 @@
 package com.mwt.booking;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -396,16 +397,24 @@ class BookingControllerTest {
 			.andExpect(content().json("""
 					[{"bookingId": %d, "tourId": %d, "title": "허니문 낭만 투어 12/1 출발 5일", "departureDate": "2026-12-01",
 					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "optionIds": [], "finalPrice": 3000000,
+					  "totalPrice": 3000000, "discount": 0,
+					  "options": [{"category": "HOTEL", "name": "4등급 호텔", "chosen": false},
+					              {"category": "TRANSPORT", "name": "비행기 이코노미석", "chosen": false},
+					              {"category": "MEAL", "name": "현지식 레스토랑", "chosen": false}],
 					  "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 2, "changeable": true},
 					 {"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 12/1 출발 5일", "departureDate": "2026-12-01",
 					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "optionIds": [], "finalPrice": 3000000,
+					  "totalPrice": 3000000, "discount": 0,
+					  "options": [{"category": "HOTEL", "name": "4등급 호텔", "chosen": false},
+					              {"category": "TRANSPORT", "name": "비행기 이코노미석", "chosen": false},
+					              {"category": "MEAL", "name": "현지식 레스토랑", "chosen": false}],
 					  "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 1, "changeable": true},
 					 {"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 12/5 출발 5일", "departureDate": "2026-12-05",
 					  "duration": 5, "level": "PREMIUM", "levelName": "프리미엄", "headcount": 3, "optionIds": [], "finalPrice": 7500000,
-					  "appliedAt": "2026-11-09T03:15:00Z", "status": "CONFIRMED", "headcountToConfirm": 0, "changeable": true},
+					  "totalPrice": 7500000, "discount": 0, "options": [], "appliedAt": "2026-11-09T03:15:00Z", "status": "CONFIRMED", "headcountToConfirm": 0, "changeable": true},
 					 {"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 9/1 출발 5일", "departureDate": "2026-09-01",
 					  "duration": 5, "level": "GRAND", "levelName": "그랜드", "headcount": 2, "optionIds": [], "finalPrice": 2970000,
-					  "appliedAt": "2026-08-01T00:00:00Z", "status": "COMPLETED", "headcountToConfirm": 0, "changeable": false}]"""
+					  "totalPrice": 3300000, "discount": 330000, "options": [], "appliedAt": "2026-08-01T00:00:00Z", "status": "COMPLETED", "headcountToConfirm": 0, "changeable": false}]"""
 				.formatted(honeymoonBooking, honeymoon, golfBooking, golf, confirmed, confirmedTour, completed,
 						tourOf(completed)), JsonCompareMode.STRICT));
 	}
@@ -430,6 +439,8 @@ class BookingControllerTest {
 			.andExpect(jsonPath("$[0].optionIds.length()").value(2))
 			.andExpect(jsonPath("$[0].optionIds[0]").value(Math.min(hotel, champagne)))
 			.andExpect(jsonPath("$[0].optionIds[1]").value(Math.max(hotel, champagne)))
+			.andExpect(jsonPath("$[0].options[*].name").value(contains("5등급 호텔", "비행기 이코노미석", "현지식 레스토랑", "샴페인")))
+			.andExpect(jsonPath("$[0].options[*].chosen").value(contains(true, false, false, true)))
 			.andExpect(jsonPath("$[0].changeable").value(true))
 			.andExpect(jsonPath("$[?(@.tourId == %d)].changeable".formatted(departingToday)).value(false))
 			.andExpect(jsonPath("$[?(@.tourId == %d)].changeable".formatted(cancelled)).value(false));
@@ -473,7 +484,13 @@ class BookingControllerTest {
 			.andExpect(content().json("""
 					{"bookingId": %d, "tourId": %d, "title": "골프 챌린지 투어 12/1 출발 5일", "departureDate": "2026-12-01",
 					 "duration": 5, "level": "PREMIUM", "levelName": "프리미엄", "headcount": 2, "optionIds": [%d, %d],
-					 "finalPrice": 5610000, "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 1,
+					 "finalPrice": 5610000, "totalPrice": 5610000, "discount": 0,
+					 "options": [{"category": "HOTEL", "name": "5등급 호텔", "chosen": false},
+					             {"category": "TRANSPORT", "name": "비행기 비즈니스석", "chosen": true},
+					             {"category": "MEAL", "name": "고급 레스토랑", "chosen": false},
+					             {"category": "EXTRA", "name": "샴페인", "chosen": false},
+					             {"category": "EXTRA", "name": "커피", "chosen": true}],
+					 "appliedAt": "2026-11-10T00:00:00Z", "status": "RECRUITING", "headcountToConfirm": 1,
 					 "changeable": true}""".formatted(bookingId, tourId, Math.min(business, coffee), Math.max(business, coffee)),
 					JsonCompareMode.STRICT));
 
