@@ -37,7 +37,7 @@ interface TourRepository extends JpaRepository<Tour, Long>, TourRepositoryCustom
 			order by t.id""")
 	List<Tour> findDeparting(@Param("today") LocalDate today);
 
-	/** 여행 종료일(출발일에 '여행 기간−1일'을 더한 날)이 오늘보다 앞인 진행 중 상품이다. */
+	/** 여행 종료일(출발일에 '여행 기간−1일'을 더한 날)이 오늘보다 앞인 진행 중 상품이다. 잠그지 않으므로 완료 처리는 TourService.updateStatuses가 상품마다 잠그고 다시 읽어 한다. */
 	@Query("""
 			select t from Tour t
 			where t.status = com.mwt.tour.TourStatus.IN_PROGRESS

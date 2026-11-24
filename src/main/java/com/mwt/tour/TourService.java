@@ -109,8 +109,12 @@ public class TourService {
 			.filter(Tour::canDepart)
 			.toList();
 		departing.forEach(Tour::depart);
-		// 위에서 진행 중이 된 상품도 찾도록, 이 조회 앞에서 JPA가 바뀐 상태를 DB에 먼저 쓴다(flush)
-		List<Tour> finished = tourRepository.findFinished(today);
+		// 위에서 진행 중이 된 상품도 찾도록, 이 조회 앞에서 JPA가 바뀐 상태를 DB에 먼저 쓴다(flush).
+		// 완료도 상품마다 잠그고 다시 읽는다. 직원이 그사이 늦은 취소를 커밋했으면 잠그지 않은 읽기 값(진행 중)으로 취소를 덮어쓰지 않고 건너뛴다
+		List<Tour> finished = tourRepository.findFinished(today).stream()
+			.flatMap(found -> tourRepository.findByIdForUpdate(found.getId()).stream())
+			.filter(tour -> tour.getStatus() == TourStatus.IN_PROGRESS)
+			.toList();
 		finished.forEach(Tour::complete);
 		long cancelled = departing.stream().filter(tour -> tour.getStatus() == TourStatus.CANCELLED).count();
 		log.info("상품 상태를 바꿨다({}): 출발 {}개(그중 취소 {}개), 완료 {}개", today, departing.size(), cancelled, finished.size());
