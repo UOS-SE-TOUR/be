@@ -457,14 +457,21 @@ class BookingServiceTest {
 	}
 
 	@Test
-	void 늦은_취소는_모집_중_확정_상품에는_409() {
-		long tourId = register(10);
-		bookingService.applyTour(member("first", "01011112222"), request(tourId, 3), null);
+	void 늦은_취소는_모집_중_확정_상품에는_409이고_창고_수량은_그대로다() {
+		long recruitingId = register(10);
+		long confirmedId = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		bookingService.applyTour(member("first", "01011112222"), request(recruitingId, 1), null);
+		bookingService.applyTour(member("second", "01033334444"), request(confirmedId, 3), null);
 
-		assertThatThrownBy(() -> bookingService.cancelTour(tourId))
-			.isInstanceOfSatisfying(BusinessException.class,
-					e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT));
-		assertThat(tourService.getTour(tourId).getStatus()).isEqualTo(TourStatus.CONFIRMED);
+		for (long tourId : List.of(recruitingId, confirmedId)) {
+			assertThatThrownBy(() -> bookingService.cancelTour(tourId))
+				.isInstanceOfSatisfying(BusinessException.class,
+						e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+		}
+		assertThat(tourService.getTour(recruitingId).getStatus()).isEqualTo(TourStatus.RECRUITING);
+		assertThat(tourService.getTour(confirmedId).getStatus()).isEqualTo(TourStatus.CONFIRMED);
+		assertThat(quantities(cap)).containsExactly(97);
 	}
 
 	@Test
