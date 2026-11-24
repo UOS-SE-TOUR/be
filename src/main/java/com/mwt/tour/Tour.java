@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.hibernate.annotations.BatchSize;
 import org.springframework.http.HttpStatus;
 
 import com.mwt.common.exception.BusinessException;
@@ -67,6 +68,8 @@ public class Tour {
 	@JoinColumn(name = "tour_id", nullable = false)
 	private List<TourPrice> prices = new ArrayList<>();
 
+	// 내 신청 목록이 상품마다 옵션을 읽으므로, 한 상품의 옵션을 읽을 때 영속성 컨텍스트의 다른 상품 몫도 함께 읽는다(상품마다 조회 한 번씩 나가지 않게)
+	@BatchSize(size = 100)
 	@OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
 	@JoinColumn(name = "tour_id", nullable = false)
 	private List<TourOption> options = new ArrayList<>();

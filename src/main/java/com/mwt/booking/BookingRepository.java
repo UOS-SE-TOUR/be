@@ -30,7 +30,9 @@ interface BookingRepository extends JpaRepository<Booking, Long> {
 
 	/**
 	 * 그 회원의 신청 모두를 상품 상태와 상관없이 찾는다. 신청한 때가 최근인 순서이고, 신청한 때가 같으면 신청 ID가 큰 것이 앞이다.
-	 * 목록 한 줄에 상품과 고른 옵션을 담으므로 함께 가져온다.
+	 * 목록 한 줄에 상품과 고른 옵션을 담으므로 함께 가져온다. 신청에 들어가는 옵션은 상품의 옵션 목록에서 고르는데,
+	 * 그 목록(List)까지 함께 가져오면 신청의 옵션 수만큼 행이 곱해져 목록에 같은 옵션이 겹쳐 들어간다. 그래서 상품의 옵션은
+	 * Tour.options의 @BatchSize로 여러 상품 몫을 한 번에 읽는다.
 	 */
 	@EntityGraph(attributePaths = {"tour", "options"})
 	@Query("""

@@ -376,6 +376,47 @@ class TourTest {
 	}
 
 	@Nested
+	class 신청에_들어가는_옵션 {
+
+		private final Tour golf = savedTour(Theme.GOLF, 10);
+
+		@Test
+		void 고르지_않은_호텔_교통_식사는_그_등급의_기본_제공이고_추가_옵션은_없다() {
+			assertThat(golf.includedOptions(TourLevel.CLASSIC, List.of())).containsExactly(
+					new IncludedOption(OptionCategory.HOTEL, "3등급 호텔", false),
+					new IncludedOption(OptionCategory.TRANSPORT, BASE_TRANSPORT, false),
+					new IncludedOption(OptionCategory.MEAL, "도시락", false));
+		}
+
+		@Test
+		void 고른_종류만_고른_옵션으로_바뀌고_나머지는_기본_제공이다() {
+			assertThat(golf.includedOptions(TourLevel.GRAND,
+					List.of(optionId(golf, "커피"), optionId(golf, BUSINESS_TRANSPORT)))).containsExactly(
+							new IncludedOption(OptionCategory.HOTEL, "4등급 호텔", false),
+							new IncludedOption(OptionCategory.TRANSPORT, BUSINESS_TRANSPORT, true),
+							new IncludedOption(OptionCategory.MEAL, "현지식 레스토랑", false),
+							new IncludedOption(OptionCategory.EXTRA, "커피", true));
+		}
+
+		@Test
+		void 프리미엄의_샴페인은_고르지_않아도_들어가고_고르면_고른_것으로_보인다() {
+			assertThat(golf.includedOptions(TourLevel.PREMIUM, List.of()))
+				.contains(new IncludedOption(OptionCategory.EXTRA, "샴페인", false));
+			assertThat(golf.includedOptions(TourLevel.PREMIUM, List.of(optionId(golf, "샴페인"))))
+				.filteredOn(option -> option.category() == OptionCategory.EXTRA)
+				.containsExactly(new IncludedOption(OptionCategory.EXTRA, "샴페인", true));
+			assertThat(golf.includedOptions(TourLevel.GRAND, List.of()))
+				.noneMatch(option -> option.category() == OptionCategory.EXTRA);
+		}
+
+		@Test
+		void 옵션이_없는_상품이면_빈_목록이다() {
+			assertThat(new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY).includedOptions(TourLevel.GRAND, List.of())).isEmpty();
+		}
+
+	}
+
+	@Nested
 	class 신청_확인 {
 
 		private final Tour golf = savedTour(Theme.GOLF, 10);
