@@ -110,7 +110,8 @@ class WarehouseServiceTest {
 		assertThat(quantity(cap)).as("10 − 3 − 1 − 1 + 4").isEqualTo(9);
 		assertThat(quantity(ball)).as("4 − 6 − 2 − 2 + 8, 바꾼 1인당 개수로 다시 세지 않는다").isEqualTo(2);
 		assertThat(quantity(towel)).as("줄인 뒤 등록한 물품은 그대로").isEqualTo(10);
-		assertThat(itemHistoryRepository.findByTourId(77L))
+		List<ItemHistory> histories = transactionTemplate.execute(status -> itemHistoryRepository.findByTourId(77L));   // 잠그며 읽어 트랜잭션이 있어야 한다
+		assertThat(histories)
 			.filteredOn(history -> history.getReason() == ItemHistoryReason.PUT_BACK)
 			.extracting(ItemHistory::getItemName, ItemHistory::getChangeAmount)
 			.containsExactlyInAnyOrder(tuple("모자", 4), tuple("골프공", 8));
