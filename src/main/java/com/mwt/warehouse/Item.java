@@ -92,7 +92,7 @@ public class Item {
 		long taken = (long) headcount * perPerson;
 		long left = this.quantity - taken;
 		if (taken > Integer.MAX_VALUE || left < Integer.MIN_VALUE) {
-			throw new BusinessException("창고 물품 수량을 줄일 수 없어 신청할 수 없습니다.");
+			throw new BusinessException("창고 물품 수량을 더 줄일 수 없어 처리할 수 없습니다.");
 		}
 		this.quantity = (int) left;
 	}
