@@ -257,7 +257,6 @@ public class BookingService {
 		return new BusinessException(HttpStatus.NOT_FOUND, "신청을 찾을 수 없습니다.");
 	}
 
-	/** 확정 문자. 상품 이름에 출발일이 들어 있다(예: "골프 챌린지 투어 12/1 출발 5일"). */
 	/**
 	 * 직원 확정. 신청이 있는 모집 중 상품이면 3명이 안 돼도 확정하고, 신청이 3명을 채워 확정될 때와 같게 신청 인원 합계만큼 그 테마 창고 물품을
 	 * 줄이고 커밋된 뒤 신청자 모두에게 확정 문자를 보낸다. 신청과 같게 상품 행을 먼저 잠그고 창고 물품을 잠근다.
@@ -286,6 +285,7 @@ public class BookingService {
 		return tour;
 	}
 
+	/** 확정 문자. 상품 이름에 출발일이 들어 있다(예: "골프 챌린지 투어 12/1 출발 5일"). */
 	static String confirmMessage(Tour tour) {
 		return "[미스터 월드] 신청하신 여행 상품(" + TourSummary.title(tour) + ")이 확정되었습니다.";
 	}

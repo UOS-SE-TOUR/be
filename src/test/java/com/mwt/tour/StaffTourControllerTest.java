@@ -24,6 +24,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
@@ -66,6 +67,9 @@ class StaffTourControllerTest {
 	TransactionTemplate transactionTemplate;
 
 	@Autowired
+	JdbcTemplate jdbcTemplate;
+
+	@Autowired
 	JwtTokenProvider jwtTokenProvider;
 
 	static Clock clock() {
@@ -75,6 +79,7 @@ class StaffTourControllerTest {
 	@AfterEach
 	void deleteTours() {
 		tourRepository.deleteAll();
+		jdbcTemplate.update("delete from item_history");   // 확정하면 창고 수량 기록이 남는다
 	}
 
 	@Test

@@ -412,6 +412,23 @@ class BookingServiceTest {
 	}
 
 	@Test
+	void 직원_확정은_출발일이_오늘이거나_지난_상품이면_409이고_아무것도_바꾸지_않는다() {
+		long tourId = register(10);
+		long cap = item("모자", Theme.GOLF, 1, 100);
+		bookingService.applyTour(member("first", "01011112222"), request(tourId, 1), null);
+		jdbcTemplate.update("update tour set departure_date = '2026-11-10' where id = ?", tourId);   // "오늘" 출발(0시 예약 작업 전)
+
+		assertThatThrownBy(() -> bookingService.confirmTour(tourId))
+			.isInstanceOfSatisfying(BusinessException.class, e -> {
+				assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+				assertThat(e.getMessage()).isEqualTo("출발일이 오늘이거나 지난 상품은 확정할 수 없습니다.");
+			});
+		assertThat(tourService.getTour(tourId).getStatus()).isEqualTo(TourStatus.RECRUITING);
+		assertThat(quantities(cap)).containsExactly(100);
+		assertThat(recorder().sent()).isEmpty();
+	}
+
+	@Test
 	void 늦은_취소는_진행_중_완료_상품을_취소하고_그_상품_때문에_줄인_물품만_되돌리고_문자는_보내지_않는다() {
 		long tourId = register(10);
 		long otherId = register(10);

@@ -165,4 +165,39 @@ class ItemTest {
 		assertThat(item.getQuantity()).isEqualTo(before);
 	}
 
+	@Test
+	void 한_번에_줄일_양이_정수_범위를_넘으면_줄인_뒤_수량이_범위_안이어도_거부한다() {
+		Item item = new Item("생수", Theme.GOLF, 100, Integer.MAX_VALUE - 1);
+
+		assertThatThrownBy(() -> item.takeOut(Integer.MAX_VALUE / 100 + 1))   // 21474837 × 100 > MAX
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("창고 물품 수량을 줄일 수 없어 신청할 수 없습니다.");
+		assertThat(item.getQuantity()).isEqualTo(Integer.MAX_VALUE - 1);
+	}
+
+	@Test
+	void 늦은_취소로_되돌리면_모자라_음수였어도_그만큼_더한다() {
+		Item item = new Item("생수", Theme.GOLF, 3, 2);
+		item.takeOut(2);   // −4
+
+		item.putBack(6);
+
+		assertThat(item.getQuantity()).isEqualTo(2);
+	}
+
+	@Test
+	void 되돌린_뒤_수량이나_되돌릴_양이_정수_범위를_넘으면_거부한다() {
+		Item full = new Item("생수", Theme.GOLF, 1, Integer.MAX_VALUE - 1);
+		Item short_ = new Item("모자", Theme.GOLF, 100, 1);
+		short_.takeOut(Integer.MAX_VALUE / 100);   // 1 − 21474836 × 100
+
+		assertThatThrownBy(() -> full.putBack(2))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("창고에 둘 수 있는 수량을 넘어 물품을 되돌릴 수 없습니다.");
+		assertThatThrownBy(() -> short_.putBack(Integer.MAX_VALUE + 10L))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("창고에 둘 수 있는 수량을 넘어 물품을 되돌릴 수 없습니다.");
+		assertThat(full.getQuantity()).isEqualTo(Integer.MAX_VALUE - 1);
+	}
+
 }

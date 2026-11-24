@@ -526,6 +526,65 @@ class TourTest {
 
 	}
 
+	/** 직원 확정(confirmByStaff)과 늦은 취소(cancelByStaff). */
+	@Nested
+	class 직원_확정과_늦은_취소 {
+
+		@Test
+		void 신청이_있는_모집_중_상품은_3명이_안_돼도_출발일_전이면_확정한다() {
+			Tour tour = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			tour.addApplicants(1);
+
+			tour.confirmByStaff(DEPARTURE.minusDays(1));
+
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.CONFIRMED);
+			assertThat(tour.addApplicants(1)).as("그 뒤 신청은 이미 확정된 상품의 신청").isEqualTo(ConfirmChange.ALREADY_CONFIRMED);
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.CONFIRMED);
+		}
+
+		@Test
+		void 출발일이_오늘이거나_지났으면_확정하지_않는다() {
+			Tour tour = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			tour.addApplicants(1);
+
+			assertRejected(() -> tour.confirmByStaff(DEPARTURE), "출발일이 오늘이거나 지난 상품은 확정할 수 없습니다.");
+			assertRejected(() -> tour.confirmByStaff(DEPARTURE.plusDays(1)), "출발일이 오늘이거나 지난 상품은 확정할 수 없습니다.");
+			assertThat(tour.getStatus()).isEqualTo(TourStatus.RECRUITING);
+		}
+
+		@Test
+		void 신청이_없거나_모집_중이_아니면_확정하지_않는다() {
+			Tour empty = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			Tour confirmed = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			confirmed.addApplicants(3);
+
+			assertRejected(() -> empty.confirmByStaff(TODAY), "신청이 있는 모집 중 상품만 확정할 수 있습니다.");
+			assertRejected(() -> confirmed.confirmByStaff(TODAY), "신청이 있는 모집 중 상품만 확정할 수 있습니다.");
+		}
+
+		@Test
+		void 진행_중_완료_상품만_늦게_취소한다() {
+			Tour inProgress = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			inProgress.addApplicants(3);
+			inProgress.depart();
+			Tour completed = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			completed.addApplicants(3);
+			completed.depart();
+			completed.complete();
+			Tour confirmed = new Tour(Theme.GOLF, DEPARTURE, 5, 10, TODAY);
+			confirmed.addApplicants(3);
+
+			inProgress.cancelByStaff();
+			completed.cancelByStaff();
+
+			assertThat(inProgress.getStatus()).isEqualTo(TourStatus.CANCELLED);
+			assertThat(completed.getStatus()).isEqualTo(TourStatus.CANCELLED);
+			assertRejected(confirmed::cancelByStaff, "진행 중이거나 완료된 상품만 취소할 수 있습니다.");
+			assertRejected(inProgress::cancelByStaff, "진행 중이거나 완료된 상품만 취소할 수 있습니다.");
+		}
+
+	}
+
 	/** 6장 전이표의 addApplicants 전이 다섯 개와 거부. */
 	@Nested
 	class 신청_인원_더하기 {

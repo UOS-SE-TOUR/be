@@ -108,7 +108,7 @@ public class WarehouseService {
 			int before = item.getQuantity();
 			item.takeOut(headcount);
 			if (item.getQuantity() != before) {
-				record(item, ItemHistoryReason.TAKE_OUT, tour, item.getQuantity() - before);
+				record(item, ItemHistoryReason.TAKE_OUT, tour, item.getQuantity() - before);   // takeOut이 줄인 양의 int 범위를 확인했다
 			}
 		}
 	}
@@ -121,13 +121,13 @@ public class WarehouseService {
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void putBackItems(Tour tour) {
 		List<Item> items = itemRepository.findByThemeForUpdate(tour.getTheme().name());
-		Map<Long, Integer> changed = itemHistoryRepository.findByTourId(tour.getId()).stream()
-			.collect(Collectors.groupingBy(ItemHistory::getItemId, Collectors.summingInt(ItemHistory::getChangeAmount)));
+		Map<Long, Long> changed = itemHistoryRepository.findByTourId(tour.getId()).stream()
+			.collect(Collectors.groupingBy(ItemHistory::getItemId, Collectors.summingLong(ItemHistory::getChangeAmount)));
 		for (Item item : items) {
-			int taken = -changed.getOrDefault(item.getId(), 0);
+			long taken = -changed.getOrDefault(item.getId(), 0L);
 			if (taken > 0) {
 				item.putBack(taken);
-				record(item, ItemHistoryReason.PUT_BACK, tour, taken);
+				record(item, ItemHistoryReason.PUT_BACK, tour, (int) taken);   // putBack이 int 범위를 확인했다
 			}
 		}
 	}

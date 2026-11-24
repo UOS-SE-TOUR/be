@@ -74,7 +74,6 @@ class WarehouseServiceTest {
 
 	@Test
 	void 수량이_바뀔_때마다_이유와_바뀐_양_바뀐_뒤_수량을_기록하고_1인당_0개는_남기지_않는다() {
-		itemHistoryRepository.deleteAll();
 		long cap = warehouseService.registerItem("모자", Theme.GOLF, 1, 10).getId();
 		warehouseService.registerItem("생수", Theme.GOLF, 0, 10);
 		warehouseService.addQuantity(cap, 5);

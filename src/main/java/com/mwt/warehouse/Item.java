@@ -72,25 +72,26 @@ public class Item {
 		this.perPerson = perPerson;
 	}
 
-	/** 상품이 확정되어 고객에게 줄 만큼(인원 × 1인당 개수) 줄인다. 모자라도 줄여 음수가 된다. */
-	/** 늦은 취소로 그 상품 때문에 줄였던 수량을 되돌린다. 모자라 음수였어도 그대로 더한다. */
-	void putBack(int quantity) {
+	/** 늦은 취소로 그 상품 때문에 줄였던 수량을 되돌린다. 모자라 음수였어도 그대로 더한다. 되돌린 양(바뀐 양)이 int 범위를 넘으면 거부한다. */
+	void putBack(long quantity) {
 		if (quantity < 1) {
 			throw new IllegalArgumentException("되돌릴 수량은 1개 이상이어야 한다: " + quantity);
 		}
-		long added = (long) this.quantity + quantity;
-		if (added > Integer.MAX_VALUE) {
+		long added = this.quantity + quantity;
+		if (quantity > Integer.MAX_VALUE || added > Integer.MAX_VALUE) {
 			throw new BusinessException("창고에 둘 수 있는 수량을 넘어 물품을 되돌릴 수 없습니다.");
 		}
 		this.quantity = (int) added;
 	}
 
+	/** 상품이 확정되어 고객에게 줄 만큼(인원 × 1인당 개수) 줄인다. 모자라도 줄여 음수가 된다. 줄일 양이 int 범위를 넘으면 거부한다. */
 	public void takeOut(int headcount) {
 		if (headcount < 1) {
 			throw new IllegalArgumentException("인원은 1명 이상이어야 한다: " + headcount);
 		}
-		long left = (long) this.quantity - (long) headcount * perPerson;
-		if (left < Integer.MIN_VALUE) {
+		long taken = (long) headcount * perPerson;
+		long left = this.quantity - taken;
+		if (taken > Integer.MAX_VALUE || left < Integer.MIN_VALUE) {
 			throw new BusinessException("창고 물품 수량을 줄일 수 없어 신청할 수 없습니다.");
 		}
 		this.quantity = (int) left;

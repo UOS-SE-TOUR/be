@@ -57,11 +57,15 @@ class WarehouseControllerTest {
 	ItemRepository itemRepository;
 
 	@Autowired
+	ItemHistoryRepository itemHistoryRepository;
+
+	@Autowired
 	JwtTokenProvider jwtTokenProvider;
 
 	@AfterEach
 	void deleteItems() {
 		itemRepository.deleteAll();
+		itemHistoryRepository.deleteAll();
 	}
 
 	@Test

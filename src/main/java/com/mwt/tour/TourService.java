@@ -125,13 +125,13 @@ public class TourService {
 	}
 
 	/**
-	 * 직원 확정(booking 모듈이 창고 물품 줄이기·확정 문자와 같은 트랜잭션에서 부른다). 신청이 있는 모집 중 상품이면 3명이 안 돼도 확정한다.
+	 * 직원 확정(booking 모듈이 창고 물품 줄이기·확정 문자와 같은 트랜잭션에서 부른다). 신청이 있는 모집 중 상품이면 출발일 전까지 3명이 안 돼도 확정한다.
 	 * 신청과 같게 상품 행을 먼저 잠그고, 부르는 쪽은 그 뒤에 창고 물품을 잠근다. 부르는 쪽 트랜잭션 밖에서 부르면 바로 실패한다(MANDATORY).
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
 	public Tour confirmTour(Long tourId) {
 		Tour tour = findTour(tourId, tourRepository::findByIdForUpdate);
-		tour.confirmByStaff();
+		tour.confirmByStaff(LocalDate.now(clock));
 		return tour;
 	}
 

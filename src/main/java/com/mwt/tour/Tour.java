@@ -245,9 +245,12 @@ public class Tour {
 
 	/**
 	 * 직원이 확정한다. 신청이 있는 모집 중 상품이면 3명이 안 돼도 확정이 된다. 그 뒤 신청은 이미 확정된 상품의 신청과 같게 다룬다
-	 * (addApplicants가 확정을 모집 중으로 되돌리지 않는다).
+	 * (addApplicants가 확정을 모집 중으로 되돌리지 않는다). 출발일이 오늘이거나 지났으면 예약 작업이 3명 미만이라 취소할 상품이므로 막는다.
 	 */
-	void confirmByStaff() {
+	void confirmByStaff(LocalDate today) {
+		if (!departureDate.isAfter(today)) {
+			throw new BusinessException(HttpStatus.CONFLICT, "출발일이 오늘이거나 지난 상품은 확정할 수 없습니다.");
+		}
 		if (status != TourStatus.RECRUITING || appliedCount < 1) {
 			throw new BusinessException(HttpStatus.CONFLICT, "신청이 있는 모집 중 상품만 확정할 수 있습니다.");
 		}

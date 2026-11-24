@@ -25,21 +25,22 @@ public class StaffTourStatusController {
 	private final BookingService bookingService;
 
 	@Operation(summary = "상품 확정 (직원)",
-			description = "신청이 있는 모집 중 상품을 3명이 안 돼도 확정한다. 신청이 3명을 채워 확정될 때와 같게 신청 인원 합계만큼 그 테마 창고 물품을 줄이고, "
+			description = "신청이 있는 모집 중 상품을 출발일 전까지 3명이 안 돼도 확정한다. 신청이 3명을 채워 확정될 때와 같게 신청 인원 합계만큼 그 테마 창고 물품을 줄이고, "
 					+ "신청자 모두에게 확정 문자를 보낸다.")
 	@ApiResponse(responseCode = "200", description = "확정한 상품")
 	@ApiResponse(responseCode = "400", description = "상품 ID 형식이 올바르지 않음")
 	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
 	@ApiResponse(responseCode = "403", description = ApiDescriptions.NOT_STAFF)
 	@ApiResponse(responseCode = "404", description = ApiDescriptions.TOUR_NOT_FOUND)
-	@ApiResponse(responseCode = "409", description = "모집 중이 아니거나 신청이 없는 상품")
+	@ApiResponse(responseCode = "409", description = "출발일이 오늘이거나 지남, 모집 중이 아니거나 신청이 없는 상품")
 	@PostMapping("/{tourId}/confirm")
 	public StaffTourSummary confirmTour(@PathVariable Long tourId) {
 		return StaffTourSummary.from(bookingService.confirmTour(tourId));
 	}
 
 	@Operation(summary = "상품 늦은 취소 (직원)",
-			description = "출발했지만 여행이 진행되지 않은 진행 중·완료 상품을 취소하고, 확정 때 그 상품 때문에 줄였던 창고 물품을 되돌린다. 문자는 보내지 않는다.")
+			description = "출발했지만 여행이 진행되지 않은 진행 중·완료 상품을 취소하고, 확정 때 그 상품 때문에 줄였던 창고 물품을 되돌린다. 문자는 보내지 않는다. "
+					+ "되돌릴 양은 창고 수량 기록으로 정하므로, 기록을 남기기 시작하기 전(V7 배포 전)에 줄인 물품은 되돌리지 않는다.")
 	@ApiResponse(responseCode = "200", description = "취소한 상품")
 	@ApiResponse(responseCode = "400", description = "상품 ID 형식이 올바르지 않음")
 	@ApiResponse(responseCode = "401", description = ApiDescriptions.UNAUTHORIZED)
