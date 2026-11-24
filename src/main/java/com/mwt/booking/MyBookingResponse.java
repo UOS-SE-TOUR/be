@@ -32,7 +32,7 @@ public record MyBookingResponse(Long bookingId, Long tourId,
 		@Schema(description = "신청하거나 마지막으로 바꿀 때 정해진 최종 가격(원, 할인 뒤)") long finalPrice,
 		@Schema(description = "할인 전 총 가격(원). finalPrice = totalPrice − discount") long totalPrice,
 		@Schema(description = "할인 금액(원). 할인이 없으면 0") long discount,
-		@Schema(description = "신청에 들어가는 호텔·교통·식사·추가 옵션. 고르지 않은 종류는 그 등급의 기본 제공이다(chosen이 false)")
+		@Schema(description = "신청에 들어가는 옵션. 호텔·교통·식사는 고른 것이 없으면 그 등급의 기본 제공(chosen이 false)이고, 추가 옵션은 고른 것과 그 등급이 기본으로 주는 것(예: 프리미엄의 샴페인, chosen이 false)이다. 순서는 호텔·교통·식사·추가")
 		List<IncludedOption> options,
 		@Schema(description = "신청한 때(UTC, ISO 8601, 예: 2026-11-20T03:15:00.123456Z). 초 아래 자리는 없거나 자릿수가 다를 수 있다. 신청을 바꿔도 그대로다") Instant appliedAt,
 		@Schema(description = "상품의 지금 상태") TourStatus status,
