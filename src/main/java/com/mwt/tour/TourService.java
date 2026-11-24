@@ -116,6 +116,39 @@ public class TourService {
 		log.info("상품 상태를 바꿨다({}): 출발 {}개(그중 취소 {}개), 완료 {}개", today, departing.size(), cancelled, finished.size());
 	}
 
+	/** 직원 상품 현황. 모든 상태의 상품을 출발일 순으로 돌려준다. */
+	@Transactional(readOnly = true)
+	public List<StaffTourSummary> getStaffTours() {
+		return tourRepository.findAllForStaff().stream()
+			.map(StaffTourSummary::from)
+			.toList();
+	}
+
+	/**
+	 * 직원이 상품을 바로 출발 처리한다. 예약 작업이 출발일에 하는 것과 같게 모집 중(3명 미만)이면 취소, 확정·마감이면 진행 중이 된다.
+	 * 출발일을 기다리지 않고 상태를 넘기는 기능이라 출발일은 보지 않는다. 상품 행을 잠그고 읽어 같은 상품의 신청과 겹치지 않는다.
+	 */
+	@Transactional
+	public StaffTourSummary departTour(Long tourId) {
+		Tour tour = findTour(tourId, tourRepository::findByIdForUpdate);
+		if (!tour.canDepart()) {
+			throw new BusinessException(HttpStatus.CONFLICT, "모집 중·확정·마감인 상품만 출발 처리할 수 있습니다.");
+		}
+		tour.depart();
+		return StaffTourSummary.from(tour);
+	}
+
+	/** 직원이 진행 중인 상품을 바로 완료 처리한다. 여행 종료일은 보지 않는다. */
+	@Transactional
+	public StaffTourSummary completeTour(Long tourId) {
+		Tour tour = findTour(tourId, tourRepository::findByIdForUpdate);
+		if (!tour.canComplete()) {
+			throw new BusinessException(HttpStatus.CONFLICT, "진행 중인 상품만 완료 처리할 수 있습니다.");
+		}
+		tour.complete();
+		return StaffTourSummary.from(tour);
+	}
+
 	/** 여행 상품 기획(MWT-UC8). 상품을 만들고 등급별 가격과 옵션 목록을 넣어 저장한 뒤 상품 ID를 돌려준다. */
 	@Transactional
 	public Long registerTour(RegisterTourRequest request) {

@@ -2,6 +2,7 @@ package com.mwt.tour;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -9,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.stream.Stream;
 
@@ -36,7 +38,7 @@ import com.mwt.common.security.JwtTokenProvider;
 import jakarta.servlet.http.Cookie;
 
 /**
- * 여행 상품 기획 API(POST /api/v1/staff/tours, 설계산출물 5.8). 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다.
+ * 여행 상품 기획 API(POST /api/v1/staff/tours, 설계산출물 5.8)와 직원 상품 현황·출발·완료 처리 API. 서버 전체를 MySQL(Testcontainers)에 붙여 띄운다.
  * "오늘"은 2026-11-10(서울)로 고정한다. Docker가 꺼져 있으면 건너뛴다(CI에서는 항상 돈다).
  */
 @Testcontainers(disabledWithoutDocker = true)
@@ -87,8 +89,55 @@ class StaffTourControllerTest {
 
 	/** 직원으로 로그인한 요청. 주소별 권한 규칙은 common.security의 SecurityConfigTest가 따로 본다. */
 	private MockHttpServletRequestBuilder staffPost() {
-		Cookie staff = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "STAFF"));
-		return post(URL).contentType(MediaType.APPLICATION_JSON).cookie(staff);
+		return post(URL).contentType(MediaType.APPLICATION_JSON).cookie(staffCookie());
+	}
+
+	private Cookie staffCookie() {
+		return new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "STAFF"));
+	}
+
+	@Test
+	void 고객은_상품_현황을_보거나_출발_완료_처리할_수_없다() throws Exception {
+		long tourId = saveConfirmedTour("2026-12-01");
+		Cookie customer = new Cookie(JwtTokenProvider.COOKIE_NAME, jwtTokenProvider.createToken(1, "CUSTOMER"));
+
+		mockMvc.perform(get(URL).cookie(customer)).andExpect(status().isForbidden());
+		mockMvc.perform(post(URL + "/" + tourId + "/depart").cookie(customer)).andExpect(status().isForbidden());
+		mockMvc.perform(post(URL + "/" + tourId + "/complete").cookie(customer)).andExpect(status().isForbidden());
+
+		assertThat(tourRepository.findById(tourId).orElseThrow().getStatus()).isEqualTo(TourStatus.CONFIRMED);
+	}
+
+	@Test
+	void 직원은_상품_현황을_보고_출발일_전에_출발_완료_처리한다() throws Exception {
+		long tourId = saveConfirmedTour("2026-12-01");
+
+		mockMvc.perform(get(URL).cookie(staffCookie()))
+			.andExpect(status().isOk())
+			.andExpect(content().json("""
+					[{"tourId": %d, "theme": "GOLF", "title": "골프 챌린지 투어 12/1 출발 5일", "departureDate": "2026-12-01",
+					  "duration": 5, "capacity": 10, "appliedCount": 3, "status": "CONFIRMED"}]""".formatted(tourId),
+					JsonCompareMode.STRICT));
+
+		mockMvc.perform(post(URL + "/" + tourId + "/depart").cookie(staffCookie()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.tourId").value(tourId))
+			.andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+		mockMvc.perform(post(URL + "/" + tourId + "/complete").cookie(staffCookie()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("COMPLETED"));
+		mockMvc.perform(post(URL + "/" + tourId + "/complete").cookie(staffCookie()))
+			.andExpect(status().isConflict())
+			.andExpect(content().json("{\"message\": \"진행 중인 상품만 완료 처리할 수 있습니다.\"}", JsonCompareMode.STRICT));
+
+		assertThat(tourRepository.findById(tourId).orElseThrow().getStatus()).isEqualTo(TourStatus.COMPLETED);
+	}
+
+	/** 정원 10명에 3명이 신청해 확정된 골프 상품을 저장한다. */
+	private long saveConfirmedTour(String departureDate) {
+		Tour tour = new Tour(Theme.GOLF, LocalDate.parse(departureDate), 5, 10, LocalDate.of(2026, 11, 10));
+		tour.addApplicants(3);
+		return tourRepository.save(tour).getId();
 	}
 
 	@Test

@@ -243,6 +243,11 @@ public class Tour {
 		return status == TourStatus.RECRUITING || status == TourStatus.CONFIRMED || status == TourStatus.FULL;
 	}
 
+	/** 완료 처리할 상태(진행 중)인지 본다. */
+	boolean canComplete() {
+		return status == TourStatus.IN_PROGRESS;
+	}
+
 	/** 출발일에 상태를 바꾼다(설계산출물 6장): 모집 중(3명 미만)이면 취소, 확정·마감이면 진행 중. */
 	void depart() {
 		status = switch (status) {
